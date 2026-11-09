@@ -14,7 +14,7 @@
 已验证桌面壳：**社区版 DSH Desktop Stable 2.0.18**（rc.2）与**官方 DeepSeek Harness 桌面版 0.2.1.0**（rc.5，隔离运行时 A+）  
 不官方支持、不承诺兼容：**社区版 DSH Desktop Beta**、**社区版 DSH NEXT（`-next` 通道）**
 
-本地化：已打包**英文、中文、日文、韩文、德文、法文、西班牙文、巴西葡萄牙文、意大利文、荷兰文、波兰文、土耳其文、越南文、泰文、印度尼西亚文、俄文、印地文、繁体中文、阿拉伯文**字典；locale id 按基础语言解析（`ja-JP` → `ja`、`zh-Hant`/`zh-TW` → `zh-Hant`、`pt-BR` → `pt`），未支持语言回退英文。阿拉伯文会把插件根节点切到 RTL，并带核心列表/header/弹窗的 RTL 覆盖。会话数量与展开标签使用 CLDR 复数模板。插件会把所有字典注册到 Host，但不会主动向 Host 语言目录添加语言。
+本地化：已打包**英文、中文、日文、韩文、德文、法文、西班牙文、巴西葡萄牙文、意大利文、荷兰文、波兰文、土耳其文、越南文、泰文、印度尼西亚文、俄文、印地文、繁体中文、阿拉伯文**字典；locale id 按基础语言解析（`ja-JP` → `ja`、`zh-Hant`/`zh-TW` → `zh-Hant`、`pt-BR` → `pt`），未支持语言回退英文。阿拉伯文会把插件根节点切到 RTL，并带核心列表/header/弹窗的 RTL 覆盖。会话数量与展开标签使用 CLDR 复数模板；分组配置切换器、切换预览与管理弹窗在 19 份字典中均已本地化。插件会把所有字典注册到 Host，但不会主动向 Host 语言目录添加语言。
 
 依赖声明：官方 `@deepseek-ai/*` 运行时包使用 `peerDependencies`，由 DSH 宿主提供，插件不再打包一份重复副本。
 
@@ -57,6 +57,18 @@ Beta 和 NEXT 即使能加载插件，也不构成发布门禁，不扩大支持
 - 左侧栏宽度可拖动调整（264px 起，默认 420，最大为窗口宽度 80%）
 - 双击宽度把手恢复默认宽度
 - 视图模式、宽度、折叠状态、归档筛选、弹窗位置都会持久化
+
+### 分组配置
+
+分组配置（profile）是一份命名的分组方案：拥有自己的分组树与会话归属，但共用同一份官方工作区/会话数据。切换只改变显示哪份分组文档，不复制、不改写、不删除会话。
+
+- 通过标题后的 chevron 切换配置
+- 切换前先显示只读差异预览（分组新增/移除/改名/移动/重排，会话移动/新归组/回未分组/失效）；内容相同的配置直接切换，不弹预览
+- 把当前配置另存为新配置；重命名配置；归档不再需要的配置
+- 最多 20 个未归档配置（含 default）
+- active 配置是全局的：所有窗口跟随同一个 active，通过 SSE 自动更新；切换不会改写其他配置的文档
+- 归档只从切换列表隐藏，配置文档、备份与会话都保留
+- 切换成功的 toast 提供 5 秒“撤销”，可切回上一个配置
 
 ### 分组
 
@@ -141,36 +153,55 @@ dsh-session-grove
 
 `0.4.0-beta.1` 的身份重置意味着本包**不会自动读取、复制或删除**旧 `dsh-session-groups` 的分组文件和浏览器键；这是为了避免把同名社区插件的数据误导入。手动迁移步骤见 [docs/MIGRATION-0.4.md](docs/MIGRATION-0.4.md)。
 
+从更早的 `dsh-session-grove` 版本升级不需要迁移：现有记录自动成为 `default` 配置；命名配置在第一次“另存为新配置”之前并不存在。
+
 ### 维护者/开发者安装
 
 本地 tarball 和命令行安装只用于开发调试，步骤见 [docs/RELEASE.md](docs/RELEASE.md)；普通用户不需要使用。
 
 ## 数据
 
-分组记录：
+默认配置（default）的分组文档仍在：
 
 ```text
 <dshHome>/storages/dsh-session-grove.json
 ```
 
+配置元数据与其他配置文档：
+
+```text
+<dshHome>/storages/dsh-session-grove.profiles.json                    # registry：activeId、名称、归档标记、revision
+<dshHome>/storages/dsh-session-grove.profiles.json.bak                # registry 备份
+<dshHome>/storages/dsh-session-grove.profiles.json.lock               # 跨进程 registry 锁
+<dshHome>/storages/profiles/<id>/dsh-session-grove.json               # 每个命名配置一个目录
+<dshHome>/storages/profiles/<id>/dsh-session-grove.json.bak
+<dshHome>/storages/profiles/<id>/dsh-session-grove.corrupt-<ts>.json  # 该文档损坏时的隔离副本
+```
+
 - 写入使用 revision 比较与串行队列
 - 冲突时加载最新版本
-- 损坏文件会先隔离原文件；若 `.bak` 有效则自动恢复上一版并提示，否则降级为空分组
+- 损坏文件会先隔离原文件；若 `.bak` 有效则自动恢复上一版并提示，否则该配置降级为空分组
 - 成功提交前保留单槽 `.bak` 备份
+- registry 保存 `activeId` 与一个 revision，所有窗口对 active 配置保持一致
+- 每个配置有独立的 `.bak`、`.lock` 和隔离文件族；一个配置损坏不会覆盖或误计到另一个配置
+- 归档配置只写 `archivedAt` 标记：文档、备份与会话都留在磁盘上，不删除任何文件
+- 已有的单配置安装就是 `default` 配置；升级不会迁移、重命名或复制 `dsh-session-grove.json`，registry 与 `profiles/` 在第一次写配置时创建
+- 不支持配置的旧版本只读 default 文档、忽略 registry；重新升级后配置仍在
 - 不写官方工作区与会话数据
 
 本地 UI 偏好与可选诊断/性能开关（localStorage）：
 
 - `dsh-session-grove.view.v1`
 - `dsh-session-grove.archive.v1`
-- `dsh-session-grove.collapsed.v1`
+- `dsh-session-grove.collapsed.v1`（值已改为 `{[profileId]: {[groupId]: true}}`；旧的扁平值按 default 配置读取，并在下一次写入时升级）
 - `dsh-session-grove.width.v1`
 - `dsh-session-grove.onboarded.v1`
+- `dsh-session-grove.profilePreview.v1`（`'0'` = 以后跳过切换预览、直接切换）
 - `dsh-session-grove.dialog.geometry.v9`
 - `dsh-session-grove.diagnostics`（页面加载时的诊断 trace 开关；`'1'`/`'true'` 开启）
 - `dsh-session-grove.perf`（可选的性能探针开关；`'1'` 开启）
 
-卸载插件后官方工作区视图恢复；分组记录和本地偏好保留，重装可恢复。需要彻底清理时删除上述记录文件、`.bak`、控制 token、诊断/调试 NDJSON 文件（如有）与对应 localStorage 键。
+卸载插件后官方工作区视图恢复；分组文档、registry、备份和本地偏好保留，重装可恢复。需要彻底清理时删除 default 记录、registry 及其 sidecar、整个 `profiles/` 目录、控制 token、诊断/调试 NDJSON 文件（如有）与对应 localStorage 键。
 
 ## 配置
 
@@ -242,6 +273,18 @@ doctor
 会话动作必须显式传 `sessionId`；缺失就是 `invalid-session-id`，不猜最近会话。
 改名用 `expectedTitle`，归档用 `expectedArchived`；运行中的会话归档需要显式
 `stopActivity: true`。
+
+### 分组配置与 AI 控制
+
+原生工具与 HTTP 控制路由都接受可选的 `profileId`：
+
+- `state` 与 `resolve` 缺省使用 active 配置，响应回显 `profileId` 与 `activeProfile`；
+- 存在多于一个未归档配置时，`plan` 与 `apply` 必须传 `profileId`（422 `profile-required`）；只有 `default` 时仍可省略，旧提示词保持可用；
+- `planHash` 包含 `profileId`，为一个配置生成的 plan 不能应用到另一个配置；
+- 不提供 `activate`/`switch` 动作：AI 可读写指定配置的分组，但不能改变用户当前查看的配置；
+- 原生工具没有 apply 重放缓存；HTTP `/control/apply` 的 `idempotencyKey` 缓存键为 `${profileId}:${idempotencyKey}`，同一个 key 可在不同配置复用；
+- `doctor` 的只读报告新增 `storage.registry` 与 `storage.profiles[]`（`id`/`name`/`archived`/`healthy`/`revision`/`backupStatus`）；
+- CLI 新增 `--profile`：`state`/`resolve`/`doctor` 可省略（用 active），`plan`/`apply` 在多配置时必须提供。
 
 ### 可直接复制的 AI 提示词
 
@@ -324,13 +367,19 @@ node scripts/session-grove-control.mjs doctor
 
 - 状态统计只覆盖分组文档中已归组或显式未归组的会话；自动派生的未归组会话不进入头部计数。
 - 分组、折叠状态与弹窗位置是单窗口本地状态；多窗口冲突通过 409 提示，不做实时合并。
+- active 配置对 DSH 实例全局生效；“每个窗口独立 active”未实现，所有窗口跟随同一个切换。
+- 归档配置在“管理配置”中只读展示；恢复 UI 未实现（目前只能改 registry 里的 `archivedAt`）。
+- AI 控制可以读写指定配置，但不能切换 active 配置。
+- 切换预览绑定 `previewToken`：预览期间若其他窗口切换了 active 或改动了目标配置，确认按钮会被禁用，需要重新打开预览；极窄窗口下预览弹窗按视口 clamp，长差异列表需要纵向滚动。
+- 重命名后“管理配置”列表刷新不走强制归档行读取（归档路径是强制的）；旧响应可能短暂隐藏新归档行，重新打开弹窗即恢复。
+- `profiles.counts` 用同一个 CLDR 复数模板显示分组数与会话数；少数语言会出现近似的名词形式（例如英文 “1 sessions”）。
 - 写入使用进程内队列 + 短生命周期 `<record>.lock` 文件做跨进程串行化；持有者 PID 消失或锁文件超过 30 秒时会自动回收。
 - 大列表懒渲染仍在 deferred；当前只虚拟化未归组列表，折叠子树的 React 节点仍会构建。
 - dshmarket 目录条目尚未发布；当前 beta 阶段使用本地 tarball。
 - 搜索最多返回 20 条，只匹配标题/工作区/组路径。
 - 宽度覆盖依赖 DSH 左侧栏 DOM；宿主大改布局时 fail-soft，分组功能不受影响。
 - 对话框移动/缩放已有键盘支持；全量 axe/对比度审计和整棵树的键盘拖拽仍为 deferred。
-- 当前发布验证以 **529 项单元/契约测试 + 15 个 UI runtime case + 1 个浏览器 runtime specs**（含 Node 内置 coverage 报告）为准；用户桌面回归是历史证据，不是每个候选版本的 CI 产物；`e2e/groups.spec.mjs` 是历史手工脚本，不进入默认门禁，当前脚本化 A+ 为 `e2e/isolated.spec.mjs`（需手工对隔离宿主运行，不在 CI 内）。`npm run check:release` 是 release workflow 强制的发布结构门禁（版本一致、tag 匹配、release note、客户端版本戳、打包路径）；A+ 和 all-locales 是手工本地证据，不是 CI 产物。
+- 当前发布验证以 **698 项单元/契约测试 + 38 个 UI runtime case + 1 个浏览器 runtime spec** 为准；用户桌面回归是历史证据，不是每个候选版本的 CI 产物；`e2e/groups.spec.mjs` 是历史手工脚本，不进入默认门禁，当前脚本化 A+ 为 `e2e/isolated.spec.mjs`（需手工对隔离宿主运行，不在 CI 内）。手工 spec 中的配置 UI 流程已于 2026-11-09 在社区版隔离宿主通过（`test:isolated`、`test:ui-browser`、`test:locale-pack`、`test:all-locales` 23/23）；官方宿主的配置证据仍待补。`npm run check:release` 是 release workflow 强制的发布结构门禁（版本一致、tag 匹配、release note、客户端版本戳、打包路径）；A+ 和 all-locales 是手工本地证据，不是 CI 产物。
 
 ## 文档
 
@@ -358,12 +407,12 @@ npm run check:release
 npm pack
 ```
 
-- `npm test`：529 项单元/契约测试
+- `npm test`：698 项单元/契约测试
 - `npm run check:style`: zero-dependency style guard (tabs/trailing whitespace/final newline)
 - `npm run check:lib`: rebuild and verify lib/ is current with src/
 - `npm run test:ui-browser`: real-browser UI runtime coverage (isolated host; manual)
-- `npm run check:ui`：UI runtime smoke（15 个 UI runtime case + 1 个浏览器 runtime spec（1 个模块加载 + 14 个组件测试，覆盖 11 个组件）；不并入逻辑 coverage）
-- `npm run check:coverage`：Node 内置 coverage 报告（当前约 92.3% lines / 82.9% branches / 89.1% functions）
+- `npm run check:ui`：UI runtime smoke（38 个 UI runtime case：1 个模块加载 + 37 个组件测试，覆盖 17 个组件、21 个客户端模块；不并入逻辑 coverage）
+- `npm run check:coverage`：Node 内置 coverage 报告（当前约 93.1% lines / 83.9% branches / 90.5% functions）
 - `npm run check:release`：release workflow 发布门禁；校验 `package.json` / `dsh.plugin.json` / `src/shared/constants.js` / `package-lock.json` 版本一致；设置了 `GITHUB_REF_NAME` 时要求 tag 等于 `v<version>`；并检查 release note、`lib/client.js` 版本戳和 `package.json.files` 的全部路径
 - 分层：`src/core` 纯函数核心，`src/adapters` 承载 DSH 版本适配；见 `docs/ARCHITECTURE.md`
 - `npm run check:all`：全文件语法检查 + 测试
@@ -373,6 +422,7 @@ npm pack
 - `scripts/qa/start-isolated-web.ps1` + `npm run test:isolated`：A+ 隔离 Playwright 冒烟（手工本地证据，release workflow 不运行）
   - 覆盖首次引导、搜索、归档筛选、拖拽自动展开、拖拽边缘、弹窗拖动/缩放、三状态按钮、归入分组 head、收起/展开顺序、264px、英文/深色、宿主侧栏 Rail、亮色对比度
   - 覆盖外部 commit SSE 刷新、同上下文双页面同步、同 baseRevision 并发 CAS（一胜一 409）、EventSource 强制重连、会话菜单 Copy Session ID（真实剪贴板 + toast）、hover archive 存在、第一层设置、本地化标题、详情 tooltip、Switch 交互、live diagnostics HUD、destructive 二次确认取消
+  - 配置流程覆盖：新建/另存为、切换与差异预览、相同内容直切、重命名/归档、20 上限、default 恢复、双窗口 active 收敛与 `profile-changed` 409、折叠状态按配置隔离
   - 必须先启动独立 web，取得 `web.json` 的 URL 和 testHome
   - Playwright 拒绝真实 43120 端口和真实 `~/.dsh`
 - 构建产物：`lib/client.js`
