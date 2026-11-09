@@ -316,6 +316,77 @@ test('GET /profiles/preview reports registry-unhealthy and fails closed without 
   assert.equal(fencedResult.json.code, 'fence-unavailable')
 })
 
+test('GET /profiles/preview reports a broken registry without healing it', async (t) => {
+  const cases = [
+    ['corrupt JSON', () => '{ not json'],
+    [
+      'invalid shape',
+      () =>
+        JSON.stringify(
+          sampleRegistry({
+            revision: 3,
+            profiles: [{ ...sampleDefaultProfile(), dir: 'not-the-default-dir' }],
+          }),
+        ),
+    ],
+    ['unsupported version', () => JSON.stringify({ ...sampleRegistry({ revision: 3 }), version: 2 })],
+  ]
+  for (const [label, text] of cases) {
+    const home = await makeTempProfileHome()
+    t.after(home.cleanup)
+    await writeProfileDoc(home, DEFAULT_PROFILE_ID, { revision: 4 })
+    await writeFile(home.registryFilePath, text(), 'utf8')
+    const registryHash = createHash('sha256').update(await readFile(home.registryFilePath)).digest('hex')
+    const docHash = createHash('sha256').update(await readFile(home.defaultFilePath)).digest('hex')
+    const storageBefore = (await readdir(home.storageDir)).sort()
+    const { call } = await mountHome(home)
+
+    const { res, json } = await call(`${PROFILES_PREVIEW_PATH}?id=${DEFAULT_PROFILE_ID}`)
+    assert.equal(res.statusCode, 409, label)
+    assert.equal(json.ok, false, label)
+    assert.equal(json.code, 'registry-unhealthy', label)
+
+    // SPEC 5.4 read-only: no lock, no quarantine, no `.bak` restore, no write.
+    const storageAfter = (await readdir(home.storageDir)).sort()
+    assert.deepEqual(
+      storageAfter.filter((name) => name.includes('.corrupt-')),
+      [],
+      `${label}: preview never quarantines the registry`,
+    )
+    assert.deepEqual(
+      storageAfter.filter((name) => name.endsWith('.lock')),
+      [],
+      `${label}: preview never takes the registry lock`,
+    )
+    assert.deepEqual(storageAfter, storageBefore, `${label}: preview writes no files at all`)
+    assert.equal(
+      createHash('sha256').update(await readFile(home.registryFilePath)).digest('hex'),
+      registryHash,
+      `${label}: the registry bytes are unchanged`,
+    )
+    assert.equal(
+      createHash('sha256').update(await readFile(home.defaultFilePath)).digest('hex'),
+      docHash,
+      `${label}: the target document is untouched`,
+    )
+  }
+})
+
+test('GET /profiles/preview fails closed on a missing registry without bootstrapping it', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  await writeProfileDoc(home, DEFAULT_PROFILE_ID, { revision: 4 })
+  const storageBefore = (await readdir(home.storageDir)).sort()
+  const { call } = await mountHome(home)
+
+  const { res, json } = await call(`${PROFILES_PREVIEW_PATH}?id=${DEFAULT_PROFILE_ID}`)
+  assert.equal(res.statusCode, 409)
+  assert.equal(json.ok, false)
+  assert.equal(json.code, 'registry-unhealthy')
+  await assert.rejects(access(home.registryFilePath), /ENOENT/, 'preview must not bootstrap a registry')
+  assert.deepEqual((await readdir(home.storageDir)).sort(), storageBefore, 'preview writes no files')
+})
+
 test('GET /profiles/preview computes activeRevision=null while the active profile is unhealthy', async (t) => {
   const home = await makeHome(t, {
     activeId: PROFILE_ID,
@@ -1004,6 +1075,9 @@ test('profile route IO failures surface as 503 io', async (t) => {
   const failing = {
     ...manager,
     loadRegistry: async () => {
+      throw new Error('registry exploded')
+    },
+    peekRegistry: async () => {
       throw new Error('registry exploded')
     },
   }

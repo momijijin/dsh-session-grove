@@ -10,8 +10,13 @@
  *   POST /profiles/activate     -> token-checked active switch
  *
  * Shared rules:
- * - every read path uses one registry snapshot (`loadRegistry`) to look up the
- *   entry; profile documents are only ever read through the side-effect-free
+ * - the list and the write paths read the registry through the healing
+ *   `loadRegistry()` (SPEC 4.7 restores a `.bak` / quarantines a broken file);
+ * - preview is the exception (SPEC 5.4 read-only): it classifies the registry
+ *   with the side-effect-free `peekRegistry()` and fails closed with 409
+ *   `registry-unhealthy` on a missing/corrupt/invalid/unsupported-version file —
+ *   no lock, no `.bak` restore, no quarantine, no write;
+ * - profile documents are only ever read through the side-effect-free
  *   `peekFor()` (no lock, no `.bak`, no quarantine);
  * - every write path rejects a degraded registry before doing anything else
  *   (SPEC 4.3), then relies on the registry's own CAS for the final word;
@@ -73,6 +78,7 @@ const invalidBody = (message) => ({ ok: false, code: 'invalid', message })
  *   profileManager: {
  *     registry: { createProfile: Function, renameProfile: Function, archiveProfile: Function, activateProfile: Function },
  *     loadRegistry: () => Promise<object>,
+ *     peekRegistry: () => Promise<object>,
  *     newProfileId: () => Promise<string>,
  *     storeFor: (id: string) => object,
  *     peekFor: (id: string) => Promise<object>,
@@ -219,12 +225,16 @@ export const registerProfileRoutes = ({ register, profileManager, fenceDenied, p
           })
           return
         }
-        const state = await profileManager.loadRegistry()
-        if (state.degraded === true) {
+        // SPEC 5.4: preview is read-only. Classify the registry with the
+        // side-effect-free peek and fail closed on anything that is not `ok`:
+        // `loadRegistry()` would lock, restore a `.bak` and quarantine a broken
+        // registry, all of which a preview must never do.
+        const snapshot = await profileManager.peekRegistry()
+        if (snapshot.kind !== 'ok') {
           sendJson(res, 409, registryUnhealthyResponse().body)
           return
         }
-        const entry = state.registry.profiles.find((profile) => profile.id === id) ?? null
+        const entry = snapshot.registry.profiles.find((profile) => profile.id === id) ?? null
         if (entry === null) {
           sendTargetFailure(res, 'profile-missing', id, { kind: 'missing' })
           return
@@ -243,14 +253,14 @@ export const registerProfileRoutes = ({ register, profileManager, fenceDenied, p
           )
           return
         }
-        const activeId = state.registry.activeId
-        const activeRevision = await activeRevisionFor(state, id, health.revision)
+        const activeId = snapshot.registry.activeId
+        const activeRevision = await activeRevisionFor(snapshot, id, health.revision)
         const previewToken = previewTokenFor({
           activeId,
           activeRevision,
           targetId: id,
           targetRevision: health.revision,
-          registryRevision: state.revision,
+          registryRevision: snapshot.revision,
         })
         sendJson(res, 200, {
           ok: true,
@@ -265,7 +275,7 @@ export const registerProfileRoutes = ({ register, profileManager, fenceDenied, p
           doc: health.doc,
           activeId,
           activeRevision,
-          registryRevision: state.revision,
+          registryRevision: snapshot.revision,
           previewToken,
         })
       } catch (error) {
