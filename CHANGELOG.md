@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Multiple group profiles
+
+- Added named group configurations: a header chevron opens a profile popover with the active profile, per-profile counts, save-as and manage entries.
+- Switching profiles first shows a read-only difference preview (groups added/removed/renamed/moved/reordered; sessions moved/newly grouped/ungrouped/stale); identical configurations switch directly without a dialog.
+- Added save-as, rename, archive and manage dialogs, a 20-unarchived-profile limit and a 5-second undo action on the switch toast.
+- The active profile is global: every window follows the same profile through SSE `active` events, and committing to a profile that is no longer active returns 409 `profile-changed`.
+- Added profile-scoped collapsed state and an epoch-based reset of the document, revision, optimistic queue and view interactions on every switch.
+- Storage: `dsh-session-grove.profiles.json` registry plus one directory per named profile (`storages/profiles/<id>/`), each with its own `.bak`/`.lock`/quarantine family. The default record stays at `storages/dsh-session-grove.json`, `DOC_VERSION` stays 1, and no data is migrated.
+- Archiving writes only `archivedAt`; the document, backups and sessions are kept. Restoring an archived profile from the UI is not implemented yet.
+- AI control: `profileId` is optional for `state`/`resolve` (defaults to active) and required for `plan`/`apply` when several profiles exist; `planHash` is bound to the profile; HTTP idempotency keys are scoped as `${profileId}:${idempotencyKey}`; there is no activate/switch action; `doctor` reports the registry and per-profile health.
+- i18n: added 45 `profiles.*` keys to all 19 dictionaries (331 keys total).
+- Tests: 698 unit/contract tests, 38 UI runtime cases, and new profile flows in the manual isolated/all-locales/ui-runtime e2e specs. The manual profile evidence passed on 2026-11-09 on a community isolated host (`test:isolated`, `test:ui-browser`, `test:locale-pack`, `test:all-locales` 23/23); official-host profile evidence is still pending.
+- Version is not bumped in this feature batch; the release PR will set the next beta version, the CHANGELOG heading, the release note and the `TEST-MATRIX` status.
+
 ## 0.4.0-beta.59 (new-session cleanup)
 
 - Removed the non-released new-session dialog and workspace-picker compatibility work.
