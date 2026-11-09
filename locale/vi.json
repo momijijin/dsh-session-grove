@@ -311,5 +311,59 @@
   "status.subagentsRunning": {
     "one": "{n} tác nhân con đang chạy",
     "other": "{n} tác nhân con đang chạy"
-  }
+  },
+  "profiles.open": "Chuyển hồ sơ nhóm",
+  "profiles.title": "Hồ sơ nhóm",
+  "profiles.defaultName": "Mặc định",
+  "profiles.copySuffix": "bản sao",
+  "profiles.counts": {
+    "one": "{groups} nhóm · {sessions} phiên",
+    "other": "{groups} nhóm · {sessions} phiên"
+  },
+  "profiles.saveAs": "Lưu thành hồ sơ mới…",
+  "profiles.manage": "Quản lý hồ sơ…",
+  "profiles.switch": "Chuyển",
+  "profiles.current": "Hiện tại",
+  "profiles.empty": "Chưa có hồ sơ nhóm nào",
+  "profiles.degraded": "Sổ đăng ký hồ sơ bị suy giảm. Thay đổi hồ sơ bị hạn chế; hãy chuyển sang hồ sơ khỏe mạnh để tiếp tục.",
+  "profiles.limit": "Tối đa {max} hồ sơ",
+  "profiles.nameLabel": "Tên hồ sơ",
+  "profiles.namePlaceholder": "Tên hồ sơ",
+  "profiles.nameInvalid": "Dùng 1–40 ký tự.",
+  "profiles.nameDuplicate": "Tên này đã được dùng.",
+  "profiles.create": "Tạo",
+  "profiles.createPreview": "Sao chép hồ sơ hiện tại: {groups} nhóm · {sessions} phiên",
+  "profiles.rename": "Đổi tên",
+  "profiles.archive": "Lưu trữ",
+  "profiles.archiveConfirm": "Lưu trữ sẽ ẩn hồ sơ khỏi danh sách chuyển và giữ lại tệp; không phiên nào bị xóa và bạn có thể khôi phục thủ công.",
+  "profiles.archived": "Đã lưu trữ",
+  "profiles.previewTitle": "Chuyển sang “{name}”",
+  "profiles.previewSubtitle": "Hiện tại: {current} · Đích: {target}",
+  "profiles.preview.groups": "Nhóm",
+  "profiles.preview.sessions": "Phiên",
+  "profiles.preview.added": "Đã thêm",
+  "profiles.preview.removed": "Đã xóa",
+  "profiles.preview.changed": "Đã thay đổi",
+  "profiles.preview.reordered": "Thứ tự đã thay đổi",
+  "profiles.preview.moved": "Đã chuyển giữa các nhóm",
+  "profiles.preview.newlyGrouped": "Mới được nhóm",
+  "profiles.preview.ungrouped": "Chưa nhóm",
+  "profiles.preview.stale": "Tham chiếu không hợp lệ",
+  "profiles.preview.ungroupedWarning": {
+    "one": "{n} phiên sẽ quay lại chưa nhóm.",
+    "other": "{n} phiên sẽ quay lại chưa nhóm."
+  },
+  "profiles.preview.noDelete": "Không có gì bị xóa; chuyển lại sẽ khôi phục mọi thứ.",
+  "profiles.preview.disable": "Chuyển trực tiếp từ giờ",
+  "profiles.preview.confirm": "Chuyển sang hồ sơ này",
+  "profiles.preview.staleRefresh": "Bản xem trước này đã cũ. Hãy đóng và chọn lại hồ sơ.",
+  "profiles.preview.truncated": {
+    "one": "{n} mục khác không được hiển thị",
+    "other": "{n} mục khác không được hiển thị"
+  },
+  "profiles.switched": "Đã chuyển sang “{name}”",
+  "profiles.switchedElsewhere": "Cửa sổ khác đã chuyển sang “{name}”",
+  "profiles.undo": "Hoàn tác",
+  "profiles.switching": "Đang chuyển…",
+  "profiles.saveFailed": "Không thể hoàn tất thay đổi hồ sơ."
 }

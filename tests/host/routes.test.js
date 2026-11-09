@@ -10,6 +10,13 @@ import {
   MAX_BODY_BYTES,
   MAX_DIAGNOSTICS_BODY_BYTES,
   MAX_DIAGNOSTICS_EVENTS,
+  PROFILES_ACTIVATE_PATH,
+  PROFILES_ARCHIVE_PATH,
+  PROFILES_CREATE_PATH,
+  PROFILES_PATH,
+  PROFILES_PREVIEW_PATH,
+  PROFILES_RENAME_PATH,
+  RECORD_FILE_NAME,
   SKILL_REPAIR_PATH,
 } from '../../src/host/constants.js'
 import {
@@ -18,8 +25,23 @@ import {
   parseCommitBody,
   parseDiagnosticsBody,
 } from '../../src/host/routes.js'
+import { createChangeHub } from '../../src/host/change-hub.js'
 import { createStore } from '../../src/host/store.js'
-import { makeRequest, makeResponse, makeTempStore, mountRoutes, sampleDoc } from './helpers.js'
+import {
+  PROFILE_ID,
+  createTestProfileManager,
+  makeRequest,
+  makeResponse,
+  makeTempProfileHome,
+  makeTempStore,
+  mountRoutes,
+  sampleDoc,
+  sampleDefaultProfile,
+  sampleNamedProfile,
+  sampleRegistry,
+  writeJsonFile,
+  writeProfileDoc,
+} from './helpers.js'
 
 /** Fake connection mimicking the host fence: Host/Origin + session cookie. */
 const cookieConnection = () => ({
@@ -54,6 +76,32 @@ test('route registration mounts the frozen paths and diagnostics by default', as
   assert.equal(mounted.mounted.routes.includes('/dsh-session-grove/control/state'), true)
   assert.equal(mounted.mounted.routes.includes('/dsh-session-grove/control/catalog'), true)
   assert.equal(mounted.mounted.routes.includes('/dsh-session-grove/control/session/inspect'), true)
+  assert.equal(
+    mounted.routes.some((route) => route.path.startsWith('/dsh-session-grove/profiles')),
+    false,
+    'the legacy single-store adapter keeps the pre-profile route set',
+  )
+})
+
+test('a legacy single-store composition with events and skill repair keeps 15 routes', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  const hub = createChangeHub()
+  t.after(() => hub.close())
+  const mounted = await mountRoutes({
+    store: temp.store,
+    dir: temp.dir,
+    filePath: temp.filePath,
+    connection: cookieConnection(),
+    changeHub: hub,
+    skillDshHome: temp.dir,
+  })
+  assert.equal(mounted.routes.length, 15)
+  assert.equal(
+    mounted.routes.some((route) => route.path.startsWith('/dsh-session-grove/profiles')),
+    false,
+    'no profile management surface without a profile manager',
+  )
 })
 
 test('diagnostics and debugProbe flags are live per request', async (t) => {
@@ -174,6 +222,7 @@ test('GET load returns 200 JSON, no CORS, no-store, and the empty document', asy
   assert.equal(res.headers['access-control-allow-origin'], undefined)
   assert.deepEqual(json, {
     ok: true,
+    profileId: 'default',
     revision: 0,
     doc: { version: 1, revision: 0, groups: [], ungrouped: [] },
     diagnostics: true,
@@ -204,6 +253,7 @@ test('POST commit: 200 on success, then 409 conflict with the current doc on a s
   )
   assert.equal(first.res.statusCode, 200)
   assert.equal(first.json.ok, true)
+  assert.equal(first.json.profileId, 'default')
   assert.equal(first.json.revision, 1)
   assert.equal(first.json.doc.revision, 1)
 
@@ -416,14 +466,36 @@ test('parseCommitBody ignores the client revision and validates the frozen shape
   const parsed = parseCommitBody({ baseRevision: 7, doc: { ...sampleDoc(), revision: 123 } })
   assert.equal(parsed.ok, true)
   assert.equal(parsed.baseRevision, 7)
+  assert.equal(parsed.profileId, null, 'an absent profileId targets the active profile')
   assert.equal(parsed.doc.revision, 0)
   assert.equal(parsed.doc.groups[0].color, 'blue', 'the route stamps the default palette id')
+
+  const scoped = parseCommitBody({ baseRevision: 7, doc: sampleDoc(), profileId: PROFILE_ID })
+  assert.equal(scoped.ok, true)
+  assert.equal(scoped.profileId, PROFILE_ID)
+
+  for (const profileId of [null, 42, '', '   ', 'x'.repeat(65)]) {
+    const invalid = parseCommitBody({ baseRevision: 7, doc: sampleDoc(), profileId })
+    assert.equal(invalid.ok, false, `profileId ${String(profileId)} must be rejected`)
+    assert.match(invalid.message, /profileId/)
+  }
 })
 
 test('loadResponse/commitResponse map store results to the frozen wire shapes', () => {
   const loaded = loadResponse({ kind: 'ok', doc: { version: 1, revision: 4, groups: [], ungrouped: [] }, revision: 4 })
   assert.equal(loaded.status, 200)
   assert.equal(loaded.body.revision, 4)
+
+  const named = loadResponse(
+    { kind: 'ok', doc: { version: 1, revision: 4, groups: [], ungrouped: [] }, revision: 4 },
+    PROFILE_ID,
+  )
+  assert.equal(named.body.profileId, PROFILE_ID)
+  assert.equal(
+    loadResponse({ kind: 'unsupported-version', version: 2 }).body.profileId,
+    undefined,
+    'the legacy error shape is unchanged',
+  )
 
   const conflict = commitResponse({ kind: 'conflict', doc: { version: 1, revision: 9, groups: [], ungrouped: [] }, revision: 9 })
   assert.equal(conflict.status, 409)
@@ -432,6 +504,268 @@ test('loadResponse/commitResponse map store results to the frozen wire shapes', 
 
   assert.equal(commitResponse({ kind: 'invalid', errors: ['duplicate-session:s1'] }).status, 422)
   assert.equal(commitResponse({ kind: 'unsupported-version', version: 2 }).status, 409)
+})
+
+// ---------------------------------------------------------------------------
+// Multi-profile load/commit (SPEC 4.6/4.7/5.1/5.2/5.9)
+// ---------------------------------------------------------------------------
+
+const makeProfileRoutes = async (t, { activeId, revision = 3, profiles } = {}) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  await writeJsonFile(
+    home.registryFilePath,
+    sampleRegistry({
+      revision,
+      activeId,
+      profiles: profiles ?? [sampleDefaultProfile(), sampleNamedProfile()],
+    }),
+  )
+  const manager = createTestProfileManager(home)
+  const mounted = await mountRoutes({ profileManager: manager, connection: cookieConnection() })
+  return { home, manager, mounted }
+}
+
+test('a profile-manager composition mounts the six profile routes (19 total)', async (t) => {
+  const { mounted } = await makeProfileRoutes(t, { activeId: 'default' })
+  assert.equal(mounted.routes.length, 19)
+  for (const path of [
+    PROFILES_PATH,
+    PROFILES_PREVIEW_PATH,
+    PROFILES_CREATE_PATH,
+    PROFILES_RENAME_PATH,
+    PROFILES_ARCHIVE_PATH,
+    PROFILES_ACTIVATE_PATH,
+  ]) {
+    assert.equal(mounted.routes.some((route) => route.path === path), true, `${path} must be mounted`)
+    assert.equal(mounted.mounted.routes.includes(path), true, `${path} must be reported by registerRoutes`)
+  }
+  assert.deepEqual(
+    mounted.mounted.routes.slice(-6),
+    [
+      PROFILES_PATH,
+      PROFILES_PREVIEW_PATH,
+      PROFILES_CREATE_PATH,
+      PROFILES_RENAME_PATH,
+      PROFILES_ARCHIVE_PATH,
+      PROFILES_ACTIVATE_PATH,
+    ],
+    'profile routes are appended after the historical host surface',
+  )
+})
+
+test('load serves the named active profile read-only and reports its profileId', async (t) => {
+  const { home, mounted } = await makeProfileRoutes(t, { activeId: PROFILE_ID })
+  await writeProfileDoc(home, PROFILE_ID, { revision: 2 })
+
+  const { res, json } = await mounted.call(LOAD_PATH, makeRequest({ headers: { cookie: 'token=ok' } }))
+  assert.equal(res.statusCode, 200)
+  assert.equal(json.ok, true)
+  assert.equal(json.profileId, PROFILE_ID)
+  assert.equal(json.revision, 2)
+  assert.equal(json.doc.revision, 2)
+  assert.equal(json.diagnostics, true)
+  await assert.rejects(access(home.defaultFilePath), /ENOENT/, 'reading a named profile never touches the default doc')
+})
+
+test('load maps a corrupt named active to 409 profile-unhealthy without quarantining', async (t) => {
+  const { home, mounted } = await makeProfileRoutes(t, { activeId: PROFILE_ID })
+  await writeProfileDoc(home, PROFILE_ID)
+  const docPath = join(home.profilesDir, PROFILE_ID, RECORD_FILE_NAME)
+  await writeFile(docPath, '{ not json', 'utf8')
+
+  const { res, json } = await mounted.call(LOAD_PATH, makeRequest({ headers: { cookie: 'token=ok' } }))
+  assert.equal(res.statusCode, 409)
+  assert.equal(json.ok, false)
+  assert.equal(json.code, 'profile-unhealthy')
+  assert.equal(json.activeId, PROFILE_ID)
+  assert.equal(json.health.kind, 'corrupt')
+  assert.deepEqual(await readdir(join(home.profilesDir, PROFILE_ID)), [RECORD_FILE_NAME], 'peek must not quarantine or lock')
+  assert.equal(await readFile(docPath, 'utf8'), '{ not json')
+})
+
+test('load maps a missing named active document to 409 profile-missing', async (t) => {
+  const { home, mounted } = await makeProfileRoutes(t, { activeId: PROFILE_ID })
+
+  const { res, json } = await mounted.call(LOAD_PATH, makeRequest({ headers: { cookie: 'token=ok' } }))
+  assert.equal(res.statusCode, 409)
+  assert.equal(json.code, 'profile-missing')
+  assert.equal(json.activeId, PROFILE_ID)
+  assert.equal(json.health.kind, 'missing')
+  await assert.rejects(access(home.profilesDir), /ENOENT/, 'a read-only health check creates no profile directory')
+})
+
+test('a degraded registry serves the default doc with registry-degraded and rejects writes', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  await writeFile(home.registryFilePath, 'not json', 'utf8')
+  await writeProfileDoc(home, 'default', { revision: 4 })
+  const manager = createTestProfileManager(home)
+  const mounted = await mountRoutes({ profileManager: manager, connection: cookieConnection() })
+
+  const loaded = await mounted.call(LOAD_PATH, makeRequest({ headers: { cookie: 'token=ok' } }))
+  assert.equal(loaded.res.statusCode, 200)
+  assert.equal(loaded.json.ok, true)
+  assert.equal(loaded.json.profileId, 'default')
+  assert.equal(loaded.json.warning, 'registry-degraded')
+  assert.equal(loaded.json.revision, 4)
+  assert.equal(loaded.json.doc.revision, 4)
+
+  const before = await readFile(home.defaultFilePath, 'utf8')
+  const commit = await mounted.call(
+    COMMIT_PATH,
+    makeRequest({ method: 'POST', headers: allowedHeaders, body: commitBody(4, sampleDoc()) }),
+  )
+  assert.equal(commit.res.statusCode, 409)
+  assert.equal(commit.json.ok, false)
+  assert.equal(commit.json.code, 'registry-unhealthy')
+  assert.equal(await readFile(home.defaultFilePath, 'utf8'), before, 'a degraded registry rejects the write up front')
+})
+
+test('commit to a named active writes that profile, not the default document', async (t) => {
+  const { home, mounted } = await makeProfileRoutes(t, { activeId: PROFILE_ID })
+  await writeProfileDoc(home, PROFILE_ID, { revision: 2 })
+  await writeProfileDoc(home, 'default', { revision: 1 })
+  const defaultBefore = await readFile(home.defaultFilePath, 'utf8')
+
+  const commit = await mounted.call(
+    COMMIT_PATH,
+    makeRequest({ method: 'POST', headers: allowedHeaders, body: commitBody(2, sampleDoc()) }),
+  )
+  assert.equal(commit.res.statusCode, 200)
+  assert.equal(commit.json.ok, true)
+  assert.equal(commit.json.profileId, PROFILE_ID)
+  assert.equal(commit.json.revision, 3)
+  assert.equal(JSON.parse(await readFile(join(home.profilesDir, PROFILE_ID, RECORD_FILE_NAME), 'utf8')).revision, 3)
+  assert.equal(await readFile(home.defaultFilePath, 'utf8'), defaultBefore, 'the default document is untouched')
+})
+
+test('commit with a profileId other than active returns profile-changed and never rewrites active', async (t) => {
+  const { home, mounted } = await makeProfileRoutes(t, { activeId: PROFILE_ID })
+  await writeProfileDoc(home, PROFILE_ID, { revision: 2 })
+  await writeProfileDoc(home, 'default', { revision: 1 })
+  const defaultBefore = await readFile(home.defaultFilePath, 'utf8')
+
+  const { res, json } = await mounted.call(
+    COMMIT_PATH,
+    makeRequest({
+      method: 'POST',
+      headers: allowedHeaders,
+      body: JSON.stringify({ profileId: 'default', baseRevision: 1, doc: sampleDoc() }),
+    }),
+  )
+  assert.equal(res.statusCode, 409)
+  assert.equal(json.ok, false)
+  assert.equal(json.code, 'profile-changed')
+  assert.equal(json.activeId, PROFILE_ID)
+  assert.equal(json.revision, 2)
+  assert.equal(json.registryRevision, 3)
+  assert.equal(await readFile(home.defaultFilePath, 'utf8'), defaultBefore, 'the target profile is not written')
+  assert.equal(JSON.parse(await readFile(join(home.profilesDir, PROFILE_ID, RECORD_FILE_NAME), 'utf8')).revision, 2)
+})
+
+test('commit to a corrupt named active is rejected without quarantining it', async (t) => {
+  const { home, mounted } = await makeProfileRoutes(t, { activeId: PROFILE_ID })
+  await writeProfileDoc(home, PROFILE_ID)
+  const docPath = join(home.profilesDir, PROFILE_ID, RECORD_FILE_NAME)
+  await writeFile(docPath, '{ not json', 'utf8')
+
+  const { res, json } = await mounted.call(
+    COMMIT_PATH,
+    makeRequest({ method: 'POST', headers: allowedHeaders, body: commitBody(1, sampleDoc()) }),
+  )
+  assert.equal(res.statusCode, 409)
+  assert.equal(json.code, 'profile-unhealthy')
+  assert.equal(json.activeId, PROFILE_ID)
+  assert.equal(json.health.kind, 'corrupt')
+  assert.deepEqual(await readdir(join(home.profilesDir, PROFILE_ID)), [RECORD_FILE_NAME])
+})
+
+test('commit to a missing named active is rejected with profile-missing', async (t) => {
+  const { mounted } = await makeProfileRoutes(t, { activeId: PROFILE_ID })
+  const { res, json } = await mounted.call(
+    COMMIT_PATH,
+    makeRequest({ method: 'POST', headers: allowedHeaders, body: commitBody(0, sampleDoc()) }),
+  )
+  assert.equal(res.statusCode, 409)
+  assert.equal(json.code, 'profile-missing')
+  assert.equal(json.activeId, PROFILE_ID)
+})
+
+test('commit rejects an invalid profileId field with 422 before any write', async (t) => {
+  const { home, mounted } = await makeProfileRoutes(t, { activeId: PROFILE_ID })
+  await writeProfileDoc(home, PROFILE_ID, { revision: 2 })
+  const docPath = join(home.profilesDir, PROFILE_ID, RECORD_FILE_NAME)
+  const before = await readFile(docPath, 'utf8')
+  const registryBefore = await readFile(home.registryFilePath, 'utf8')
+
+  for (const profileId of [null, 42, '', '   ', 'x'.repeat(65)]) {
+    const { res, json } = await mounted.call(
+      COMMIT_PATH,
+      makeRequest({
+        method: 'POST',
+        headers: allowedHeaders,
+        body: JSON.stringify({ profileId, baseRevision: 2, doc: sampleDoc() }),
+      }),
+    )
+    assert.equal(res.statusCode, 422, `profileId ${String(profileId)}`)
+    assert.equal(json.code, 'invalid')
+  }
+  assert.equal(await readFile(docPath, 'utf8'), before, 'a rejected profileId performs zero document writes')
+  assert.equal(await readFile(home.registryFilePath, 'utf8'), registryBefore, 'no registry write either')
+  assert.deepEqual(await readdir(join(home.profilesDir, PROFILE_ID)), [RECORD_FILE_NAME], 'no lock/bak leftovers')
+})
+
+test('commit profile-changed reports revision null when the named active is unhealthy', async (t) => {
+  const { home, mounted } = await makeProfileRoutes(t, { activeId: PROFILE_ID })
+  await writeProfileDoc(home, PROFILE_ID)
+  await writeFile(join(home.profilesDir, PROFILE_ID, RECORD_FILE_NAME), '{ not json', 'utf8')
+
+  const { res, json } = await mounted.call(
+    COMMIT_PATH,
+    makeRequest({
+      method: 'POST',
+      headers: allowedHeaders,
+      body: JSON.stringify({ profileId: 'default', baseRevision: 0, doc: sampleDoc() }),
+    }),
+  )
+  assert.equal(res.statusCode, 409)
+  assert.equal(json.ok, false)
+  assert.equal(json.code, 'profile-changed')
+  assert.equal(json.activeId, PROFILE_ID)
+  assert.equal(json.revision, null, 'an unreadable active document has no revision to report')
+})
+
+test('SSE revision events carry the committed profileId; the hub can announce active switches', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  await writeJsonFile(
+    home.registryFilePath,
+    sampleRegistry({ revision: 3, activeId: PROFILE_ID, profiles: [sampleDefaultProfile(), sampleNamedProfile()] }),
+  )
+  await writeProfileDoc(home, PROFILE_ID, { revision: 2 })
+  const hub = createChangeHub()
+  t.after(() => hub.close())
+  const writes = []
+  hub.subscribe({ write: (value) => writes.push(value), end() {} })
+  const manager = createTestProfileManager(home)
+  const mounted = await mountRoutes({ profileManager: manager, connection: cookieConnection(), changeHub: hub })
+
+  const commit = await mounted.call(
+    COMMIT_PATH,
+    makeRequest({ method: 'POST', headers: allowedHeaders, body: commitBody(2, sampleDoc()) }),
+  )
+  assert.equal(commit.res.statusCode, 200)
+  assert.equal(writes.length, 1)
+  assert.match(writes[0], /event: revision/)
+  assert.match(writes[0], new RegExp(`"profileId":"${PROFILE_ID}"`))
+  assert.match(writes[0], /"source":"http-commit"/)
+
+  hub.publishActive(PROFILE_ID, 3)
+  assert.equal(writes.length, 2)
+  assert.match(writes[1], /event: active/)
+  assert.match(writes[1], new RegExp(`"activeId":"${PROFILE_ID}"`))
+  assert.match(writes[1], /"registryRevision":3/)
 })
 
 // ---------------------------------------------------------------------------

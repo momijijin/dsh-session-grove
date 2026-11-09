@@ -114,6 +114,70 @@ try {
   await dialog.waitFor({ state: 'visible' })
   await page.locator('[data-testid="session-groups-dialog-cancel"]').click()
   await dialog.waitFor({ state: 'hidden' })
+
+  // Profile surfaces (SPEC §9.1-§9.3/§9.5): chevron, popover, save-as, diff
+  // preview, confirm and the manage list run in the real browser bundle.
+  const profileTrigger = page.locator('[data-testid="session-groups-profile-trigger"]')
+  await profileTrigger.waitFor({ state: 'visible' })
+  await profileTrigger.click()
+  const profilePopover = page.locator('[data-testid="session-groups-profile-popover"]')
+  await profilePopover.waitFor({ state: 'visible' })
+  const defaultItem = page.locator('[data-testid="session-groups-profile-item"][data-profile-id="default"]')
+  if ((await defaultItem.getAttribute('aria-checked')) !== 'true') {
+    throw new Error('default profile is not marked current')
+  }
+  await page.locator('[data-testid="session-groups-profile-save-as"]').click()
+  const saveAsDialog = page.locator('[data-testid="session-groups-profile-save-as-dialog"]')
+  await saveAsDialog.waitFor({ state: 'visible' })
+  const uiProfileName = `UI runtime ${Date.now()}`
+  await page.locator('[data-testid="session-groups-profile-save-as-name"]').fill(uiProfileName)
+  await page.locator('[data-testid="session-groups-profile-save-as-confirm"]').click()
+  await saveAsDialog.waitFor({ state: 'hidden' })
+  await page.waitForFunction(async () => {
+    const body = await fetch('/dsh-session-grove/profiles').then((response) => response.json())
+    return body.activeId !== 'default'
+  })
+  // Give the new profile a structural difference so switching back previews it.
+  await page.evaluate(async () => {
+    const loaded = await fetch('/dsh-session-grove/load').then((response) => response.json())
+    if (!Array.isArray(loaded.doc?.groups) || loaded.doc.groups.length === 0) {
+      throw new Error('no group available for the profile preview')
+    }
+    loaded.doc.groups[0].name = `UI runtime diff ${Date.now()}`
+    const response = await fetch('/dsh-session-grove/commit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ profileId: loaded.profileId, baseRevision: loaded.revision, doc: loaded.doc }),
+    })
+    if (!response.ok) throw new Error(`profile commit failed: ${response.status}`)
+  })
+  await profileTrigger.click()
+  await page.locator('[data-testid="session-groups-profile-item"][data-profile-id="default"]').click()
+  const previewDialog = page.locator('[data-testid="session-groups-profile-preview"]')
+  await previewDialog.waitFor({ state: 'visible' })
+  const previewSummary = page.locator('[data-testid="session-groups-profile-preview-summary"]')
+  await previewSummary.waitFor({ state: 'visible' })
+  if ((await previewSummary.innerText()).trim() === '') throw new Error('profile preview summary is empty')
+  await page.locator('[data-testid="session-groups-profile-preview-cancel"]').click()
+  await previewDialog.waitFor({ state: 'hidden' })
+  await profileTrigger.click()
+  await page.locator('[data-testid="session-groups-profile-item"][data-profile-id="default"]').click()
+  await previewDialog.waitFor({ state: 'visible' })
+  await page.locator('[data-testid="session-groups-profile-preview-confirm"]').click()
+  await previewDialog.waitFor({ state: 'hidden' })
+  await page.waitForFunction(async () => {
+    const body = await fetch('/dsh-session-grove/profiles').then((response) => response.json())
+    return body.activeId === 'default'
+  })
+  await profileTrigger.click()
+  await page.locator('[data-testid="session-groups-profile-manage"]').click()
+  const manageDialog = page.locator('[data-testid="session-groups-profile-manage-dialog"]')
+  await manageDialog.waitFor({ state: 'visible' })
+  if ((await page.locator('[data-testid="session-groups-profile-manage-row"]').count()) < 2) {
+    throw new Error('manage list did not include the new profile')
+  }
+  await page.locator('[data-testid="session-groups-profile-manage-close"]').click()
+  await manageDialog.waitFor({ state: 'hidden' })
 } finally {
   const coverage = await page.coverage.stopJSCoverage()
   const entries = coverage.filter((entry) => entry.url.includes('dsh-session-grove/client.js'))

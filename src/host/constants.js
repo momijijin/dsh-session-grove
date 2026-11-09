@@ -17,6 +17,18 @@ export const DIAGNOSTICS_PATH = `${BASE_PATH}/diagnostics`
 /** Opt-in dialog style probe (0.2.36; separate from drag diagnostics). */
 export const DEBUG_PATH = `${BASE_PATH}/debug`
 
+/**
+ * Multi-profile management routes (SPEC 5.3-5.8). Exact paths only: the
+ * composition registers exact paths, so preview carries the target id in the
+ * query string instead of introducing a path matcher.
+ */
+export const PROFILES_PATH = `${BASE_PATH}/profiles`
+export const PROFILES_PREVIEW_PATH = `${BASE_PATH}/profiles/preview`
+export const PROFILES_CREATE_PATH = `${BASE_PATH}/profiles/create`
+export const PROFILES_RENAME_PATH = `${BASE_PATH}/profiles/rename`
+export const PROFILES_ARCHIVE_PATH = `${BASE_PATH}/profiles/archive`
+export const PROFILES_ACTIVATE_PATH = `${BASE_PATH}/profiles/activate`
+
 /** Opt-in AI-control API (default off; registered only when enabled). */
 export const CONTROL_STATE_PATH = `${BASE_PATH}/control/state`
 export const CONTROL_CATALOG_PATH = `${BASE_PATH}/control/catalog`
@@ -40,6 +52,24 @@ export const STORAGE_DIR_NAME = 'storages'
 
 /** Record file name under the storages directory. */
 export const RECORD_FILE_NAME = 'dsh-session-grove.json'
+
+/** Multi-profile registry file (SPEC 4.3); lives next to the default record. */
+export const REGISTRY_FILE_NAME = 'dsh-session-grove.profiles.json'
+
+/** Registry schema version stored in `dsh-session-grove.profiles.json`. */
+export const REGISTRY_VERSION = 1
+
+/** Directory under `storages/` holding one directory per named profile. */
+export const PROFILES_DIR_NAME = 'profiles'
+
+/** Fixed id of the default profile; its document stays at the storages root. */
+export const DEFAULT_PROFILE_ID = 'default'
+
+/** Upper bound of unarchived profiles, default included (SPEC 4.3). */
+export const MAX_PROFILES = 20
+
+/** Maximum profile display-name length after trimming. */
+export const MAX_PROFILE_NAME = 40
 
 /** Wire body ceiling from the contract: 256 KiB. */
 export const MAX_BODY_BYTES = 256 * 1024

@@ -311,5 +311,59 @@
   "status.subagentsRunning": {
     "one": "{n} Subagent läuft",
     "other": "{n} Subagenten laufen"
-  }
+  },
+  "profiles.open": "Gruppierungsprofil wechseln",
+  "profiles.title": "Gruppierungsprofile",
+  "profiles.defaultName": "Standard",
+  "profiles.copySuffix": "Kopie",
+  "profiles.counts": {
+    "one": "{groups} Gruppe · {sessions} Sitzungen",
+    "other": "{groups} Gruppen · {sessions} Sitzungen"
+  },
+  "profiles.saveAs": "Als neues Profil speichern…",
+  "profiles.manage": "Profile verwalten…",
+  "profiles.switch": "Wechseln",
+  "profiles.current": "Aktuell",
+  "profiles.empty": "Noch keine Gruppierungsprofile",
+  "profiles.degraded": "Die Profilregistrierung ist eingeschränkt. Profiländerungen sind begrenzt; wechsle zu einem gesunden Profil, um fortzufahren.",
+  "profiles.limit": "Bis zu {max} Profile",
+  "profiles.nameLabel": "Profilname",
+  "profiles.namePlaceholder": "Profilname",
+  "profiles.nameInvalid": "Verwende 1–40 Zeichen.",
+  "profiles.nameDuplicate": "Dieser Name wird bereits verwendet.",
+  "profiles.create": "Erstellen",
+  "profiles.createPreview": "Kopiert das aktuelle Profil: {groups} Gruppen · {sessions} Sitzungen",
+  "profiles.rename": "Umbenennen",
+  "profiles.archive": "Archivieren",
+  "profiles.archiveConfirm": "Beim Archivieren wird es aus der Auswahl ausgeblendet und die Datei bleibt erhalten; es wird keine Sitzung gelöscht, und du kannst es manuell wiederherstellen.",
+  "profiles.archived": "Archiviert",
+  "profiles.previewTitle": "Zu „{name}“ wechseln",
+  "profiles.previewSubtitle": "Aktuell: {current} · Ziel: {target}",
+  "profiles.preview.groups": "Gruppen",
+  "profiles.preview.sessions": "Sitzungen",
+  "profiles.preview.added": "Hinzugefügt",
+  "profiles.preview.removed": "Entfernt",
+  "profiles.preview.changed": "Geändert",
+  "profiles.preview.reordered": "Reihenfolge geändert",
+  "profiles.preview.moved": "Zwischen Gruppen verschoben",
+  "profiles.preview.newlyGrouped": "Neu gruppiert",
+  "profiles.preview.ungrouped": "Nicht gruppiert",
+  "profiles.preview.stale": "Fehlende Sitzungen",
+  "profiles.preview.ungroupedWarning": {
+    "one": "{n} Sitzung kehrt zu „Nicht gruppiert“ zurück.",
+    "other": "{n} Sitzungen kehren zu „Nicht gruppiert“ zurück."
+  },
+  "profiles.preview.noDelete": "Es wird nichts gelöscht; beim Zurückwechseln wird alles wiederhergestellt.",
+  "profiles.preview.disable": "Künftig direkt wechseln",
+  "profiles.preview.confirm": "Zu diesem Profil wechseln",
+  "profiles.preview.staleRefresh": "Diese Vorschau ist veraltet. Schließe sie und wähle das Profil erneut.",
+  "profiles.preview.truncated": {
+    "one": "{n} weiteres Element wird nicht angezeigt",
+    "other": "{n} weitere Elemente werden nicht angezeigt"
+  },
+  "profiles.switched": "Zu „{name}“ gewechselt",
+  "profiles.switchedElsewhere": "Ein anderes Fenster hat zu „{name}“ gewechselt",
+  "profiles.undo": "Rückgängig",
+  "profiles.switching": "Wird gewechselt…",
+  "profiles.saveFailed": "Die Profiländerung konnte nicht abgeschlossen werden."
 }

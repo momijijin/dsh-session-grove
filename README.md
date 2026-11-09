@@ -14,7 +14,7 @@ Primary support: **DSH core/API `@deepseek-ai/dsh` 0.2.1-rc.2 and 0.2.1-rc.5** (
 Verified shells: **community DSH Desktop Stable 2.0.18** (rc.2) and **official DeepSeek Harness desktop 0.2.1.0** (rc.5, isolated runtime A+)  
 Not supported or promised: **community DSH Desktop Beta** and **community DSH NEXT (`-next` channel)**
 
-Localization: **English, Chinese, Japanese, Korean, German, French, Spanish, Brazilian Portuguese, Italian, Dutch, Polish, Turkish, Vietnamese, Thai, Indonesian, Russian, Hindi, Traditional Chinese and Arabic** dictionaries are packaged. Locale ids resolve by base language (`ja-JP` → `ja`, `zh-Hant`/`zh-TW` → `zh-Hant`, `pt-BR` → `pt`); unsupported languages fall back to English. Arabic switches the plugin root to RTL and includes the core list/header/dialog RTL overrides. Session count and expand labels use CLDR plural templates. The plugin registers every dictionary with the host, but does not add languages to the host catalog itself.
+Localization: **English, Chinese, Japanese, Korean, German, French, Spanish, Brazilian Portuguese, Italian, Dutch, Polish, Turkish, Vietnamese, Thai, Indonesian, Russian, Hindi, Traditional Chinese and Arabic** dictionaries are packaged. Locale ids resolve by base language (`ja-JP` → `ja`, `zh-Hant`/`zh-TW` → `zh-Hant`, `pt-BR` → `pt`); unsupported languages fall back to English. Arabic switches the plugin root to RTL and includes the core list/header/dialog RTL overrides. Session count and expand labels use CLDR plural templates. The profile switcher, switch preview and management dialogs are localized in all 19 dictionaries. The plugin registers every dictionary with the host, but does not add languages to the host catalog itself.
 
 Dependency policy: official `@deepseek-ai/*` runtime packages are declared as `peerDependencies`; the DSH host supplies them instead of the plugin bundling a duplicate copy.
 
@@ -57,6 +57,18 @@ Beta and NEXT may happen to load the plugin, but their results are not a release
 - drag-resize the sidebar from 264px to 80% of the viewport (default 420px);
 - double-click the resize handle to restore the default width;
 - persist view mode, width, collapsed groups, archive filter and dialog geometry.
+
+### Profiles
+
+A profile is a named group configuration: its own group tree and session assignment, over the same official workspace/session data. Switching profiles changes only which group document is displayed; it never copies, rewrites or deletes sessions.
+
+- switch profiles from the chevron added to the header title;
+- a switch first shows a read-only difference preview (groups added/removed/renamed/moved/reordered, sessions moved/newly grouped/ungrouped/stale); identical configurations switch directly without a dialog;
+- save the current configuration as a new profile, rename profiles and archive profiles you no longer need;
+- up to 20 unarchived profiles, the default profile included;
+- the active profile is global: every window follows the same active profile and updates through SSE; a switch never rewrites another profile's document;
+- archived profiles hide from the switch list but keep their document, backups and sessions;
+- the success toast offers **Undo** for 5 seconds to switch back.
 
 ### Groups
 
@@ -135,36 +147,56 @@ Updates are owned by dshmarket / the plugin manager. The plugin does not self-up
 
 The `0.4.0-beta.1` identity reset means this package does **not** auto-read, copy or delete the old `dsh-session-groups` record or browser keys; this avoids importing data from the same-named community plugins. The manual migration checklist is in [docs/MIGRATION-0.4.md](docs/MIGRATION-0.4.md).
 
+Upgrading from an earlier `dsh-session-grove` release needs no migration: the existing record becomes the `default` profile, and named profiles do not exist until you create one with **Save as new profile**.
+
 ### Maintainer/developer install
 
 Local tarball and command-line installation are maintainer/debug workflows only. They are documented in [docs/RELEASE.md](docs/RELEASE.md); ordinary users should use the market entry.
 
 ## Data
 
-The group record is stored at:
+The default profile's group document stays at:
 
 ```text
 <dshHome>/storages/dsh-session-grove.json
 ```
 
+Profile metadata and additional profile documents:
+
+```text
+<dshHome>/storages/dsh-session-grove.profiles.json                    # registry: activeId, names, archived flags, revision
+<dshHome>/storages/dsh-session-grove.profiles.json.bak                # registry backup
+<dshHome>/storages/dsh-session-grove.profiles.json.lock               # cross-process registry lock
+<dshHome>/storages/profiles/<id>/dsh-session-grove.json               # one directory per named profile
+<dshHome>/storages/profiles/<id>/dsh-session-grove.json.bak
+<dshHome>/storages/profiles/<id>/dsh-session-grove.corrupt-<ts>.json  # quarantine, when that document is corrupt
+```
+
 - writes use revision comparison and a serialized queue;
 - conflicts load the latest revision;
-- a corrupt record is quarantined first; a valid `.bak` is restored automatically, otherwise the plugin starts with an empty document;
+- the `default` profile keeps the legacy healing `load()` semantics at `/load`: a corrupt or invalid record is quarantined first, a valid `.bak` is restored automatically, and otherwise the plugin serves a healthy empty document with a warning (200); a missing file is a healthy empty document;
+- a named active profile is only probed read-only at `/load` (`peek`): a corrupt, invalid or missing document returns `409 profile-unhealthy` / `profile-missing` without quarantining, restoring a `.bak` or writing an empty document, while the UI shows a recovery strip that can switch to a healthy profile and the files stay on disk. A damaged named profile is never silently served as empty groups; for named profiles `.bak` restore/quarantine happens only on the healing `load()` path used by writes and control/native-tool reads;
 - a single-slot `.bak` is kept before successful commits;
+- the registry keeps `activeId` and one revision, so every window agrees on the active profile;
+- each profile has its own `.bak`, `.lock` and quarantine family; damage in one profile cannot overwrite or be counted against another;
+- archiving a profile writes only its `archivedAt` marker: the document, backups and sessions stay on disk and no file is deleted;
+- an existing single-profile installation is the `default` profile; upgrading does not migrate, rename or copy `dsh-session-grove.json`; the registry appears on the first profile write (save-as/create or rename/archive/activate), while `profiles/` appears only when a named profile is first saved (save-as/create);
+- a build without profile support reads the default document and ignores the registry; the profiles are still there after upgrading again;
 - official workspace and session data are never written.
 
 Local UI preferences and opt-in trace flags (localStorage):
 
 - `dsh-session-grove.view.v1`
 - `dsh-session-grove.archive.v1`
-- `dsh-session-grove.collapsed.v1`
+- `dsh-session-grove.collapsed.v1` (value is now `{[profileId]: {[groupId]: true}}`; legacy flat values are treated as the default profile and upgraded on the next write)
 - `dsh-session-grove.width.v1`
 - `dsh-session-grove.onboarded.v1`
+- `dsh-session-grove.profilePreview.v1` (`'0'` = skip the switch preview and switch directly)
 - `dsh-session-grove.dialog.geometry.v9`
 - `dsh-session-grove.diagnostics` (page-load diagnostics flag; `'1'`/`'true'` enables the trace)
 - `dsh-session-grove.perf` (opt-in performance probe flag; `'1'` enables it)
 
-Uninstalling the plugin restores the shipped workspace view. The group record and local preferences remain and are restored on reinstall. To remove all traces, delete the record, `.bak`, the control token, the diagnostics/debug NDJSON files (if any) and the localStorage keys above.
+Uninstalling the plugin restores the shipped workspace view. The group documents, registry, backups and local preferences remain and are restored on reinstall. To remove all traces, delete the default record, the registry and its sidecars, the whole `profiles/` directory, the control token, the diagnostics/debug NDJSON files (if any) and the localStorage keys above.
 
 ## Configuration
 
@@ -229,6 +261,18 @@ palette ids/hex/labels, documented `colorHex` input forms and canonical
 Appearance input is strict: `icon`/`color` must come from `catalog`, `colorHex` accepts `#RGB`, `RGB`, `#RRGGBB` or `RRGGBB` and persists canonical lowercase `#rrggbb`, and `color`/`colorHex` are mutually exclusive. Invalid values fail with `invalid-icon` or `invalid-color` instead of silently falling back.
 
 Session actions require an explicit `sessionId`; a missing id is `invalid-session-id` and the plugin never guesses the "most recent" session. Rename supports `expectedTitle`; archive supports `expectedArchived`; archiving a running session requires explicit `stopActivity: true`.
+
+### Profiles and AI control
+
+The native tool and the HTTP control routes accept an optional `profileId`:
+
+- `state` and `resolve` default to the active profile and echo `profileId` and `activeProfile`;
+- `plan` and `apply` require `profileId` once more than one unarchived profile exists (422 `profile-required`); while only the `default` profile exists it stays optional, so older prompts keep working;
+- `planHash` includes `profileId`, so a plan made for one profile cannot be applied to another;
+- there is no `activate`/`switch` action: AI can read and write a selected profile's groups but cannot change which profile the user is viewing;
+- the native tool has no apply replay cache; HTTP `/control/apply` keys its `idempotencyKey` cache as `${profileId}:${idempotencyKey}`, so the same key can be reused for another profile;
+- `doctor` adds `storage.registry` and `storage.profiles[]` (`id`/`name`/`archived`/`healthy`/`revision`/`backupStatus`) to its read-only report;
+- the CLI accepts `--profile` only for `state`/`resolve`/`plan`/`apply`: `state` and `resolve` may omit it (active profile), `plan`/`apply` require it when multiple profiles exist; `doctor` and the session actions are host-scoped and reject `--profile` with a usage error.
 
 ### Copy-paste AI prompts
 
@@ -309,13 +353,19 @@ Only while `diagnostics` is on. It contains drag events, ids and timings, never 
 
 - header status counts only sessions that are explicitly grouped or explicitly ungrouped; derived ungrouped sessions are not counted;
 - group, collapsed and dialog state are per-window; multi-window conflicts show 409 and are not merged live;
+- the active profile is global to the DSH instance; an independent active profile per window is not implemented, so every window follows the same switch;
+- archived profiles are shown read-only in **Manage**; a restore UI is not implemented (the profile can only be un-archived by editing its registry entry);
+- AI control can read and write a selected profile but cannot activate one;
+- the switch preview token is derived from the active, target and registry revisions. A switch performed in another window closes an open preview; if the active/target document or the registry changes while the preview is open, confirming returns `409 preview-stale`, the preview is marked stale and the confirm button is disabled until the preview is reopened (the host keeps rejecting the old token); extremely narrow windows rely on viewport clamping and vertical scrolling for long diff lists;
+- **Manage** refreshes the list after rename without forcing the archived-row read (the archive path forces it); a stale response can briefly hide the new archived row until the dialog is reopened;
+- `profiles.counts` uses one CLDR plural template for groups and sessions; a few languages can show an approximate noun form (for example English "1 sessions"); splitting it into separate `countsGroups` / `countsSessions` keys is deferred;
 - search returns at most 20 matches and matches titles/workspaces/group paths only;
 - the width override depends on the DSH sidebar DOM; if the host changes the layout it fails soft and group functionality is unaffected;
 - dialog move/resize has keyboard support; a full automated axe/contrast audit and keyboard drag for the whole tree remain deferred;
 - writes use an in-process queue plus a short-lived `<record>.lock` file for cross-process serialization; stale locks are reclaimed after the owner PID dies or the lock is 30 seconds old;
 - large-list lazy rendering remains deferred; the current Ungrouped list is virtualized, but a collapsed subtree is still built by `buildRenderTree`;
 - the dshmarket catalog entry is not published yet; local tarball installs are for the beta period;
-- current release validation is **529 unit/contract tests + 15 UI runtime cases + 1 browser runtime spec**; the maintainer desktop pass is historical evidence, not a per-candidate CI artifact; `e2e/groups.spec.mjs` is a historical manual script, while the default scripted A+ is `e2e/isolated.spec.mjs` (run manually against an isolated host, not in CI). `npm run check:release` is the release-workflow-enforced structural release gate (version consistency, tag match, release note, bundle stamp, packaged paths); A+ and all-locales runs are manual local evidence, not CI artifacts.
+- current release validation is **698 unit/contract tests + 38 UI runtime cases + 1 browser runtime spec**; the maintainer desktop pass is historical evidence, not a per-candidate CI artifact; `e2e/groups.spec.mjs` is a historical manual script, while the default scripted A+ is `e2e/isolated.spec.mjs` (run manually against an isolated host, not in CI). Profile UI flows in the manual specs passed on 2026-11-09 against a community isolated host (`test:isolated`, `test:ui-browser`, `test:locale-pack`, `test:all-locales` 23/23); official-host profile evidence is still pending. `npm run check:release` is the release-workflow-enforced structural release gate (version consistency, tag match, release note, bundle stamp, packaged paths); A+ and all-locales runs are manual local evidence, not CI artifacts.
 
 ## Documentation
 
@@ -343,20 +393,20 @@ npm run check:release
 npm pack
 ```
 
-- `npm test`: 529 unit/contract tests;
+- `npm test`: 698 unit/contract tests;
 - `npm run check:style`: zero-dependency style guard (tabs/trailing whitespace/final newline)
 - `npm run check:lib`: rebuild and verify lib/ is current with src/
 - `npm run test:ui-browser`: real-browser UI runtime coverage (isolated host; manual)
-- `npm run check:ui`: UI runtime smoke (15 UI runtime cases (1 module-load + 14 component tests, covering 11 components) + 1 browser runtime spec; separate from logic coverage);
-- `npm run test:all-locales`: all 19 packaged languages + aliases through the test-only locale pack (requires an isolated web instance; manual local evidence, not a CI gate);
-- `npm run check:coverage`: Node built-in coverage (currently about 92.3% lines / 82.9% branches / 89.1% functions, `src/**` scope);
+- `npm run check:ui`: UI runtime smoke (38 UI runtime cases (1 module-load + 37 component tests, covering 17 components across 21 client modules) + 1 browser runtime spec; separate from logic coverage);
+- `npm run test:all-locales`: all 19 packaged languages + aliases through the test-only locale pack (header, new-group dialog, group menu, settings and profile popover/preview; requires an isolated web instance; manual local evidence, not a CI gate);
+- `npm run check:coverage`: Node built-in coverage (currently about 93.1% lines / 83.9% branches / 90.5% functions, `src/**` scope);
 - `npm run check:release`: release-workflow release gate; checks version consistency across `package.json` / `dsh.plugin.json` / `src/shared/constants.js` / `package-lock.json`, requires `GITHUB_REF_NAME` to equal `v<version>` when set, checks the release note, the `lib/client.js` version stamp and every `package.json.files` path;
 - layers: `src/core` is the pure-function core and `src/adapters` holds DSH-version-specific adapters; see `docs/ARCHITECTURE.md`;
 - `npm run check:all`: syntax check plus the test suite;
 - `npm run check:core`: load and test `src/core` without DSH;
 - `scripts/qa/clean-profile.ps1`: isolated profile install/uninstall validation, never the real `~/.dsh`;
 - `scripts/qa/lifecycle-isolated.ps1`: isolated install → uninstall → reinstall with record hash preservation;
-- `scripts/qa/start-isolated-web.ps1` + `npm run test:isolated`: A+ isolated Playwright smoke, including two-window concurrent CAS (manual local evidence; the release workflow does not run it);
+- `scripts/qa/start-isolated-web.ps1` + `npm run test:isolated`: A+ isolated Playwright smoke, including two-window concurrent CAS and the profile create/switch/preview/save-as/rename/archive/limit flow plus returning to the default profile (manual local evidence; the release workflow does not run it); the unhealthy-active recovery strip is not covered by this script and remains manual/pending;
 - build artifact: `lib/client.js`;
 - package: `dsh-session-grove-0.4.0-beta.59.tgz`;
 - release steps: `docs/RELEASE.md`;

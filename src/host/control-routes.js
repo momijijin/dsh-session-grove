@@ -1,6 +1,13 @@
 /**
  * Control/event/doctor route registration.
  * Extracted from routes.js; route order and wire behavior are unchanged.
+ *
+ * Multi-profile (SPEC 6.1/6.2): every document action names a target profile.
+ * `state`/`resolve` may omit it (active profile); `plan`/`apply` must name it
+ * when more than one profile is unarchived; session actions and catalog/doctor
+ * never read a group document. The selected store comes from the manager per
+ * request, so no profile is captured at registration time. No route switches
+ * the active profile.
  */
 import {
   CONTROL_APPLY_PATH,
@@ -14,11 +21,12 @@ import {
 } from './constants.js'
 import { buildControlCatalog } from '../core/catalog.js'
 import { applyControlOperations, buildControlState, CONTROL_PROTOCOL, resolveGroupPath } from '../core/control.js'
+import { controlPlanHash, resolveControlProfile, withProfileStorage } from './route-contract.js'
 
 export const registerControlRoutes = (deps) => {
   const {
     register,
-    store,
+    profileManager,
     ctx,
     options,
     changeHub,
@@ -33,7 +41,6 @@ export const registerControlRoutes = (deps) => {
     unexpectedControlField,
     loadResponse,
     commitResponse,
-    controlPlanHash,
     publishChange,
     logInfo,
   } = deps
@@ -46,7 +53,55 @@ export const registerControlRoutes = (deps) => {
   let controlApplyPath = null
   let eventsPath = null
 
-if (changeHub !== null) {
+  /** Read one JSON control body; sends the frozen 4xx response on failure. */
+  const readControlBody = async (req, res) => {
+    if (contentTypeOf(req) !== 'application/json') {
+      sendJson(res, 415, { ok: false, code: 'unsupported-media-type', message: 'content-type must be application/json' })
+      return null
+    }
+    try {
+      const read = await readBoundedBody(req, MAX_CONTROL_BODY_BYTES)
+      if (read.tooLarge === true) {
+        sendJson(res, 413, { ok: false, code: 'payload-too-large', message: 'request body is too large' })
+        return null
+      }
+      const body = JSON.parse(read.text)
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+        sendJson(res, 422, { ok: false, code: 'invalid-body', message: 'body must be a JSON object' })
+        return null
+      }
+      return body
+    } catch {
+      sendJson(res, 422, { ok: false, code: 'invalid', message: 'body is not valid JSON' })
+      return null
+    }
+  }
+
+  const rejectUnexpected = (res, body, allowed) => {
+    const unexpected = unexpectedControlField(body, allowed)
+    if (unexpected === null) return false
+    sendJson(res, 422, {
+      ok: false,
+      code: 'unexpected-field',
+      message: `unexpected top-level field "${unexpected}"`,
+      field: unexpected,
+    })
+    return true
+  }
+
+  const sendProfileFailure = (res, resolved) => {
+    if (resolved.ok !== false) return false
+    sendJson(res, resolved.status, resolved.body)
+    return true
+  }
+
+  /** `state` is a GET: the target rides in the query string. */
+  const profileQueryOf = (req) => {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+    return url.searchParams.has('profileId') ? url.searchParams.get('profileId') : undefined
+  }
+
+  if (changeHub !== null) {
     eventsPath = register(
       EVENTS_PATH,
       async (req, res) => {
@@ -89,6 +144,8 @@ if (changeHub !== null) {
     )
   }
   {
+    // SPEC 6.1: HTTP idempotency is scoped to the resolved profile. A plan for
+    // profile A can never replay against profile B, even with the same key.
     const idempotency = new Map()
     const remember = (key, value) => {
       if (!key) return
@@ -114,7 +171,9 @@ if (changeHub !== null) {
         }
         try {
           const report = await options.doctorReport()
-          sendJson(res, 200, report)
+          // Doctor stays read-only and available while controlApi is closed;
+          // the registry/profile rows are added from a side-effect-free peek.
+          sendJson(res, 200, await withProfileStorage(report, profileManager))
         } catch (error) {
           sendJson(res, 503, {
             ok: false,
@@ -136,12 +195,19 @@ if (changeHub !== null) {
           return
         }
         try {
-          const result = await store.load()
+          const resolvedProfile = await resolveControlProfile(profileManager, profileQueryOf(req))
+          if (sendProfileFailure(res, resolvedProfile)) return
+          const result = await resolvedProfile.store.load()
           if (result.kind === 'unsupported-version') {
             sendJson(res, 409, loadResponse(result).body)
             return
           }
-          sendJson(res, 200, { ok: true, ...buildControlState(result.doc, result.revision) })
+          sendJson(res, 200, {
+            ok: true,
+            profileId: resolvedProfile.profileId,
+            activeProfile: resolvedProfile.activeProfile,
+            ...buildControlState(result.doc, result.revision),
+          })
         } catch (error) {
           sendJson(res, 503, { ok: false, code: 'io', message: error instanceof Error ? error.message : String(error) })
         }
@@ -158,6 +224,8 @@ if (changeHub !== null) {
           sendMethodNotAllowed(res, 'GET')
           return
         }
+        // Catalog describes vocabulary, not a profile: it reads no document and
+        // needs no profileId even when the registry is degraded.
         sendJson(res, 200, { ok: true, ...buildControlCatalog() })
       },
       `dsh-session-grove: GET ${CONTROL_CATALOG_PATH}`,
@@ -172,36 +240,9 @@ if (changeHub !== null) {
           sendMethodNotAllowed(res, 'POST')
           return
         }
-        if (contentTypeOf(req) !== 'application/json') {
-          sendJson(res, 415, { ok: false, code: 'unsupported-media-type', message: 'content-type must be application/json' })
-          return
-        }
-        let body
-        try {
-          const read = await readBoundedBody(req, MAX_CONTROL_BODY_BYTES)
-          if (read.tooLarge === true) {
-            sendJson(res, 413, { ok: false, code: 'payload-too-large', message: 'request body is too large' })
-            return
-          }
-          body = JSON.parse(read.text)
-        } catch {
-          sendJson(res, 422, { ok: false, code: 'invalid', message: 'body is not valid JSON' })
-          return
-        }
-        if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-          sendJson(res, 422, { ok: false, code: 'invalid-body', message: 'body must be a JSON object' })
-          return
-        }
-        const unexpected = unexpectedControlField(body, new Set(['path', 'baseRevision']))
-        if (unexpected !== null) {
-          sendJson(res, 422, {
-            ok: false,
-            code: 'unexpected-field',
-            message: `unexpected top-level field "${unexpected}"`,
-            field: unexpected,
-          })
-          return
-        }
+        const body = await readControlBody(req, res)
+        if (body === null) return
+        if (rejectUnexpected(res, body, new Set(['path', 'baseRevision', 'profileId']))) return
         if (body.baseRevision !== undefined && (!Number.isInteger(body.baseRevision) || body.baseRevision < 0)) {
           sendJson(res, 422, {
             ok: false,
@@ -212,7 +253,9 @@ if (changeHub !== null) {
           return
         }
         try {
-          const result = await store.load()
+          const resolvedProfile = await resolveControlProfile(profileManager, body.profileId)
+          if (sendProfileFailure(res, resolvedProfile)) return
+          const result = await resolvedProfile.store.load()
           if (result.kind === 'unsupported-version') {
             sendJson(res, 409, loadResponse(result).body)
             return
@@ -232,7 +275,13 @@ if (changeHub !== null) {
             sendJson(res, status, resolved)
             return
           }
-          sendJson(res, 200, { ...resolved, protocol: CONTROL_PROTOCOL, revision: result.revision })
+          sendJson(res, 200, {
+            ...resolved,
+            protocol: CONTROL_PROTOCOL,
+            revision: result.revision,
+            profileId: resolvedProfile.profileId,
+            activeProfile: resolvedProfile.activeProfile,
+          })
         } catch (error) {
           sendJson(res, 503, { ok: false, code: 'io', message: error instanceof Error ? error.message : String(error) })
         }
@@ -249,44 +298,21 @@ if (changeHub !== null) {
           sendMethodNotAllowed(res, 'POST')
           return
         }
-        if (contentTypeOf(req) !== 'application/json') {
-          sendJson(res, 415, { ok: false, code: 'unsupported-media-type', message: 'content-type must be application/json' })
-          return
-        }
-        let body
-        try {
-          const read = await readBoundedBody(req, MAX_CONTROL_BODY_BYTES)
-          if (read.tooLarge === true) {
-            sendJson(res, 413, { ok: false, code: 'payload-too-large', message: 'request body is too large' })
-            return
-          }
-          body = JSON.parse(read.text)
-        } catch {
-          sendJson(res, 422, { ok: false, code: 'invalid', message: 'body is not valid JSON' })
-          return
-        }
-        if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-          sendJson(res, 422, { ok: false, code: 'invalid-body', message: 'body must be a JSON object' })
-          return
-        }
-        const unexpected = unexpectedControlField(body, new Set(['baseRevision', 'operations']))
-        if (unexpected !== null) {
-          sendJson(res, 422, {
-            ok: false,
-            code: 'unexpected-field',
-            message: `unexpected top-level field "${unexpected}"`,
-            field: unexpected,
-          })
-          return
-        }
-        const baseRevision = body?.baseRevision
-        const operations = body?.operations
+        const body = await readControlBody(req, res)
+        if (body === null) return
+        if (rejectUnexpected(res, body, new Set(['baseRevision', 'operations', 'profileId']))) return
+        const baseRevision = body.baseRevision
+        const operations = body.operations
         if (!Number.isInteger(baseRevision) || baseRevision < 0) {
           sendJson(res, 422, { ok: false, code: 'invalid-revision', message: 'baseRevision must be a non-negative integer' })
           return
         }
         try {
-          const result = await store.load()
+          const resolvedProfile = await resolveControlProfile(profileManager, body.profileId, {
+            requireExplicitWhenMultiple: true,
+          })
+          if (sendProfileFailure(res, resolvedProfile)) return
+          const result = await resolvedProfile.store.load()
           if (result.kind === 'unsupported-version') {
             sendJson(res, 409, loadResponse(result).body)
             return
@@ -305,8 +331,9 @@ if (changeHub !== null) {
           sendJson(res, 200, {
             ok: true,
             protocol: CONTROL_PROTOCOL,
+            profileId: resolvedProfile.profileId,
             baseRevision,
-            planHash: controlPlanHash(baseRevision, operations),
+            planHash: controlPlanHash(resolvedProfile.profileId, baseRevision, operations),
             changes: planned.changes,
           })
         } catch (error) {
@@ -325,37 +352,11 @@ if (changeHub !== null) {
           sendMethodNotAllowed(res, 'POST')
           return
         }
-        if (contentTypeOf(req) !== 'application/json') {
-          sendJson(res, 415, { ok: false, code: 'unsupported-media-type', message: 'content-type must be application/json' })
-          return
-        }
-        let body
-        try {
-          const read = await readBoundedBody(req, MAX_CONTROL_BODY_BYTES)
-          if (read.tooLarge === true) {
-            sendJson(res, 413, { ok: false, code: 'payload-too-large', message: 'request body is too large' })
-            return
-          }
-          body = JSON.parse(read.text)
-        } catch {
-          sendJson(res, 422, { ok: false, code: 'invalid', message: 'body is not valid JSON' })
-          return
-        }
-        if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-          sendJson(res, 422, { ok: false, code: 'invalid-body', message: 'body must be a JSON object' })
-          return
-        }
-        const unexpected = unexpectedControlField(
-          body,
-          new Set(['baseRevision', 'operations', 'planHash', 'idempotencyKey']),
-        )
-        if (unexpected !== null) {
-          sendJson(res, 422, {
-            ok: false,
-            code: 'unexpected-field',
-            message: `unexpected top-level field "${unexpected}"`,
-            field: unexpected,
-          })
+        const body = await readControlBody(req, res)
+        if (body === null) return
+        if (
+          rejectUnexpected(res, body, new Set(['baseRevision', 'operations', 'planHash', 'idempotencyKey', 'profileId']))
+        ) {
           return
         }
         if (
@@ -370,10 +371,10 @@ if (changeHub !== null) {
           })
           return
         }
-        const baseRevision = body?.baseRevision
-        const operations = body?.operations
-        const planHash = body?.planHash
-        const idempotencyKey = body?.idempotencyKey ?? null
+        const baseRevision = body.baseRevision
+        const operations = body.operations
+        const planHash = body.planHash
+        const idempotencyKey = body.idempotencyKey ?? null
         if (!Number.isInteger(baseRevision) || baseRevision < 0) {
           sendJson(res, 422, { ok: false, code: 'invalid-revision', message: 'baseRevision must be a non-negative integer' })
           return
@@ -382,24 +383,29 @@ if (changeHub !== null) {
           sendJson(res, 422, { ok: false, code: 'invalid-plan', message: 'planHash is required' })
           return
         }
-        const expectedHash = controlPlanHash(baseRevision, operations)
-        if (expectedHash !== planHash) {
-          sendJson(res, 409, { ok: false, code: 'stale-plan', message: 'planHash does not match baseRevision + operations' })
-          return
-        }
-        if (idempotencyKey !== null) {
-          const cached = idempotency.get(idempotencyKey)
-          if (cached !== undefined) {
-            if (cached.planHash !== planHash) {
-              sendJson(res, 409, { ok: false, code: 'idempotency-conflict', message: 'idempotencyKey was used for another plan' })
-              return
-            }
-            sendJson(res, 200, cached.body)
+        try {
+          const resolvedProfile = await resolveControlProfile(profileManager, body.profileId, {
+            requireExplicitWhenMultiple: true,
+          })
+          if (sendProfileFailure(res, resolvedProfile)) return
+          const expectedHash = controlPlanHash(resolvedProfile.profileId, baseRevision, operations)
+          if (expectedHash !== planHash) {
+            sendJson(res, 409, { ok: false, code: 'stale-plan', message: 'planHash does not match profileId + baseRevision + operations' })
             return
           }
-        }
-        try {
-          const result = await store.load()
+          const cacheKey = idempotencyKey === null ? null : `${resolvedProfile.profileId}:${idempotencyKey}`
+          if (cacheKey !== null) {
+            const cached = idempotency.get(cacheKey)
+            if (cached !== undefined) {
+              if (cached.planHash !== planHash) {
+                sendJson(res, 409, { ok: false, code: 'idempotency-conflict', message: 'idempotencyKey was used for another plan' })
+                return
+              }
+              sendJson(res, 200, cached.body)
+              return
+            }
+          }
+          const result = await resolvedProfile.store.load()
           if (result.kind === 'unsupported-version') {
             sendJson(res, 409, loadResponse(result).body)
             return
@@ -415,20 +421,23 @@ if (changeHub !== null) {
             sendJson(res, 422, planned)
             return
           }
-          const committed = await store.commit(baseRevision, planned.doc)
+          const committed = await resolvedProfile.store.commit(baseRevision, planned.doc)
           const { status, body: committedBody } = commitResponse(committed)
           if (status === 200) {
             const responseBody = {
               ...committedBody,
               protocol: CONTROL_PROTOCOL,
+              profileId: resolvedProfile.profileId,
               planHash,
               changes: planned.changes,
             }
-            publishChange(committed.revision, 'control-apply')
-            if (idempotencyKey !== null) remember(idempotencyKey, { planHash, body: responseBody })
+            publishChange(committed.revision, 'control-apply', resolvedProfile.profileId)
+            if (cacheKey !== null) remember(cacheKey, { planHash, body: responseBody })
             logInfo(
               ctx,
-              `[dsh-session-grove] control apply revision=${String(committed.revision)} plan=${planHash.slice(0, 12)} operations=${String(planned.changes.length)}`,
+              `[dsh-session-grove] control apply profile=${resolvedProfile.profileId} revision=${String(
+                committed.revision,
+              )} plan=${planHash.slice(0, 12)} operations=${String(planned.changes.length)}`,
             )
             sendJson(res, 200, responseBody)
             return
@@ -441,7 +450,6 @@ if (changeHub !== null) {
       `dsh-session-grove: POST ${CONTROL_APPLY_PATH}`,
     )
   }
-
 
   return { eventsPath, controlStatePath, controlCatalogPath, controlDoctorPath, controlResolvePath, controlPlanPath, controlApplyPath }
 }

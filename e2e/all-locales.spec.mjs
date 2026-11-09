@@ -4,8 +4,9 @@
  *
  * The test-only locale pack adds all packaged languages to the host catalog
  * (the plugin itself does not call addLanguage). This spec switches the host
- * locale through that pack and verifies the plugin header + new-group dialog
- * for each language, including zh-TW and pt-BR aliases.
+ * locale through that pack and verifies the plugin header, new-group dialog,
+ * group menu, profile popover and profile switch-preview copy for each
+ * language, including zh-TW and pt-BR aliases.
  */
 import { chromium } from 'playwright'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
@@ -21,6 +22,18 @@ const fail = (message) => {
 if (!urlText) fail('DSH_TEST_URL is required')
 if (!testHome) fail('DSH_TEST_HOME is required')
 if (resolve(testHome).toLowerCase().startsWith(realHome.toLowerCase())) fail(`refusing real DSH home: ${testHome}`)
+if (!existsSync(testHome)) fail(`test home does not exist: ${testHome}`)
+// This spec saves and commits named profiles, so it must never attach to the
+// live DSH host or the real home. Guard before the browser launches and before
+// any profile write below.
+let url
+try {
+  url = new URL(urlText)
+} catch {
+  fail(`invalid DSH_TEST_URL: ${urlText}`)
+}
+if (!['127.0.0.1', 'localhost'].includes(url.hostname)) fail(`test URL must be loopback: ${url.origin}`)
+if (url.port === '43120') fail('refusing the real DSH web port 43120')
 
 const dictionaries = Object.fromEntries(
   ['en', 'zh', 'zh-Hant', 'ja', 'ko', 'de', 'fr', 'es', 'pt', 'it', 'nl', 'pl', 'tr', 'vi', 'th', 'id', 'ru', 'hi', 'ar'].map(
@@ -129,6 +142,57 @@ try {
     await groupMenuButton.first().waitFor({ state: 'visible' })
   }
 
+  // The profile surfaces (SPEC §9.1-§9.3) are localized too. Create one profile
+  // with a structural difference, then return to default so every locale can
+  // open the switch preview from the same starting document. The profile name
+  // is user data and stays untranslated.
+  const profileName = `Locale profile ${Date.now()}`
+  const previewProfileId = await page.evaluate(async (name) => {
+    const list = await fetch('/dsh-session-grove/profiles').then((response) => response.json())
+    const created = await fetch('/dsh-session-grove/profiles/create', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ baseRevision: list.registryRevision, name }),
+    }).then((response) => response.json())
+    if (created.ok !== true) throw new Error(`profile create failed: ${JSON.stringify(created)}`)
+    const loaded = await fetch('/dsh-session-grove/load').then((response) => response.json())
+    const doc = loaded.doc
+    if (!Array.isArray(doc?.groups) || doc.groups.length === 0) {
+      throw new Error('no group available for the profile preview fixture')
+    }
+    doc.groups[0].name = 'Locale preview group'
+    const commit = await fetch('/dsh-session-grove/commit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ profileId: loaded.profileId, baseRevision: loaded.revision, doc }),
+    })
+    if (!commit.ok) {
+      throw new Error(`profile commit failed: ${commit.status} ${JSON.stringify(await commit.json())}`)
+    }
+    const preview = await fetch('/dsh-session-grove/profiles/preview?id=default').then((response) => response.json())
+    const activated = await fetch('/dsh-session-grove/profiles/activate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'default', previewToken: preview.previewToken }),
+    }).then((response) => response.json())
+    if (activated.ok !== true) throw new Error(`restore default failed: ${JSON.stringify(activated)}`)
+    return created.profile.id
+  }, profileName)
+
+  // The raw activate above went through HTTP, so the browser learns about the
+  // new active profile only from the SSE `active` event and then reloads the
+  // document. Let that round trip settle before the locale sweep starts
+  // clicking profile rows; otherwise the first locale can race the reload and
+  // find the previous profile still marked current.
+  await page.locator('[data-testid="session-groups-profile-trigger"]').click()
+  const restoredPopover = page.locator('[data-testid="session-groups-profile-popover"]')
+  await restoredPopover.waitFor({ state: 'visible' })
+  await page
+    .locator('[data-testid="session-groups-profile-item"][data-profile-id="default"][aria-checked="true"]')
+    .waitFor({ state: 'visible' })
+  await page.keyboard.press('Escape')
+  await restoredPopover.waitFor({ state: 'hidden' })
+
   for (const [localeId, dictionaryId] of cases) {
     await page.evaluate((id) => globalThis.__DSH_E2E_SET_LOCALE__(id), localeId)
     await page.waitForFunction((id) => globalThis.__DSH_E2E_GET_LOCALE__?.().active === id, localeId)
@@ -205,7 +269,75 @@ try {
     }
     await page.keyboard.press('Escape')
     await menu.waitFor({ state: 'hidden' })
-    console.log(`PASS ${localeId} -> ${dictionaryId}: header + dialog + group menu`)
+
+    // Profile popover: title, footer actions and, for RTL, alignment/bounds.
+    await page.locator('[data-testid="session-groups-profile-trigger"]').click()
+    const profilePopover = page.locator('[data-testid="session-groups-profile-popover"]')
+    await profilePopover.waitFor({ state: 'visible' })
+    const popoverLabel = await profilePopover.getAttribute('aria-label')
+    if (popoverLabel !== dictionaries[dictionaryId]['profiles.title']) {
+      throw new Error(`${localeId}: profile popover title ${JSON.stringify(popoverLabel)}`)
+    }
+    for (const [testId, key] of [
+      ['session-groups-profile-save-as', 'profiles.saveAs'],
+      ['session-groups-profile-manage', 'profiles.manage'],
+    ]) {
+      const label = (await page.locator(`[data-testid="${testId}"]`).innerText()).trim()
+      if (label !== dictionaries[dictionaryId][key]) {
+        throw new Error(`${localeId}: ${key} ${JSON.stringify(label)} != ${JSON.stringify(dictionaries[dictionaryId][key])}`)
+      }
+    }
+    if (localeId === 'ar') {
+      const box = await profilePopover.boundingBox()
+      const viewport = page.viewportSize()
+      if (!box || box.x < 0 || box.y < 0 || box.x + box.width > viewport.width + 1 || box.y + box.height > viewport.height + 1) {
+        throw new Error(`ar: profile popover outside viewport ${JSON.stringify(box)}`)
+      }
+      const direction = await profilePopover.evaluate((element) => getComputedStyle(element).direction)
+      if (direction !== 'rtl') throw new Error(`ar: profile popover direction ${direction}`)
+      await page.screenshot({ path: `${testHome}/rtl-profile-popover.png`, fullPage: false })
+    }
+
+    // Profile switch preview: localized title, summary labels and actions.
+    await page.locator(`[data-testid="session-groups-profile-item"][data-profile-id="${previewProfileId}"]`).click()
+    const previewBody = page.locator('[data-testid="session-groups-profile-preview"]')
+    await previewBody.waitFor({ state: 'visible' })
+    const previewSummary = page.locator('[data-testid="session-groups-profile-preview-summary"]')
+    await previewSummary.waitFor({ state: 'visible' })
+    const expectedPreviewTitle = dictionaries[dictionaryId]['profiles.previewTitle'].replace('{name}', profileName)
+    const previewTitle = (await page.locator('#dsg-dialog-title').innerText()).trim()
+    if (previewTitle !== expectedPreviewTitle) {
+      throw new Error(`${localeId}: preview title ${JSON.stringify(previewTitle)} != ${JSON.stringify(expectedPreviewTitle)}`)
+    }
+    const previewCancel = (await page.locator('[data-testid="session-groups-profile-preview-cancel"]').innerText()).trim()
+    const previewConfirm = (await page.locator('[data-testid="session-groups-profile-preview-confirm"]').innerText()).trim()
+    if (
+      previewCancel !== dictionaries[dictionaryId]['dialog.cancel'] ||
+      previewConfirm !== dictionaries[dictionaryId]['profiles.preview.confirm']
+    ) {
+      throw new Error(`${localeId}: preview actions ${JSON.stringify({ previewCancel, previewConfirm })}`)
+    }
+    const summaryText = await previewSummary.innerText()
+    for (const key of ['profiles.preview.groups', 'profiles.preview.sessions', 'profiles.preview.ungrouped']) {
+      if (!summaryText.includes(dictionaries[dictionaryId][key])) {
+        throw new Error(`${localeId}: preview summary missing ${key}`)
+      }
+    }
+    if (localeId === 'ar') {
+      const dialog = page.locator('[role="dialog"]').last()
+      const box = await dialog.boundingBox()
+      const viewport = page.viewportSize()
+      if (!box || box.x < 0 || box.y < 0 || box.x + box.width > viewport.width + 1 || box.y + box.height > viewport.height + 1) {
+        throw new Error(`ar: profile preview outside viewport ${JSON.stringify(box)}`)
+      }
+      const direction = await dialog.evaluate((element) => getComputedStyle(element).direction)
+      if (direction !== 'rtl') throw new Error(`ar: profile preview direction ${direction}`)
+      await page.screenshot({ path: `${testHome}/rtl-profile-preview.png`, fullPage: false })
+    }
+    await page.locator('[data-testid="session-groups-profile-preview-cancel"]').click()
+    await previewBody.waitFor({ state: 'hidden' })
+
+    console.log(`PASS ${localeId} -> ${dictionaryId}: header + dialog + group menu + profile popover/preview`)
   }
 
   // Long RTL/Indic/Cyrillic labels at the narrow sidebar width: fail on root

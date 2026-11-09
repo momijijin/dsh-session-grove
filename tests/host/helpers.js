@@ -3,11 +3,19 @@
  * request/response pairs, and a temporary-directory store factory.
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
-import { DEBUG_FILE_NAME, DIAGNOSTICS_FILE_NAME } from '../../src/host/constants.js'
+import {
+  DEBUG_FILE_NAME,
+  DEFAULT_PROFILE_ID,
+  DIAGNOSTICS_FILE_NAME,
+  PROFILES_DIR_NAME,
+  RECORD_FILE_NAME,
+  REGISTRY_FILE_NAME,
+} from '../../src/host/constants.js'
+import { createProfileManager } from '../../src/host/profile-manager.js'
 import { registerRoutes } from '../../src/host/routes.js'
 import { createStore } from '../../src/host/store.js'
 
@@ -48,6 +56,79 @@ export const makeTempStore = async (now) => {
     store,
     cleanup: () => rm(dir, { recursive: true, force: true }),
   }
+}
+
+/** Stable id/timestamps used by the profile fixtures. */
+export const PROFILE_ID = 'p-1a2b3c-9f0e'
+export const FIXED_TIMESTAMP = '2026-11-09T00:00:00.000Z'
+
+/** Valid `default` registry entry (SPEC 4.3). */
+export const sampleDefaultProfile = (overrides = {}) => ({
+  id: DEFAULT_PROFILE_ID,
+  name: null,
+  dir: '.',
+  createdAt: FIXED_TIMESTAMP,
+  updatedAt: FIXED_TIMESTAMP,
+  archivedAt: null,
+  ...overrides,
+})
+
+/** Valid named registry entry; the id may be overridden. */
+export const sampleNamedProfile = (overrides = {}) => {
+  const id = overrides.id ?? PROFILE_ID
+  return {
+    id,
+    name: '工作项目',
+    dir: `${PROFILES_DIR_NAME}/${id}`,
+    createdAt: FIXED_TIMESTAMP,
+    updatedAt: FIXED_TIMESTAMP,
+    archivedAt: null,
+    ...overrides,
+  }
+}
+
+/** Valid registry document; `profiles` defaults to the synthesized default only. */
+export const sampleRegistry = (overrides = {}) => {
+  const { profiles = [sampleDefaultProfile()], ...rest } = overrides
+  return { version: 1, revision: 1, activeId: DEFAULT_PROFILE_ID, ...rest, profiles }
+}
+
+/**
+ * Temporary storages home for profile tests. Creates the `storages` directory
+ * but no registry/record files, so "does not write on startup" stays assertable.
+ */
+export const makeTempProfileHome = async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsg-profiles-'))
+  const storageDir = join(dir, 'storages')
+  await mkdir(storageDir, { recursive: true })
+  return {
+    dir,
+    storageDir,
+    profilesDir: join(storageDir, PROFILES_DIR_NAME),
+    registryFilePath: join(storageDir, REGISTRY_FILE_NAME),
+    defaultFilePath: join(storageDir, RECORD_FILE_NAME),
+    cleanup: () => rm(dir, { recursive: true, force: true }),
+  }
+}
+
+/** Create the production profile manager over a temp profile home. */
+export const createTestProfileManager = (home, options = {}) =>
+  createProfileManager({ storageDir: home.storageDir, ...options })
+
+/** Write pretty JSON, creating parent directories when needed. */
+export const writeJsonFile = async (filePath, value) => {
+  await mkdir(dirname(filePath), { recursive: true })
+  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+  return filePath
+}
+
+/** Write a valid profile document into its conventional path. */
+export const writeProfileDoc = async (home, id, overrides = {}) => {
+  const filePath =
+    id === DEFAULT_PROFILE_ID
+      ? home.defaultFilePath
+      : join(home.storageDir, PROFILES_DIR_NAME, id, RECORD_FILE_NAME)
+  return writeJsonFile(filePath, { ...sampleDoc(), revision: 1, ...overrides })
 }
 
 /** Fake node:http request. Body may be a string, Buffer, or undefined. */
@@ -133,12 +214,21 @@ export const makeContext = (options = {}) => {
   }
 }
 
-/** Mount both routes over a temporary store (or a provided one). */
+/** Mount both routes over a temporary store (or a provided one/manager). */
 export const mountRoutes = async (options = {}) => {
   let temp
-  if (options.store !== undefined) {
+  if (options.profileManager !== undefined) {
+    temp = {
+      dir: dirname(options.profileManager.storageDir),
+      storages: options.profileManager.storageDir,
+      filePath: options.profileManager.defaultFilePath,
+      store: options.profileManager.storeFor(DEFAULT_PROFILE_ID),
+      cleanup: () => Promise.resolve(),
+    }
+  } else if (options.store !== undefined) {
     temp = {
       dir: options.dir,
+      storages: options.filePath === undefined ? undefined : dirname(options.filePath),
       filePath: options.filePath,
       store: options.store,
       cleanup: () => Promise.resolve(),
@@ -149,11 +239,12 @@ export const mountRoutes = async (options = {}) => {
   const context = makeContext(options)
   const diagnosticsFilePath =
     options.diagnosticsFilePath ??
-    (temp.dir === undefined ? null : join(temp.dir, 'storages', DIAGNOSTICS_FILE_NAME))
-  const mounted = registerRoutes(context.ctx, temp.store, {
+    (temp.storages === undefined ? null : join(temp.storages, DIAGNOSTICS_FILE_NAME))
+  const mounted = registerRoutes(context.ctx, options.profileManager ?? temp.store, {
+    profileManager: options.profileManager,
     diagnosticsFilePath,
     debugFilePath:
-      options.debugFilePath ?? (temp.dir === undefined ? null : join(temp.dir, 'storages', DEBUG_FILE_NAME)),
+      options.debugFilePath ?? (temp.storages === undefined ? null : join(temp.storages, DEBUG_FILE_NAME)),
     diagnosticsEnabled: options.diagnosticsEnabled,
     debugProbeEnabled: options.debugProbeEnabled,
     controlApiEnabled: options.controlApiEnabled,
@@ -161,6 +252,7 @@ export const mountRoutes = async (options = {}) => {
     controlSessionsEnabled: options.controlSessionsEnabled,
     controlToken: options.controlToken,
     skillDshHome: options.skillDshHome,
+    changeHub: options.changeHub,
     doctorReport: options.doctorReport,
   })
   return {

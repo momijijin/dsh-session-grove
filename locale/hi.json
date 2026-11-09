@@ -311,5 +311,59 @@
   "status.subagentsRunning": {
     "one": "{n} सबएजेंट चल रहा है",
     "other": "{n} सबएजेंट चल रहे हैं"
-  }
+  },
+  "profiles.open": "समूहन प्रोफ़ाइल बदलें",
+  "profiles.title": "समूहन प्रोफ़ाइल",
+  "profiles.defaultName": "डिफ़ॉल्ट",
+  "profiles.copySuffix": "प्रतिलिपि",
+  "profiles.counts": {
+    "one": "{groups} समूह · {sessions} सत्र",
+    "other": "{groups} समूह · {sessions} सत्र"
+  },
+  "profiles.saveAs": "नई प्रोफ़ाइल के रूप में सहेजें…",
+  "profiles.manage": "प्रोफ़ाइल प्रबंधित करें…",
+  "profiles.switch": "बदलें",
+  "profiles.current": "वर्तमान",
+  "profiles.empty": "अभी कोई समूहन प्रोफ़ाइल नहीं",
+  "profiles.degraded": "प्रोफ़ाइल रजिस्ट्री अवनत है। प्रोफ़ाइल बदलाव सीमित हैं; जारी रखने के लिए स्वस्थ प्रोफ़ाइल पर बदलें।",
+  "profiles.limit": "अधिकतम {max} प्रोफ़ाइल",
+  "profiles.nameLabel": "प्रोफ़ाइल नाम",
+  "profiles.namePlaceholder": "प्रोफ़ाइल नाम",
+  "profiles.nameInvalid": "1–40 अक्षर उपयोग करें।",
+  "profiles.nameDuplicate": "यह नाम पहले से उपयोग में है।",
+  "profiles.create": "बनाएँ",
+  "profiles.createPreview": "वर्तमान प्रोफ़ाइल की प्रतिलिपि बनाता है: {groups} समूह · {sessions} सत्र",
+  "profiles.rename": "नाम बदलें",
+  "profiles.archive": "संग्रहित करें",
+  "profiles.archiveConfirm": "संग्रहित करने पर यह स्विचर से छिप जाता है और फ़ाइल बनी रहती है; कोई सत्र नहीं हटाया जाता और आप इसे मैन्युअल रूप से पुनर्स्थापित कर सकते हैं।",
+  "profiles.archived": "संग्रहित",
+  "profiles.previewTitle": "«{name}» पर बदलें",
+  "profiles.previewSubtitle": "वर्तमान: {current} · लक्ष्य: {target}",
+  "profiles.preview.groups": "समूह",
+  "profiles.preview.sessions": "सत्र",
+  "profiles.preview.added": "जोड़े गए",
+  "profiles.preview.removed": "हटाए गए",
+  "profiles.preview.changed": "बदले गए",
+  "profiles.preview.reordered": "क्रम बदला",
+  "profiles.preview.moved": "समूहों के बीच स्थानांतरित",
+  "profiles.preview.newlyGrouped": "नए समूहित",
+  "profiles.preview.ungrouped": "असमूहित",
+  "profiles.preview.stale": "अमान्य संदर्भ",
+  "profiles.preview.ungroupedWarning": {
+    "one": "{n} सत्र असमूहित में वापस जाएगा।",
+    "other": "{n} सत्र असमूहित में वापस जाएँगे।"
+  },
+  "profiles.preview.noDelete": "कुछ भी नहीं हटाया जाता; वापस बदलने पर सब कुछ बहाल हो जाता है।",
+  "profiles.preview.disable": "अब से सीधे बदलें",
+  "profiles.preview.confirm": "इस प्रोफ़ाइल पर बदलें",
+  "profiles.preview.staleRefresh": "यह पूर्वावलोकन पुराना है। इसे बंद करें और प्रोफ़ाइल फिर से चुनें।",
+  "profiles.preview.truncated": {
+    "one": "{n} और आइटम नहीं दिखाया गया",
+    "other": "{n} और आइटम नहीं दिखाए गए"
+  },
+  "profiles.switched": "«{name}» पर बदल दिया गया",
+  "profiles.switchedElsewhere": "किसी अन्य विंडो ने «{name}» पर बदल दिया",
+  "profiles.undo": "पूर्ववत करें",
+  "profiles.switching": "बदला जा रहा है…",
+  "profiles.saveFailed": "प्रोफ़ाइल बदलाव पूरा नहीं हो सका।"
 }

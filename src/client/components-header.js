@@ -17,6 +17,7 @@ import { perfRender } from './perf.js'
 
 import { SearchBox } from './components-search-box.js'
 import { dispatch, IconButton, SessionStatusCell, TextButton } from './components-primitives.js'
+import { ProfileMenu, ProfileRecovery } from './components-profiles.js'
 
 const h = createElement
 
@@ -209,6 +210,9 @@ const Header = ({ store, handlers, sessionsById, workspaces, archivedSessionIds,
   const filter = store.archiveFilter
   const [searchOpen, setSearchOpen] = useState(false)
   const [optionsOpen, setOptionsOpen] = useState(false)
+  // Profile switcher (SPEC §9.1/§9.2): the header owns the open flag so the
+  // view-options/search popovers and the profile menu stay mutually exclusive.
+  const [profileOpen, setProfileOpen] = useState(false)
   const optionsRef = useRef(null)
 
   // View-options popover: Escape or an outside pointerdown closes it.
@@ -244,7 +248,19 @@ const Header = ({ store, handlers, sessionsById, workspaces, archivedSessionIds,
       h(
         'span',
         { class: 'dsg-header-title', title: t('view.title') },
-        h('span', { class: 'dsg-header-label' }, t('view.title'))
+        h('span', { class: 'dsg-header-label' }, t('view.title')),
+        // SPEC §9.1: profile chevron sits after the label; only hosts that
+        // expose the profile surface render it (§7.7).
+        h(ProfileMenu, {
+          store,
+          handlers,
+          open: profileOpen,
+          onOpenChange: setProfileOpen,
+          onBeforeOpen: () => {
+            setSearchOpen(false)
+            setOptionsOpen(false)
+          },
+        })
       ),
       h(
         'div',
@@ -308,6 +324,7 @@ const Header = ({ store, handlers, sessionsById, workspaces, archivedSessionIds,
           expanded: searchOpen,
           onClick: () => {
             setOptionsOpen(false)
+            setProfileOpen(false)
             setSearchOpen((open) => !open)
           },
         }),
@@ -322,6 +339,7 @@ const Header = ({ store, handlers, sessionsById, workspaces, archivedSessionIds,
             haspopup: 'menu',
             data: { 'data-filter': filter },
             onClick: () => {
+              setProfileOpen(false)
               setOptionsOpen((open) => !open)
             },
           }),
@@ -427,6 +445,9 @@ const FlatFallback = ({ props, store, reason }) => {
     { class: 'dsg-root', 'data-testid': 'session-groups-flat-fallback', 'data-reason': reason ?? 'error' },
     h('div', { class: 'dsg-header', 'data-testid': 'session-groups-error' }, h('span', { class: 'dsg-header-title' }, t('error.title'))),
     h('div', { class: 'dsg-banner', 'data-kind': 'error' }, h('span', { class: 'dsg-banner-text' }, reason === 'route-unavailable' ? t('banner.routeUnavailable') : t('error.body'))),
+    // SPEC §7.3 recovery: an unhealthy/missing active profile still offers the
+    // healthy profiles (default first) so the view never dead-ends.
+    h(ProfileRecovery, { store, t }),
     h(
       'div',
       { class: 'dsg-flat' },
