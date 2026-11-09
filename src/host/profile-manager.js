@@ -11,6 +11,8 @@
  * until a caller commits or a profile document is created.
  */
 
+import { randomBytes } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import {
@@ -21,6 +23,8 @@ import {
 } from './constants.js'
 import { createProfileRegistry, isProfileId } from './profile-registry.js'
 import { createStore } from './store.js'
+
+const PROFILE_ID_ATTEMPTS = 32
 
 const invalidProfileId = (id) =>
   Object.assign(new Error(`invalid profile id: ${String(id)}`), { code: 'invalid-profile-id' })
@@ -33,11 +37,19 @@ const invalidProfileId = (id) =>
  *   registryFilePath?: string,
  *   defaultRecordPath?: string,
  *   now?: () => number,
+ *   profileIdFactory?: () => string,
  *   storeOptions?: object,
  * }} options
  */
 const createProfileManager = (options = {}) => {
-  const { storageDir, registryFilePath, defaultRecordPath, now = () => Date.now(), storeOptions } = options
+  const {
+    storageDir,
+    registryFilePath,
+    defaultRecordPath,
+    now = () => Date.now(),
+    profileIdFactory,
+    storeOptions,
+  } = options
   if (typeof storageDir !== 'string' || storageDir.length === 0) {
     throw new Error('createProfileManager: storageDir is required')
   }
@@ -47,6 +59,8 @@ const createProfileManager = (options = {}) => {
   const resolvedRegistryPath = resolve(registryFilePath ?? join(storageRoot, REGISTRY_FILE_NAME))
   const registry = createProfileRegistry({ filePath: resolvedRegistryPath, now })
   const stores = new Map()
+  const generateProfileId = () => `p-${now().toString(36)}-${randomBytes(2).toString('hex')}`
+  const idFactory = profileIdFactory ?? generateProfileId
 
   const assertProfileId = (id) => {
     if (!isProfileId(id)) throw invalidProfileId(id)
@@ -88,6 +102,30 @@ const createProfileManager = (options = {}) => {
   }
 
   const activeStore = async () => storeFor(await activeId())
+
+  /**
+   * Allocate an unused profile id for a doc-first create (SPEC 4.4).
+   *
+   * Read-only: nothing is written. A candidate is rejected when it is
+   * malformed, is `default`, is already registered, or when its directory or
+   * document path already exists (an orphan directory is never reused).
+   * Retries are bounded so a broken id source fails instead of looping.
+   */
+  const newProfileId = async () => {
+    const state = await registry.peek()
+    const registered = new Set(
+      state.kind === 'ok' ? state.registry.profiles.map((profile) => profile.id) : [],
+    )
+    for (let attempt = 0; attempt < PROFILE_ID_ATTEMPTS; attempt += 1) {
+      const id = idFactory()
+      if (!isProfileId(id) || id === DEFAULT_PROFILE_ID || registered.has(id)) continue
+      if (existsSync(dirFor(id)) || existsSync(pathFor(id))) continue
+      return id
+    }
+    throw Object.assign(new Error('profile-manager: could not allocate an unused profile id'), {
+      code: 'profile-id-unavailable',
+    })
+  }
 
   /** Registry entry for one id, or `null` when it is not registered. */
   const entryFor = async (id) => {
@@ -135,6 +173,7 @@ const createProfileManager = (options = {}) => {
     loadRegistry,
     activeId,
     activeStore,
+    newProfileId,
     entryFor,
     peekFor,
     peekRegistry,

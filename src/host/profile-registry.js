@@ -214,16 +214,6 @@ const validateRegistry = (registry) => {
   return { ok: errors.length === 0, errors }
 }
 
-/** `p-<base36 time>-<4 hex>`, retried when a collision is somehow generated. */
-const generateProfileId = (registry, now) => {
-  const used = new Set(registry.profiles.map((profile) => profile.id))
-  for (let attempt = 0; attempt < 32; attempt += 1) {
-    const id = `p-${now().toString(36)}-${randomBytes(2).toString('hex')}`
-    if (!used.has(id)) return id
-  }
-  throw new Error('profile-registry: could not generate a unique profile id')
-}
-
 /**
  * Classify one registry body without touching the filesystem.
  * @param {string} text
@@ -635,18 +625,21 @@ const createProfileRegistry = (options = {}) => {
     commit,
 
     /**
-     * Create (save-as) a named profile: add the entry and make it active.
-     * The caller writes the new document first; registry failure leaves an
-     * orphan directory on purpose (SPEC 4.4).
+     * Create (save-as) a named profile with a caller-supplied id: add the entry
+     * and make it active in one CAS. The caller writes the new document first
+     * (SPEC 4.4); a registry failure leaves an orphan directory on purpose.
      */
-    createProfile({ baseRevision, name } = {}) {
+    createProfile({ baseRevision, id, name } = {}) {
+      if (!isProfileId(id)) return Promise.resolve({ kind: 'invalid-profile-id' })
       const cleaned = normalizeProfileName(name)
       if (!cleaned.ok) return Promise.resolve({ kind: 'profile-name-invalid', reason: cleaned.reason })
       return commit(baseRevision, (draft) => {
+        if (draft.profiles.some((profile) => profile.id === id)) {
+          return { ok: false, kind: 'invalid-profile-id', reason: 'duplicate-id' }
+        }
         const unarchived = draft.profiles.filter((profile) => profile.archivedAt === null)
         if (unarchived.length >= MAX_PROFILES) return { ok: false, kind: 'profile-limit' }
         if (nameTaken(draft, cleaned.name, null)) return { ok: false, kind: 'profile-name-duplicate' }
-        const id = generateProfileId(draft, now)
         const stamp = new Date(now()).toISOString()
         draft.profiles.push({
           id,

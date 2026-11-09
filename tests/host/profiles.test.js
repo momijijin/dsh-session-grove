@@ -76,38 +76,60 @@ test('a missing registry synthesizes the default profile in memory without writi
   assert.deepEqual(await list(home.storageDir), [])
 })
 
-test('the first create writes registry revision 1 with a generated profile id', async (t) => {
+test('the first create writes registry revision 1 with the caller-supplied profile id', async (t) => {
   const home = await makeTempProfileHome()
   t.after(home.cleanup)
   const registry = makeRegistry(home)
+  const id = 'p-work-0001'
 
-  const result = await registry.createProfile({ baseRevision: 0, name: '  工作项目  ' })
+  const result = await registry.createProfile({ baseRevision: 0, id, name: '  工作项目  ' })
   assert.equal(result.kind, 'ok')
   assert.equal(result.revision, 1)
   assert.equal(result.registry.profiles.length, 2)
   const created = result.registry.profiles[1]
-  assert.match(created.id, /^p-[0-9a-z]+-[0-9a-f]{4}$/)
+  assert.equal(created.id, id)
   assert.equal(isProfileId(created.id), true)
   assert.equal(created.name, '工作项目')
-  assert.equal(created.dir, `${PROFILES_DIR_NAME}/${created.id}`)
+  assert.equal(created.dir, `${PROFILES_DIR_NAME}/${id}`)
   assert.equal(created.archivedAt, null)
-  assert.equal(result.registry.activeId, created.id)
+  assert.equal(result.registry.activeId, id)
   assert.equal(result.registry.profiles[0].id, DEFAULT_PROFILE_ID)
 
   const onDisk = JSON.parse(await readFile(home.registryFilePath, 'utf8'))
   assert.deepEqual(onDisk, result.registry)
   assert.deepEqual(await list(home.storageDir), [REGISTRY_FILE_NAME])
+  assert.equal(existsSync(home.profilesDir), false)
+})
+
+test('createProfile requires a caller-supplied id and rejects invalid or registered ids', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  await writeJsonFile(
+    home.registryFilePath,
+    sampleRegistry({
+      revision: 2,
+      profiles: [sampleDefaultProfile(), sampleNamedProfile({ id: PROFILE_ID, name: 'Work' })],
+    }),
+  )
+  const registry = makeRegistry(home)
+  const before = await sha256(home.registryFilePath)
+
+  for (const id of [undefined, null, '', 'Bad-ID', '../evil', DEFAULT_PROFILE_ID, PROFILE_ID]) {
+    const rejected = await registry.createProfile({ baseRevision: 2, id, name: 'Fresh' })
+    assert.equal(rejected.kind, 'invalid-profile-id', `id ${String(id)}`)
+  }
+  assert.equal(await sha256(home.registryFilePath), before)
 })
 
 test('a stale baseRevision returns conflict and never overwrites the registry', async (t) => {
   const home = await makeTempProfileHome()
   t.after(home.cleanup)
   const registry = makeRegistry(home)
-  const first = await registry.createProfile({ baseRevision: 0, name: 'Work' })
+  const first = await registry.createProfile({ baseRevision: 0, id: 'p-work-0001', name: 'Work' })
   assert.equal(first.kind, 'ok')
   const before = await sha256(home.registryFilePath)
 
-  const stale = await registry.createProfile({ baseRevision: 0, name: 'Other' })
+  const stale = await registry.createProfile({ baseRevision: 0, id: 'p-other-0001', name: 'Other' })
   assert.equal(stale.kind, 'conflict')
   assert.equal(stale.revision, 1)
   assert.equal(stale.registry.revision, 1)
@@ -120,7 +142,7 @@ test('atomic writes keep the previous registry in .bak and leave no temp/lock fi
   t.after(home.cleanup)
   const registry = makeRegistry(home)
 
-  const first = await registry.createProfile({ baseRevision: 0, name: 'Work' })
+  const first = await registry.createProfile({ baseRevision: 0, id: 'p-work-0001', name: 'Work' })
   const id = first.registry.activeId
   const second = await registry.renameProfile({ baseRevision: 1, id, name: 'Work 2' })
   assert.equal(second.kind, 'ok')
@@ -145,7 +167,7 @@ test('a stale lock is reclaimed automatically', async (t) => {
   await utimes(lockPath, old, old)
   const registry = makeRegistry(home, { lockStaleMs: 50, lockWaitMs: 500 })
 
-  const result = await registry.createProfile({ baseRevision: 0, name: 'Locked' })
+  const result = await registry.createProfile({ baseRevision: 0, id: 'p-lock-0001', name: 'Locked' })
   assert.equal(result.kind, 'ok')
   assert.equal(result.revision, 1)
   assert.equal(existsSync(lockPath), false)
@@ -163,7 +185,7 @@ test('a fresh live lock times out with the stable store-busy code', async (t) =>
   const registry = makeRegistry(home, { lockWaitMs: 40, lockRetryMs: 5 })
 
   await assert.rejects(
-    () => registry.createProfile({ baseRevision: 0, name: 'Blocked' }),
+    () => registry.createProfile({ baseRevision: 0, id: 'p-blocked-0001', name: 'Blocked' }),
     (error) => error?.code === 'store-busy',
   )
   assert.equal(existsSync(home.registryFilePath), false)
@@ -318,7 +340,7 @@ test('the 20-profile limit blocks create and is enforced by the validator', asyn
   const registry = makeRegistry(home)
   const before = await sha256(home.registryFilePath)
 
-  const blocked = await registry.createProfile({ baseRevision: 3, name: 'One more' })
+  const blocked = await registry.createProfile({ baseRevision: 3, id: 'p-limit-9999', name: 'One more' })
   assert.equal(blocked.kind, 'profile-limit')
   assert.equal(blocked.revision, 3)
   assert.equal(await sha256(home.registryFilePath), before)
@@ -334,7 +356,7 @@ test('archived profiles do not count toward the limit and their names can be reu
   await writeJsonFile(home.registryFilePath, sampleRegistry({ revision: 4, profiles: limitProfiles(18, { archived: 1 }) }))
   const registry = makeRegistry(home)
 
-  const created = await registry.createProfile({ baseRevision: 4, name: 'Profile 18' })
+  const created = await registry.createProfile({ baseRevision: 4, id: 'p-limit-0019', name: 'Profile 18' })
   assert.equal(created.kind, 'ok')
   assert.equal(created.revision, 5)
   assert.equal(created.registry.profiles.filter((profile) => profile.archivedAt === null).length, MAX_PROFILES)
@@ -351,10 +373,10 @@ test('invalid and duplicate names are rejected without a write', async (t) => {
   const before = await sha256(home.registryFilePath)
 
   for (const name of ['', '   ', 'x'.repeat(41), 'bad\u0001name', null, 42]) {
-    const rejected = await registry.createProfile({ baseRevision: 5, name })
+    const rejected = await registry.createProfile({ baseRevision: 5, id: 'p-name-0001', name })
     assert.equal(rejected.kind, 'profile-name-invalid', `name ${JSON.stringify(name)}`)
   }
-  const duplicate = await registry.createProfile({ baseRevision: 5, name: 'work' })
+  const duplicate = await registry.createProfile({ baseRevision: 5, id: 'p-name-0002', name: 'work' })
   assert.equal(duplicate.kind, 'profile-name-duplicate')
   const renamed = await registry.renameProfile({ baseRevision: 5, id: DEFAULT_PROFILE_ID, name: 'WORK' })
   assert.equal(renamed.kind, 'profile-name-duplicate')
@@ -574,6 +596,105 @@ test('the profile manager reports orphan profile directories read-only', async (
   assert.deepEqual(await manager.orphans(), ['p-orphan-0001'])
   assert.deepEqual(await list(home.storageDir), before)
   assert.equal(existsSync(`${home.registryFilePath}.bak`), false)
+})
+
+test('newProfileId allocates a formatted id repeatedly without writing to disk', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  const manager = createProfileManager({ storageDir: home.storageDir, now: () => NOW_MS })
+
+  const first = await manager.newProfileId()
+  const second = await manager.newProfileId()
+  assert.match(first, /^p-[0-9a-z]+-[0-9a-f]{4}$/)
+  assert.equal(first.startsWith(`p-${NOW_MS.toString(36)}-`), true)
+  assert.equal(isProfileId(first), true)
+  assert.notEqual(first, second)
+  assert.deepEqual(await list(home.storageDir), [])
+  assert.equal(existsSync(home.profilesDir), false)
+})
+
+test('newProfileId skips invalid, registered, and on-disk ids', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  await writeJsonFile(
+    home.registryFilePath,
+    sampleRegistry({
+      revision: 1,
+      profiles: [sampleDefaultProfile(), sampleNamedProfile({ id: 'p-taken-0001', name: 'Taken' })],
+    }),
+  )
+  await mkdir(join(home.profilesDir, 'p-orphan-0002'), { recursive: true })
+  const candidates = ['Bad-ID', 'p-taken-0001', 'p-orphan-0002', 'p-free-0003']
+  const manager = createProfileManager({
+    storageDir: home.storageDir,
+    now: () => NOW_MS,
+    profileIdFactory: () => candidates.shift() ?? 'p-fallback-0009',
+  })
+
+  assert.equal(await manager.newProfileId(), 'p-free-0003')
+  assert.deepEqual(await manager.orphans(), ['p-orphan-0002'])
+})
+
+test('newProfileId gives up with a stable error after bounded retries', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  await writeJsonFile(
+    home.registryFilePath,
+    sampleRegistry({
+      revision: 1,
+      profiles: [sampleDefaultProfile(), sampleNamedProfile({ id: 'p-taken-0001', name: 'Taken' })],
+    }),
+  )
+  let calls = 0
+  const manager = createProfileManager({
+    storageDir: home.storageDir,
+    now: () => NOW_MS,
+    profileIdFactory: () => {
+      calls += 1
+      return 'p-taken-0001'
+    },
+  })
+
+  await assert.rejects(
+    () => manager.newProfileId(),
+    (error) => error?.code === 'profile-id-unavailable',
+  )
+  assert.equal(calls > 1, true)
+})
+
+test('doc-first create writes the document before the registry CAS activates the id', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  const manager = createProfileManager({ storageDir: home.storageDir, now: () => NOW_MS })
+  const id = await manager.newProfileId()
+
+  await writeProfileDoc(home, id)
+  assert.equal(existsSync(manager.pathFor(id)), true)
+
+  const created = await manager.registry.createProfile({ baseRevision: 0, id, name: 'Doc first' })
+  assert.equal(created.kind, 'ok')
+  assert.equal(created.registry.activeId, id)
+  const entry = created.registry.profiles.find((profile) => profile.id === id)
+  assert.equal(entry.dir, `${PROFILES_DIR_NAME}/${id}`)
+  assert.equal(await manager.activeId(), id)
+  assert.equal((await manager.peekFor(id)).kind, 'ok')
+  assert.deepEqual(await manager.orphans(), [])
+})
+
+test('a registry CAS failure after the document write leaves an orphan and keeps the active profile', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  await writeJsonFile(home.registryFilePath, sampleRegistry({ revision: 1 }))
+  const manager = createProfileManager({ storageDir: home.storageDir, now: () => NOW_MS })
+  const id = await manager.newProfileId()
+
+  await writeProfileDoc(home, id)
+  const failed = await manager.registry.createProfile({ baseRevision: 0, id, name: 'Orphan' })
+  assert.equal(failed.kind, 'conflict')
+  assert.equal(failed.revision, 1)
+  assert.equal(await manager.activeId(), DEFAULT_PROFILE_ID)
+  assert.equal(existsSync(manager.pathFor(id)), true)
+  assert.deepEqual(await manager.orphans(), [id])
 })
 
 test('the profile manager accepts custom registry and default record paths', async (t) => {
