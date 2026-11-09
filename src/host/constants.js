@@ -41,6 +41,24 @@ export const STORAGE_DIR_NAME = 'storages'
 /** Record file name under the storages directory. */
 export const RECORD_FILE_NAME = 'dsh-session-grove.json'
 
+/** Multi-profile registry file (SPEC 4.3); lives next to the default record. */
+export const REGISTRY_FILE_NAME = 'dsh-session-grove.profiles.json'
+
+/** Registry schema version stored in `dsh-session-grove.profiles.json`. */
+export const REGISTRY_VERSION = 1
+
+/** Directory under `storages/` holding one directory per named profile. */
+export const PROFILES_DIR_NAME = 'profiles'
+
+/** Fixed id of the default profile; its document stays at the storages root. */
+export const DEFAULT_PROFILE_ID = 'default'
+
+/** Upper bound of unarchived profiles, default included (SPEC 4.3). */
+export const MAX_PROFILES = 20
+
+/** Maximum profile display-name length after trimming. */
+export const MAX_PROFILE_NAME = 40
+
 /** Wire body ceiling from the contract: 256 KiB. */
 export const MAX_BODY_BYTES = 256 * 1024
 
