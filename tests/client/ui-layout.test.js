@@ -144,7 +144,7 @@ test('0.2.39 dialog restores the compact 0.2.30 chrome with theme tokens', () =>
 })
 
 test('dialog natural height uses the complete flex layout', () => {
-  assert.match(components, /57 \+/)
+  assert.match(components, /const dialogChrome = isProfilePreview \? 41 : 57/)
   assert.match(components, /borderHeight/)
   assert.match(components, /const laidOutHeight = Math\.ceil\(/)
   assert.match(components, /Math\.ceil\(content\?\.scrollHeight/)
@@ -925,7 +925,7 @@ test('0.4.0 profiles: popover mirrors view-options with left alignment and rows'
 })
 
 test('0.4.0 profiles: preview dialog is wider, scrolls and reuses DialogHost chrome', () => {
-  assert.match(CSS, /\.dsg-dialog\[data-kind="profile-preview"\] \{ width:\s*min\(420px/)
+  assert.match(CSS, /\.dsg-dialog\[data-kind="profile-preview"\] \{ width:\s*min\(560px, calc\(100vw - 24px\)\); padding:\s*12px; gap:\s*8px; \}/)
   assert.match(dialogHost, /dialog\.kind === 'profile-preview'/)
   assert.match(dialogHost, /ProfilePreviewBody/)
   assert.match(dialogHost, /ProfilePreviewActions/)
@@ -942,6 +942,134 @@ test('0.4.0 profiles: preview dialog is wider, scrolls and reuses DialogHost chr
   assert.match(componentProfiles, /slice\(0, 8\)/)
   assert.match(CSS, /\.dsg-profile-preview-auto \{[^}]*margin-right:\s*auto/s)
   assert.match(CSS, /\.dsg-root\[dir="rtl"\] \.dsg-profile-popover \{ left:\s*auto; right:\s*0; \}/)
+})
+
+test('0.4.0 profiles: preview diff uses a two-level hierarchy and a capped scrolling height', () => {
+  // Preview-only space: 560px clamped to the viewport, tighter padding/gap.
+  const previewDialog = block('.dsg-dialog[data-kind="profile-preview"] {')
+  assert.match(previewDialog, /width:\s*min\(560px, calc\(100vw - 24px\)\)/)
+  assert.match(previewDialog, /padding:\s*12px/)
+  assert.match(previewDialog, /gap:\s*8px/)
+
+  // Top summary: still three inline stats on one wrapping line.
+  const summary = block('.dsg-profile-preview-summary {')
+  assert.match(summary, /display:\s*flex/)
+  assert.match(summary, /flex-wrap:\s*wrap/)
+  assert.match(summary, /gap:\s*2px 10px/)
+  assert.match(summary, /padding:\s*6px 8px/)
+  assert.match(block('.dsg-profile-preview-summary-stat {'), /display:\s*inline-flex/)
+  assert.match(CSS, /\.dsg-profile-preview-summary-stat \+ \.dsg-profile-preview-summary-stat::before \{ content: '·';/)
+  assert.equal(CSS.includes('.dsg-profile-preview-summary-row'), false)
+  assert.match(componentProfiles, /class: 'dsg-profile-preview-summary-stat', 'data-stat': key/)
+  assert.equal(componentProfiles.includes("'dsg-profile-preview-summary-row'"), false)
+
+  // Warning: 11/15 with an inline hint + noDelete pair that may share a line.
+  const warning = block('.dsg-profile-preview-warning {')
+  assert.match(warning, /display:\s*flex/)
+  assert.match(warning, /flex-wrap:\s*wrap/)
+  assert.match(warning, /padding:\s*6px 8px/)
+  assert.match(warning, /font-size:\s*var\(--dsg-font-11, 11px\)/)
+  assert.match(warning, /line-height:\s*15px/)
+  assert.match(block('.dsg-profile-preview-warning-note {'), /color:\s*var\(--dsw-alias-label-secondary/)
+
+  // Section > block > indented list: two title levels plus a tree guide line.
+  const sectionDivider = block('.dsg-profile-preview-section + .dsg-profile-preview-section {')
+  assert.match(sectionDivider, /border-top:\s*1px solid/)
+  assert.match(sectionDivider, /padding-top:\s*8px/)
+  assert.match(block('.dsg-profile-preview-section-title {'), /font-size:\s*var\(--dsg-font-12, 12px\)/)
+  const blockLabel = block('.dsg-profile-preview-block-label {')
+  assert.match(blockLabel, /font-size:\s*var\(--dsg-font-11, 11px\)/)
+  assert.match(blockLabel, /line-height:\s*16px/)
+  assert.match(blockLabel, /color:\s*var\(--dsw-alias-label-secondary/)
+  const blockDivider = block('.dsg-profile-preview-block + .dsg-profile-preview-block {')
+  assert.match(blockDivider, /border-top:\s*1px solid/)
+  assert.match(blockDivider, /padding-top:\s*5px/)
+
+  const list = block('.dsg-profile-preview-list {')
+  assert.match(list, /gap:\s*0/)
+  assert.match(list, /margin-inline-start:\s*10px/)
+  assert.match(list, /padding-inline-start:\s*8px/)
+  assert.match(list, /border-inline-start:\s*1px solid/)
+  const change = block('.dsg-profile-preview-change {')
+  assert.match(change, /gap:\s*1px/)
+  assert.match(change, /padding:\s*8px 0/)
+  // Adjacent changes are separated by a hairline using the shared border token;
+  // the adjacent-sibling selector leaves the first row borderless.
+  const changeDivider = block('.dsg-profile-preview-change + .dsg-profile-preview-change {')
+  assert.match(changeDivider, /border-top:\s*1px solid var\(--dsw-alias-border-l2/)
+  assert.equal(change.includes('border-top'), false)
+
+  // 13/19 title, 12/17 indented detail, every title/path wraps (no ellipsis).
+  const title = block('.dsg-profile-preview-change-title {')
+  assert.match(title, /font-size:\s*var\(--dsg-font-13, 13px\)/)
+  assert.match(title, /line-height:\s*19px/)
+  assert.match(title, /white-space:\s*normal/)
+  assert.match(title, /overflow-wrap:\s*anywhere/)
+  assert.equal(title.includes('text-overflow'), false)
+  const detail = block('.dsg-profile-preview-change-detail {')
+  assert.match(detail, /display:\s*flex/)
+  assert.match(detail, /flex-wrap:\s*wrap/)
+  assert.match(detail, /font-size:\s*var\(--dsg-font-12, 12px\)/)
+  assert.match(detail, /line-height:\s*17px/)
+  assert.match(detail, /margin-inline-start:\s*12px/)
+  assert.match(detail, /overflow-wrap:\s*anywhere/)
+  assert.equal(detail.includes('nowrap'), false)
+  assert.match(
+    CSS,
+    /\.dsg-profile-preview-path-old \{ color:\s*var\(--dsw-alias-label-secondary, CanvasText\); text-decoration:\s*line-through; text-decoration-thickness:\s*1px; overflow-wrap:\s*anywhere; \}/
+  )
+  assert.match(
+    CSS,
+    /\.dsg-profile-preview-path-new \{ color:\s*var\(--dsw-alias-label-primary, CanvasText\); font-weight:\s*500; overflow-wrap:\s*anywhere; \}/
+  )
+  assert.match(block('.dsg-profile-preview-arrow {'), /color:\s*var\(--dsw-alias-label-tertiary/)
+
+  // Added/removed paths read as success/danger; markers carry + / − / ~.
+  assert.match(
+    CSS,
+    /\.dsg-profile-preview-change\[data-kind="added"\] \.dsg-profile-preview-path-new \{ color:\s*var\(--dsw-alias-state-success/
+  )
+  assert.match(
+    CSS,
+    /\.dsg-profile-preview-change\[data-kind="removed"\] \.dsg-profile-preview-path-old \{ color:\s*var\(--dsw-alias-state-danger/
+  )
+  assert.match(componentProfiles, /class: 'dsg-profile-preview-change', 'data-kind': change\.kind/)
+  assert.match(componentProfiles, /class: 'dsg-profile-preview-change-title'/)
+  assert.match(componentProfiles, /class: 'dsg-profile-preview-change-detail'/)
+  assert.match(componentProfiles, /class: 'dsg-profile-preview-path-old'/)
+  assert.match(componentProfiles, /class: 'dsg-profile-preview-path-new'/)
+  assert.match(componentProfiles, /class: 'dsg-profile-preview-arrow'/)
+  assert.match(componentProfiles, /changeMarker\('\+', 'marker'\)/)
+  assert.match(componentProfiles, /changeMarker\('−', 'marker'\)/)
+  assert.match(componentProfiles, /changeMarker\('~', 'marker'\)/)
+
+  // Initial geometry: 560px width fallback, a viewport-clamped 320px floor and a
+  // viewport-clamped 560px ceiling, so a long diff scrolls inside the body
+  // instead of stretching the dialog past the screen.
+  assert.match(dialogHost, /box\.width \|\| \(isProfilePreview \? 560 : wideKind \? 420 : 360\)/)
+  assert.match(
+    dialogHost,
+    /Math\.min\(\s*Math\.max\(naturalHeight, Math\.min\(Math\.max\(0, globalThis\.innerHeight - 24\), 320\)\),\s*Math\.min\(560, Math\.max\(0, globalThis\.innerHeight - 24\)\)\s*\)/
+  )
+  assert.match(dialogHost, /centeredDialogRect\(/)
+  assert.match(dialogHost, /clampDialogRect\(/)
+  // The fixed-height dialog keeps drag/resize/persistence; its body owns the
+  // scroll, so the scroll area must shrink below its content.
+  const positionedScrollArea = block('.dsg-dialog[data-positioned="true"] > .dsg-scroll-area {')
+  assert.match(positionedScrollArea, /flex:\s*1 1 auto/)
+  assert.match(positionedScrollArea, /min-height:\s*0/)
+  assert.match(block('.dsg-dialog[data-positioned="true"] .dsg-dialog-content {'), /flex:\s*1 1 auto/)
+  assert.match(block('.dsg-dialog-content {'), /overflow-y:\s*auto/)
+
+  // RTL: list indent/dividers use logical properties; only the flow arrow flips.
+  assert.match(
+    CSS,
+    /\.dsg-root\[dir="rtl"\] \.dsg-profile-preview-auto \{ margin-right:\s*0; margin-left:\s*auto; \}/
+  )
+  assert.match(
+    CSS,
+    /\.dsg-root\[dir="rtl"\] \.dsg-profile-preview-arrow \{ transform:\s*scaleX\(-1\); \}/
+  )
 })
 
 test('0.4.0 profiles: toast action keeps the old text toast and adds a button', () => {

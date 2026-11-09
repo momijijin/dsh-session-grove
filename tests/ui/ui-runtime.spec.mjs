@@ -17,6 +17,18 @@ const flatten = (node, out = []) => {
   return out
 }
 const byTestId = (tree, id) => flatten(tree).find((node) => node.props?.['data-testid'] === id)
+const childrenOf = (node) => {
+  const children = node?.props?.children
+  if (children == null) return []
+  return Array.isArray(children) ? children : [children]
+}
+const childByClass = (node, className) => childrenOf(node).find((child) => child?.props?.class === className)
+const textOf = (node) => {
+  if (typeof node === 'string') return node
+  if (Array.isArray(node)) return node.map(textOf).join('')
+  if (node && typeof node === 'object') return textOf(node.props?.children)
+  return ''
+}
 const expand = (node) => {
   if (Array.isArray(node)) return node.map(expand)
   if (!node || typeof node !== 'object') return node
@@ -496,6 +508,131 @@ test('ProfilePreviewBody renders summary, ungrouped warning and change sections'
   assert.match(text, /Session one/)
   assert.match(text, /T:profiles\.preview\.ungroupedWarning/)
   assert.match(text, /T:profiles\.preview\.noDelete/)
+  // Readability structure: the summary stays one wrapping flex line of three
+  // inline stats, while every change is a two-level title/detail pair (never a
+  // single `title · path` sentence).
+  const summaryNode = byTestId(tree, 'session-groups-profile-preview-summary')
+  assert.equal(summaryNode.props.class, 'dsg-profile-preview-summary')
+  const stats = flatten(summaryNode).filter((node) => node.props?.class === 'dsg-profile-preview-summary-stat')
+  assert.deepEqual(
+    stats.map((node) => node.props['data-stat']),
+    ['groups', 'sessions', 'ungrouped']
+  )
+  assert.equal(
+    flatten(tree).some((node) => node.props?.class === 'dsg-profile-preview-summary-row'),
+    false
+  )
+  const changes = flatten(tree).filter((node) => node.props?.class === 'dsg-profile-preview-change')
+  // The hairline divider between adjacent rows is a CSS adjacent-sibling rule,
+  // so every row must stay one direct `.dsg-profile-preview-change` child of its
+  // list (the first row has no divider).
+  const changeLists = flatten(tree).filter((node) => node.props?.class === 'dsg-profile-preview-list')
+  assert.ok(changeLists.length >= 3)
+  for (const list of changeLists) {
+    const items = childrenOf(list)
+    assert.ok(items.length > 0)
+    assert.ok(items.every((item) => item?.props?.class === 'dsg-profile-preview-change'))
+  }
+  const changeOf = (kind) => changes.find((node) => node.props?.['data-kind'] === kind)
+
+  // Session moved: title on the first line, `old → new` on the indented detail.
+  const moved = changeOf('moved')
+  assert.ok(moved)
+  const movedTitle = childByClass(moved, 'dsg-profile-preview-change-title')
+  const movedDetail = childByClass(moved, 'dsg-profile-preview-change-detail')
+  assert.equal(movedTitle.props.children, 'Session one')
+  assert.equal(textOf(movedDetail).replace(/\s+/g, ''), 'A→B')
+  assert.equal(textOf(movedTitle).includes('→'), false)
+  assert.equal(childByClass(movedDetail, 'dsg-profile-preview-path-old').props.children, 'A')
+  assert.equal(childByClass(movedDetail, 'dsg-profile-preview-path-new').props.children, 'B')
+
+  // Session newly grouped / ungrouped / stale keep the same two-level shape.
+  const newlyGrouped = changeOf('newlyGrouped')
+  assert.ok(newlyGrouped)
+  assert.equal(textOf(childByClass(newlyGrouped, 'dsg-profile-preview-change-title')), 's2')
+  assert.equal(
+    textOf(childByClass(newlyGrouped, 'dsg-profile-preview-change-detail')).replace(/\s+/g, ''),
+    '→B'
+  )
+  const ungrouped = changeOf('ungrouped')
+  assert.ok(ungrouped)
+  assert.equal(textOf(childByClass(ungrouped, 'dsg-profile-preview-change-detail')).replace(/\s+/g, ''), 'A→T:ungrouped.title')
+  const stale = changeOf('stale')
+  assert.ok(stale)
+  assert.equal(textOf(childByClass(stale, 'dsg-profile-preview-change-title')), 's4')
+  assert.equal(
+    textOf(childByClass(stale, 'dsg-profile-preview-change-detail')),
+    'T:profiles.preview.stale'
+  )
+
+  // Group added/changed: inline marker + path, changed adds an old-path detail.
+  const addedGroup = changeOf('added')
+  assert.ok(addedGroup)
+  const addedTitle = childByClass(addedGroup, 'dsg-profile-preview-change-title')
+  assert.equal(childByClass(addedTitle, 'dsg-profile-preview-change-marker').props.children, '+')
+  assert.equal(textOf(addedTitle), '+New group')
+  const changedGroup = changeOf('changed')
+  assert.ok(changedGroup)
+  assert.equal(
+    childByClass(childByClass(changedGroup, 'dsg-profile-preview-change-title'), 'dsg-profile-preview-change-marker').props.children,
+    '~'
+  )
+  assert.equal(textOf(childByClass(changedGroup, 'dsg-profile-preview-change-title')), '~B')
+  assert.equal(textOf(childByClass(changedGroup, 'dsg-profile-preview-change-detail')), 'A')
+  const removedGroup = changeOf('removed')
+  assert.ok(removedGroup)
+  assert.equal(
+    childByClass(childByClass(removedGroup, 'dsg-profile-preview-change-title'), 'dsg-profile-preview-change-marker').props.children,
+    '−'
+  )
+})
+
+test('ProfilePreviewBody keeps change titles and paths in separate wrapping lines', async () => {
+  const t = (key) => 'T:' + key
+  const { ProfilePreviewBody } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const longTitle = 'Quarterly planning session with a very long descriptive title'
+  const store = profileSnapshot({
+    profilePreview: {
+      open: true,
+      loading: false,
+      targetId: 'work',
+      targetName: 'Work',
+      previewToken: 'token',
+      doc: null,
+      diff: previewDiff(),
+      stale: false,
+      error: null,
+    },
+  })
+  const tree = ProfilePreviewBody({ store, t, byId: { s1: { id: 's1', title: longTitle } } })
+  const changes = flatten(tree).filter((node) => node.props?.class === 'dsg-profile-preview-change')
+  assert.ok(changes.length > 0)
+  assert.ok(changes.every((node) => typeof node.props['data-kind'] === 'string'))
+
+  // The session title owns the first line; the two paths keep their own text
+  // nodes on the indented detail line (no `title · old → new` sentence).
+  const moved = changes.find((node) => node.props['data-kind'] === 'moved')
+  assert.ok(moved)
+  const titleNode = childByClass(moved, 'dsg-profile-preview-change-title')
+  const detailNode = childByClass(moved, 'dsg-profile-preview-change-detail')
+  assert.equal(titleNode.props.children, longTitle)
+  const detailTexts = flatten(detailNode)
+    .map((node) => node.props?.children)
+    .filter((child) => typeof child === 'string')
+  assert.deepEqual(detailTexts, ['A', '→', 'B'])
+
+  // Group changed: new path is the title, the replaced path is the detail.
+  const changed = changes.find((node) => node.props['data-kind'] === 'changed')
+  assert.ok(changed)
+  assert.equal(textOf(childByClass(changed, 'dsg-profile-preview-change-title')), '~B')
+  assert.equal(textOf(childByClass(changed, 'dsg-profile-preview-change-detail')), 'A')
+  assert.equal(
+    flatten(changes)
+      .map((node) => node.props?.children)
+      .filter((child) => typeof child === 'string')
+      .some((child) => child.includes(' · ')),
+    false
+  )
 })
 
 test('ProfilePreviewBody truncates oversized change lists with the remaining count', async () => {

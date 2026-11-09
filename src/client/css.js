@@ -643,20 +643,41 @@ export const CSS = `
 .dsg-profile-preview { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .dsg-profile-preview-subtitle { font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-label-secondary, CanvasText); overflow-wrap: anywhere; }
 .dsg-profile-preview-loading { display: flex; align-items: center; gap: 6px; font-size: var(--dsg-font-12, 12px); color: var(--dsw-alias-label-secondary, CanvasText); }
-.dsg-profile-preview-summary { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 6px; background: var(--dsw-alias-bg-layer-1, Canvas); border: 0.5px solid var(--dsw-alias-border-l3, color-mix(in srgb, CanvasText 20%, transparent)); }
-.dsg-profile-preview-summary-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; font-size: var(--dsg-font-12, 12px); line-height: 18px; }
-.dsg-profile-preview-summary-label { color: var(--dsw-alias-label-secondary, CanvasText); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Inline stats: one wrapping line instead of three stacked rows (preview only). */
+.dsg-profile-preview-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 6px 8px; border-radius: 6px; background: var(--dsw-alias-bg-layer-1, Canvas); border: 0.5px solid var(--dsw-alias-border-l3, color-mix(in srgb, CanvasText 20%, transparent)); }
+.dsg-profile-preview-summary-stat { display: inline-flex; align-items: baseline; gap: 4px; min-width: 0; font-size: var(--dsg-font-12, 12px); line-height: 18px; }
+.dsg-profile-preview-summary-stat + .dsg-profile-preview-summary-stat::before { content: '·'; color: var(--dsw-alias-label-tertiary, CanvasText); }
+.dsg-profile-preview-summary-label { color: var(--dsw-alias-label-secondary, CanvasText); }
 .dsg-profile-preview-summary-value { flex: none; color: var(--dsw-alias-label-primary, CanvasText); font-variant-numeric: tabular-nums; }
-.dsg-profile-preview-warning { padding: 8px 10px; border-radius: 6px; background: var(--dsw-alias-state-warning-fade, rgba(210,153,34,.14)); color: var(--dsw-alias-label-primary, CanvasText); font-size: var(--dsg-font-12, 12px); line-height: 17px; }
-.dsg-profile-preview-warning-note { margin-top: 2px; color: var(--dsw-alias-label-secondary, CanvasText); }
-.dsg-profile-preview-section { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dsg-profile-preview-warning { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 6px 8px; border-radius: 6px; background: var(--dsw-alias-state-warning-fade, rgba(210,153,34,.14)); color: var(--dsw-alias-label-primary, CanvasText); font-size: var(--dsg-font-11, 11px); line-height: 15px; }
+.dsg-profile-preview-warning-note { color: var(--dsw-alias-label-secondary, CanvasText); }
+.dsg-profile-preview-section { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.dsg-profile-preview-section + .dsg-profile-preview-section { border-top: 1px solid var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 15%, transparent)); padding-top: 8px; }
 .dsg-profile-preview-section-title { font-size: var(--dsg-font-12, 12px); line-height: 17px; font-weight: 600; color: var(--dsw-alias-label-primary, CanvasText); }
-.dsg-profile-preview-block { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.dsg-profile-preview-block-label { font-size: var(--dsg-font-11, 11px); line-height: 16px; color: var(--dsw-alias-label-tertiary, CanvasText); }
-.dsg-profile-preview-list { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.dsg-profile-preview-row { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-label-secondary, CanvasText); }
-.dsg-profile-preview-row[data-kind="added"] { color: var(--dsw-alias-state-success, CanvasText); }
-.dsg-profile-preview-row[data-kind="removed"] { color: var(--dsw-alias-state-danger, CanvasText); }
+/* Two-level tree: block label, then an indented rule-guided list below it. */
+.dsg-profile-preview-block { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dsg-profile-preview-block + .dsg-profile-preview-block { border-top: 1px solid var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 9%, transparent)); padding-top: 5px; }
+.dsg-profile-preview-block-label { font-size: var(--dsg-font-11, 11px); line-height: 16px; font-weight: 500; color: var(--dsw-alias-label-secondary, CanvasText); }
+.dsg-profile-preview-list { display: flex; flex-direction: column; gap: 0; min-width: 0; margin-inline-start: 10px; padding-inline-start: 8px; border-inline-start: 1px solid var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 15%, transparent)); }
+/* Each change is a title line plus an indented path/marker detail line. Vertical
+   padding plus a hairline between adjacent rows keeps long lists readable; the
+   first row has no divider. */
+.dsg-profile-preview-change { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 8px 0; }
+.dsg-profile-preview-change + .dsg-profile-preview-change { border-top: 1px solid var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 15%, transparent)); }
+.dsg-profile-preview-change-title { min-width: 0; white-space: normal; overflow-wrap: anywhere; font-size: var(--dsg-font-13, 13px); line-height: 19px; color: var(--dsw-alias-label-primary, CanvasText); }
+.dsg-profile-preview-change-detail { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; min-width: 0; margin-inline-start: 12px; white-space: normal; overflow-wrap: anywhere; font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-label-secondary, CanvasText); }
+.dsg-profile-preview-change-marker { display: inline-block; min-width: 10px; margin-inline-end: 4px; font-weight: 600; color: var(--dsw-alias-label-tertiary, CanvasText); }
+.dsg-profile-preview-change[data-kind="added"] .dsg-profile-preview-change-marker,
+.dsg-profile-preview-change[data-kind="added"] .dsg-profile-preview-path-new { color: var(--dsw-alias-state-success, CanvasText); }
+.dsg-profile-preview-change[data-kind="removed"] .dsg-profile-preview-change-marker,
+.dsg-profile-preview-change[data-kind="removed"] .dsg-profile-preview-path-old { color: var(--dsw-alias-state-danger, CanvasText); }
+.dsg-profile-preview-path-old { color: var(--dsw-alias-label-secondary, CanvasText); text-decoration: line-through; text-decoration-thickness: 1px; overflow-wrap: anywhere; }
+.dsg-profile-preview-path-new { color: var(--dsw-alias-label-primary, CanvasText); font-weight: 500; overflow-wrap: anywhere; }
+.dsg-profile-preview-path-muted { color: var(--dsw-alias-label-secondary, CanvasText); }
+.dsg-profile-preview-arrow { flex: none; display: inline-block; color: var(--dsw-alias-label-tertiary, CanvasText); }
+.dsg-profile-preview-change-tag { color: var(--dsw-alias-state-danger, CanvasText); }
+/* Order-only note under the group blocks. */
+.dsg-profile-preview-row { min-width: 0; white-space: normal; overflow-wrap: anywhere; font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-label-secondary, CanvasText); }
 .dsg-profile-preview-truncated { font-size: var(--dsg-font-11, 11px); line-height: 16px; color: var(--dsw-alias-label-tertiary, CanvasText); }
 .dsg-profile-preview-stale { padding: 6px 8px; border-radius: 6px; font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-state-danger, CanvasText); background: var(--dsw-alias-state-danger-fade, rgba(248,81,73,.14)); }
 .dsg-profile-preview-error { font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-state-danger, CanvasText); }
@@ -751,7 +772,8 @@ export const CSS = `
   overflow: hidden;
 }
 .dsg-dialog[data-kind="icon"] { width: min(420px, calc(100vw - 32px)); }
-.dsg-dialog[data-kind="profile-preview"] { width: min(420px, calc(100vw - 32px)); }
+/* The switch preview is the widest dialog: diff rows need room to be read. */
+.dsg-dialog[data-kind="profile-preview"] { width: min(560px, calc(100vw - 24px)); padding: 12px; gap: 8px; }
 .dsg-dialog[data-kind="profile-manage"] { width: min(420px, calc(100vw - 32px)); }
 .dsg-dialog[data-kind="profile-save-as"],
 .dsg-dialog[data-kind="profile-rename"],
@@ -1010,6 +1032,8 @@ export const CSS = `
 .dsg-root[dir="rtl"] .dsg-profile-item { text-align: right; }
 .dsg-root[dir="rtl"] .dsg-profile-footer-button { text-align: right; }
 .dsg-root[dir="rtl"] .dsg-profile-preview-auto { margin-right: 0; margin-left: auto; }
+/* The flow arrow points along the inline direction, so mirror it for RTL. */
+.dsg-root[dir="rtl"] .dsg-profile-preview-arrow { transform: scaleX(-1); }
 .dsg-root[dir="rtl"] .dsg-profile-trigger svg { transform: none; }
 `
 
