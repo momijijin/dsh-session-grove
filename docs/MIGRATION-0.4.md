@@ -41,8 +41,10 @@ Profiles do not change the group document schema (`DOC_VERSION` stays 1) and do
 not require a data migration:
 
 - the copied `dsh-session-grove.json` is read as the `default` profile;
-- `dsh-session-grove.profiles.json` and `storages/profiles/<id>/` are created on
-  the first profile write (save-as/rename/archive/activate), not on upgrade;
+- `dsh-session-grove.profiles.json` is created on the first profile write
+  (save-as/create, rename, archive or activate), not on upgrade;
+- `storages/profiles/<id>/` appears only when a named profile is saved
+  (save-as/create), not for switching profiles or for the `default` profile;
 - named profiles are not imported from any earlier package, and the default file
   is not copied into `profiles/`;
 - an older build that does not know profiles reads only the default document and

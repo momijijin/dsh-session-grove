@@ -185,7 +185,7 @@ dsh-session-grove
 - registry 保存 `activeId` 与一个 revision，所有窗口对 active 配置保持一致
 - 每个配置有独立的 `.bak`、`.lock` 和隔离文件族；一个配置损坏不会覆盖或误计到另一个配置
 - 归档配置只写 `archivedAt` 标记：文档、备份与会话都留在磁盘上，不删除任何文件
-- 已有的单配置安装就是 `default` 配置；升级不会迁移、重命名或复制 `dsh-session-grove.json`，registry 与 `profiles/` 在第一次写配置时创建
+- 已有的单配置安装就是 `default` 配置；升级不会迁移、重命名或复制 `dsh-session-grove.json`；registry 在第一次写配置时创建（save-as/create 或 rename/archive/activate），而 `profiles/` 只在首次保存命名配置（save-as/create）时创建
 - 不支持配置的旧版本只读 default 文档、忽略 registry；重新升级后配置仍在
 - 不写官方工作区与会话数据
 
@@ -372,7 +372,7 @@ node scripts/session-grove-control.mjs doctor
 - AI 控制可以读写指定配置，但不能切换 active 配置。
 - 切换预览绑定 `previewToken`：预览期间若其他窗口切换了 active 或改动了目标配置，确认按钮会被禁用，需要重新打开预览；极窄窗口下预览弹窗按视口 clamp，长差异列表需要纵向滚动。
 - 重命名后“管理配置”列表刷新不走强制归档行读取（归档路径是强制的）；旧响应可能短暂隐藏新归档行，重新打开弹窗即恢复。
-- `profiles.counts` 用同一个 CLDR 复数模板显示分组数与会话数；少数语言会出现近似的名词形式（例如英文 “1 sessions”）。
+- `profiles.counts` 用同一个 CLDR 复数模板显示分组数与会话数；少数语言会出现近似的名词形式（例如英文 “1 sessions”）；后续应拆分为 `countsGroups` / `countsSessions` 两个键，当前仍为 deferred。
 - 写入使用进程内队列 + 短生命周期 `<record>.lock` 文件做跨进程串行化；持有者 PID 消失或锁文件超过 30 秒时会自动回收。
 - 大列表懒渲染仍在 deferred；当前只虚拟化未归组列表，折叠子树的 React 节点仍会构建。
 - dshmarket 目录条目尚未发布；当前 beta 阶段使用本地 tarball。
@@ -422,7 +422,7 @@ npm pack
 - `scripts/qa/start-isolated-web.ps1` + `npm run test:isolated`：A+ 隔离 Playwright 冒烟（手工本地证据，release workflow 不运行）
   - 覆盖首次引导、搜索、归档筛选、拖拽自动展开、拖拽边缘、弹窗拖动/缩放、三状态按钮、归入分组 head、收起/展开顺序、264px、英文/深色、宿主侧栏 Rail、亮色对比度
   - 覆盖外部 commit SSE 刷新、同上下文双页面同步、同 baseRevision 并发 CAS（一胜一 409）、EventSource 强制重连、会话菜单 Copy Session ID（真实剪贴板 + toast）、hover archive 存在、第一层设置、本地化标题、详情 tooltip、Switch 交互、live diagnostics HUD、destructive 二次确认取消
-  - 配置流程覆盖：新建/另存为、切换与差异预览、相同内容直切、重命名/归档、20 上限、default 恢复、双窗口 active 收敛与 `profile-changed` 409、折叠状态按配置隔离
+  - 配置流程覆盖：新建/另存为、切换与差异预览、相同内容直切、重命名/归档、20 上限、default 恢复、双窗口 active 收敛与 `profile-changed` 409、折叠状态按配置隔离；unhealthy-active 恢复条不在 A+ 覆盖内，仍为手工/待补
   - 必须先启动独立 web，取得 `web.json` 的 URL 和 testHome
   - Playwright 拒绝真实 43120 端口和真实 `~/.dsh`
 - 构建产物：`lib/client.js`

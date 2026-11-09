@@ -111,6 +111,6 @@ release workflow 不运行 Playwright、不启动隔离 DSH 实例，也不会�
 - UI runtime：38/38 cases（`npm run check:ui`；1 个模块加载 + 37 个组件测试，覆盖 17 个组件、21 个客户端模块）。
 - community A+：`0.4.0-beta.59` PASS（2026-11-06，隔离 community host；2026-11-09 以 profile 分支复跑 PASS）；official A+：`0.4.0-beta.59` PASS（2026-11-06，隔离 official host，配置功能前证据）；official locale-pack PASS；official all-locales 23/23 PASS（2026-11-06）；community all-locales 23/23 PASS（2026-11-09，含 profile 弹窗/预览）；Arabic RTL 视觉验收：2026-11-05 PASS（独立 official isolated profile 注入 + 人工审阅截图）。
 - profile 相关手工证据（2026-11-09，社区版隔离宿主，profile 分支 bundle）：`test:isolated` PASS（save-as、预览、撤销、重命名/归档、双窗口 active/`profile-changed` 409、折叠隔离、上限 20）；`test:ui-browser` PASS（executed ratio 1）；`test:locale-pack` PASS；`test:all-locales` 23/23 PASS（含配置弹窗/预览与阿拉伯语 RTL bounds）。官方 A+ O 的 profile 流程未跑；发布 PR 前补官方宿主证据。
-- 隔离宿主验证：`test:isolated` 在被测包安装后 2026-11-09 PASS；`test:all-locales` 与 `test:locale-pack` 在同一隔离实例（ja locale pack）上 PASS；所有 Playwright 进程均拒绝真实 43120 与真实 `~/.dsh`，测试 home 位于 `<temp>` 且未清理（不删除文件）。
+- 隔离宿主验证：`test:isolated` 在被测包安装后 2026-11-09 PASS；`test:all-locales` 与 `test:locale-pack` 在同一隔离实例（ja locale pack）上 PASS；四个 Playwright 脚本（`isolated`、`ui-runtime`、`all-locales`、`locale-pack`）均拒绝真实 43120 端口与真实 `~/.dsh`（`groups.spec.mjs` 是历史 CDP 手工脚本，不属于当前 Playwright 门禁），测试 home 位于 `<temp>` 且未清理（不删除文件）。
 
 A+ / all-locales 结论均为手工本地证据（见上节），不是 CI 自动门禁的产物。
