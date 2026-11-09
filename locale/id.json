@@ -311,5 +311,59 @@
   "status.subagentsRunning": {
     "one": "{n} subagen berjalan",
     "other": "{n} subagen berjalan"
-  }
+  },
+  "profiles.open": "Ganti profil pengelompokan",
+  "profiles.title": "Profil pengelompokan",
+  "profiles.defaultName": "Bawaan",
+  "profiles.copySuffix": "salinan",
+  "profiles.counts": {
+    "one": "{groups} grup · {sessions} sesi",
+    "other": "{groups} grup · {sessions} sesi"
+  },
+  "profiles.saveAs": "Simpan sebagai profil baru…",
+  "profiles.manage": "Kelola profil…",
+  "profiles.switch": "Ganti",
+  "profiles.current": "Saat ini",
+  "profiles.empty": "Belum ada profil pengelompokan",
+  "profiles.degraded": "Registri profil menurun. Perubahan profil dibatasi; beralih ke profil yang sehat untuk melanjutkan.",
+  "profiles.limit": "Hingga {max} profil",
+  "profiles.nameLabel": "Nama profil",
+  "profiles.namePlaceholder": "Nama profil",
+  "profiles.nameInvalid": "Gunakan 1–40 karakter.",
+  "profiles.nameDuplicate": "Nama itu sudah dipakai.",
+  "profiles.create": "Buat",
+  "profiles.createPreview": "Menyalin profil saat ini: {groups} grup · {sessions} sesi",
+  "profiles.rename": "Ganti nama",
+  "profiles.archive": "Arsipkan",
+  "profiles.archiveConfirm": "Pengarsipan menyembunyikannya dari pemilih dan menyimpan berkasnya; tidak ada sesi yang dihapus, dan Anda dapat memulihkannya secara manual.",
+  "profiles.archived": "Diarsipkan",
+  "profiles.previewTitle": "Beralih ke “{name}”",
+  "profiles.previewSubtitle": "Saat ini: {current} · Target: {target}",
+  "profiles.preview.groups": "Grup",
+  "profiles.preview.sessions": "Sesi",
+  "profiles.preview.added": "Ditambahkan",
+  "profiles.preview.removed": "Dihapus",
+  "profiles.preview.changed": "Diubah",
+  "profiles.preview.reordered": "Urutan berubah",
+  "profiles.preview.moved": "Dipindahkan antar grup",
+  "profiles.preview.newlyGrouped": "Baru dikelompokkan",
+  "profiles.preview.ungrouped": "Tidak dikelompokkan",
+  "profiles.preview.stale": "Referensi tidak valid",
+  "profiles.preview.ungroupedWarning": {
+    "one": "{n} sesi akan kembali ke tidak dikelompokkan.",
+    "other": "{n} sesi akan kembali ke tidak dikelompokkan."
+  },
+  "profiles.preview.noDelete": "Tidak ada yang dihapus; beralih kembali memulihkan semuanya.",
+  "profiles.preview.disable": "Langsung beralih mulai sekarang",
+  "profiles.preview.confirm": "Beralih ke profil ini",
+  "profiles.preview.staleRefresh": "Pratinjau ini sudah usang. Tutup dan pilih profil lagi.",
+  "profiles.preview.truncated": {
+    "one": "{n} item lagi tidak ditampilkan",
+    "other": "{n} item lagi tidak ditampilkan"
+  },
+  "profiles.switched": "Beralih ke “{name}”",
+  "profiles.switchedElsewhere": "Jendela lain beralih ke “{name}”",
+  "profiles.undo": "Urungkan",
+  "profiles.switching": "Sedang beralih…",
+  "profiles.saveFailed": "Tidak dapat menyelesaikan perubahan profil."
 }

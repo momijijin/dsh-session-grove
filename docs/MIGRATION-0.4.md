@@ -35,6 +35,22 @@ copy <dshHome>/storages/dsh-session-groups.json
 Keep the original file and backup until the new install has been checked.
 The new plugin writes its own `dsh-session-grove.json.bak` from that point on.
 
+## Group profiles (no migration)
+
+Profiles do not change the group document schema (`DOC_VERSION` stays 1) and do
+not require a data migration:
+
+- the copied `dsh-session-grove.json` is read as the `default` profile;
+- `dsh-session-grove.profiles.json` is created on the first profile write
+  (save-as/create, rename, archive or activate), not on upgrade;
+- `storages/profiles/<id>/` appears only when a named profile is saved
+  (save-as/create), not for switching profiles or for the `default` profile;
+- named profiles are not imported from any earlier package, and the default file
+  is not copied into `profiles/`;
+- an older build that does not know profiles reads only the default document and
+  ignores the registry; profiles created by a newer build remain on disk and
+  reappear after upgrading again.
+
 Browser preferences use new localStorage keys and are **not** copied
 automatically:
 
@@ -54,11 +70,16 @@ after migration. There is no code path that reads or deletes them.
 
 ```text
 routes:       /dsh-session-grove/*
-record:       <dshHome>/storages/dsh-session-grove.json
+record:       <dshHome>/storages/dsh-session-grove.json                 (default profile)
+registry:     <dshHome>/storages/dsh-session-grove.profiles.json        (created on first profile write)
+profiles:     <dshHome>/storages/profiles/<id>/dsh-session-grove.json   (one directory per named profile)
 control:      <dshHome>/storages/dsh-session-grove.control-token
 diagnostics:  <dshHome>/storages/dsh-session-grove.diagnostics.ndjson
 debug:        <dshHome>/storages/dsh-session-grove.debug.ndjson
 skill:        <dshHome>/skills/session-grove-control/SKILL.md
 ```
+
+Diagnostics, debug, the control token and the managed skill stay at the
+`storages` root; they are not per profile.
 
 The old files can be archived or deleted manually after the acceptance check.

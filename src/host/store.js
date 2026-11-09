@@ -11,6 +11,8 @@
  * - shape/invariant failure -> same recovery/quarantine policy, warning
  *   `recovered-backup` or `invalid-file`;
  * - `version > 1` -> `unsupported-version`, never overwritten;
+ * - `peek()` is the side-effect-free read path used by previews and health
+ *   checks: no lock, no write, no quarantine (`load()` keeps healing semantics);
  * - write path: unique temp name -> fsync -> copy previous to `.bak` ->
  *   rename -> directory fsync (where supported); Windows EPERM/EBUSY retried
  *   3x with 20ms backoff;
@@ -426,6 +428,46 @@ export const createStore = (options = {}) => {
     return { ok: true, errors: [], candidate }
   }
 
+  /**
+   * Read and classify the current file without any side effect. This is the
+   * read path for previews and health checks: it never takes the lock, never
+   * writes, never quarantines and never creates the `.bak`/`.lock` family.
+   * Genuine IO errors (not a missing file) still propagate.
+   */
+  const peekState = async () => {
+    let text
+    try {
+      text = await readFile(filePath, 'utf8')
+    } catch (error) {
+      if (error?.code === 'ENOENT') return { kind: 'missing', detail: `${filePath} does not exist` }
+      throw error
+    }
+    let parsed
+    try {
+      parsed = JSON.parse(text)
+    } catch (error) {
+      return { kind: 'corrupt', detail: `invalid JSON: ${errorMessage(error)}` }
+    }
+    if (!isObject(parsed)) return { kind: 'corrupt', detail: 'document is not a JSON object' }
+    if (typeof parsed.version === 'number' && parsed.version > DOC_VERSION) {
+      return {
+        kind: 'unsupported-version',
+        version: parsed.version,
+        detail: `document version ${String(parsed.version)} is newer than ${String(DOC_VERSION)}`,
+      }
+    }
+    if (parsed.version !== DOC_VERSION) {
+      return {
+        kind: 'invalid',
+        detail: `version must be ${String(DOC_VERSION)} (got ${JSON.stringify(parsed.version)})`,
+      }
+    }
+    parsed.groups = normalizeGroupColorHex(parsed.groups)
+    const verdict = validateDoc(parsed)
+    if (!verdict.ok) return { kind: 'invalid', detail: verdict.errors.join('; ') }
+    return { kind: 'ok', doc: parsed, revision: parsed.revision, exists: true }
+  }
+
   return {
     path: filePath,
     backupPath,
@@ -433,6 +475,15 @@ export const createStore = (options = {}) => {
     /** Read the current document. */
     load() {
       return enqueue(() => withLock(readState))
+    },
+
+    /**
+     * Read-only classification for previews and doctor/storage-health.
+     * Returns `{kind:'ok', doc, revision, exists}` or
+     * `{kind:'missing'|'corrupt'|'invalid'|'unsupported-version', detail}`.
+     */
+    peek() {
+      return peekState()
     },
 
     /** Host-owned write: stamp revision = current + 1. */

@@ -9,8 +9,9 @@
 import { assignSession, createGroup, deleteGroup, deleteGroupTo, detachSession, findGroup, moveGroup, renameGroup, setGroupColor, setGroupColorHex, setGroupIcon, workspaceOfSession } from '../shared/model.js'
 import { placeForkedSession } from '../core/fork.js'
 import { newSessionFollow, pendingFollowStillValid } from '../core/new-session-follow.js'
+import { diffDocs } from '../core/profile-diff.js'
 import { createApi } from './api.js'
-import { createStore, safeStorage } from './state.js'
+import { createExternalChangeRouter, createStore, safeStorage } from './state.js'
 import { createActions } from './actions.js'
 import { createLocaleRuntime } from './plugin-locale.js'
 import { installSettingsSlot } from './plugin-settings.js'
@@ -83,15 +84,38 @@ export const createPlugin = () => {
   let configSlotDisposer = null
   let perfDisposer = null
   let loadPromise = null
+  /** Monotonic token that invalidates an in-flight read on an active switch. */
+  let loadGeneration = 0
   let commitTail = Promise.resolve()
   let queue = null
   let bridge = null
   let debugProbe = false
   let changeSource = null
+  let changeRouter = null
+  let profileActiveListener = null
   let refreshPending = false
   let refreshForced = false
-  let latestSeenRevision = 0
   let storeSubscriptionDisposer = null
+  let profileEpochDisposer = null
+  let lastProfileEpoch = 0
+  let profilesPromise = null
+  /** Separate in-flight slot for the manage dialog's archived opt-in read. */
+  let profilesArchivedPromise = null
+  /** Sequence per slot: a forced read must not let its older response win. */
+  let profilesRequestId = 0
+  let profilesArchivedRequestId = 0
+  /** Target of the local activate request (suppresses our own SSE `active`). */
+  let profileSwitchTarget = null
+  /**
+   * A save-as create activates its copy host-side before the HTTP response
+   * lands (SPEC §5.5/§9.4). While the request runs, its `active` echo is a local
+   * switch, not "another window switched": suppressing it avoids a bogus
+   * `switchedElsewhere` toast and a redundant `/load`; the create response's
+   * own `profile-switch-success` does the read instead.
+   */
+  let createInFlight = false
+  /** SPEC §7.3 local resets (search/drag/scroll/selection/…) registered by S6. */
+  const profileResetListeners = new Set()
 
   const services = () => {
     const ctx = ctxRef
@@ -105,14 +129,36 @@ export const createPlugin = () => {
     }
   }
 
-  const notify = ({ kind = 'info', message = '' } = {}) => {
+  /**
+   * Show a transient toast (SPEC §7.8).
+   *
+   * A toast without an action keeps the original 2600ms path so every existing
+   * call is unchanged. An action (switch undo) keeps the toast for 5000ms,
+   * clears the timer when the action runs, and lets the action raise its own
+   * follow-up toast.
+   */
+  const notify = ({ kind = 'info', message = '', action = null } = {}) => {
     if (!store || !message) return
-    store.dispatch('toast', { toast: { kind, message } })
+    const actionTimerStop = () => {
+      if (toastTimer !== null) clearTimeout(toastTimer)
+      toastTimer = null
+    }
+    const storedAction = action
+      ? {
+          label: action.label,
+          duration: Number.isFinite(action.duration) ? action.duration : 5000,
+          onClick: (...args) => {
+            actionTimerStop()
+            action.onClick?.(...args)
+          },
+        }
+      : null
+    store.dispatch('toast', { toast: { kind, message, action: storedAction } })
     if (toastTimer !== null) clearTimeout(toastTimer)
     toastTimer = setTimeout(() => {
       toastTimer = null
       store?.dispatch('toast', { toast: null })
-    }, 2600)
+    }, storedAction ? storedAction.duration : 2600)
   }
 
   // --- floating drag label (V1 drag affordance; document-level overlay) ----
@@ -180,16 +226,26 @@ export const createPlugin = () => {
   // --- document load ---------------------------------------------------------
   const load = ({ background = false } = {}) => {
     if (loadPromise !== null) return loadPromise
+    const epochAtStart = store.getSnapshot().profileEpoch
+    const generationAtStart = loadGeneration
     const showLoading = shouldShowLoading({ background, docState: store.getSnapshot().docState })
     loadPromise = (async () => {
       if (showLoading) store.dispatch('load-start')
       let loadedOk = false
+      let stale = false
       const fail = (code) => {
         if (showLoading) store.dispatch('load-error', { code })
         else store.dispatch('banner', { banner: { kind: 'error', code } })
       }
       try {
         const result = await api.load()
+        // SPEC §10: an active switch while this read was in flight means this
+        // response belongs to the previous profile — discard it and re-read.
+        stale = store.getSnapshot().profileEpoch !== epochAtStart || loadGeneration !== generationAtStart
+        if (stale) {
+          diagTrace('load.stale', { reason: 'profile-epoch' })
+          return
+        }
         if (result.ok === true) {
           debugProbe = result.debugProbe === true
           if (result.diagnostics === true) {
@@ -197,22 +253,47 @@ export const createPlugin = () => {
           } else if (diagEnabled()) {
             stopDiagnostics()
           }
-          store.dispatch('load-success', { doc: result.doc, revision: result.revision, warning: result.warning })
+          // `profileId` is additive (SPEC §5.1); a legacy host omits it and the
+          // store keeps the previously known/default profile id.
+          store.dispatch('load-success', {
+            doc: result.doc,
+            revision: result.revision,
+            warning: result.warning,
+            profileId: result.profileId,
+          })
           loadedOk = true
           return
         }
         fail(result.routeUnavailable ? 'route-unavailable' : result.code ?? 'load-failed')
+        if (result.code === 'profile-unhealthy' || result.code === 'profile-missing') {
+          // SPEC §7.3 recovery: expose the healthy profiles so the shell can
+          // offer a recovery target; the main view shows the load error until
+          // an explicit preview/activate succeeds.
+          refreshProfiles({ background: true })
+        }
       } catch (error) {
+        if (store.getSnapshot().profileEpoch !== epochAtStart || loadGeneration !== generationAtStart) {
+          stale = true
+          return
+        }
         fail('load-failed')
         if (globalThis.console?.warn) globalThis.console.warn('[dsh-session-grove] load failed', error)
       } finally {
         loadPromise = null
+        if (stale) {
+          // Re-read the newly active profile once the old promise settles.
+          refreshPending = true
+          refreshForced = true
+        }
         // A newer revision may have arrived while this read was in flight, or
         // a refresh may have been deferred behind an optimistic write. Re-check
         // against the just-loaded snapshot before declaring the view settled.
-        if (loadedOk && (refreshPending || latestSeenRevision > store.getSnapshot().revision)) {
-          const pendingForce = refreshForced
-          queueMicrotask(() => requestRefresh({ force: pendingForce }))
+        if (loadedOk || stale) {
+          const current = store.getSnapshot()
+          if (refreshPending || current.latestSeenRevision > current.revision) {
+            const pendingForce = refreshForced
+            queueMicrotask(() => requestRefresh({ force: pendingForce }))
+          }
         }
       }
     })()
@@ -226,12 +307,12 @@ export const createPlugin = () => {
 
   const requestRefresh = ({ force = false } = {}) => {
     const snapshot = store.getSnapshot()
-    if (loadPromise !== null || snapshot.docState === 'loading' || snapshot.optimistic) {
+    if (loadPromise !== null || snapshot.optimistic) {
       refreshPending = true
       refreshForced = refreshForced || force
       return loadPromise
     }
-    if (!force && latestSeenRevision <= snapshot.revision) {
+    if (!force && snapshot.latestSeenRevision <= snapshot.revision) {
       refreshPending = false
       refreshForced = false
       return null
@@ -241,11 +322,320 @@ export const createPlugin = () => {
     return load({ background: true })
   }
 
-  const acceptExternalRevision = (revision) => {
-    if (!Number.isInteger(revision) || revision < 0) return
-    latestSeenRevision = Math.max(latestSeenRevision, revision)
-    if (revision <= store.getSnapshot().revision) return
-    requestRefresh()
+  // --- profile data (SPEC §7.1-§7.7) ----------------------------------------
+  /**
+   * Load the registry-backed profile list. A non-JSON 404 means the host has no
+   * profile surface at all (SPEC §7.7): flip `profiles.available` and keep the
+   * single-profile behaviour without touching the main view.
+   *
+   * `includeArchived` (SPEC §5.3/§9.5) is the manage dialog's opt-in read; it
+   * uses its own in-flight slot so it can never be deduped behind a background
+   * switcher refresh and silently lose the archived rows.
+   *
+   * `force` starts a new read even when one is in flight and drops that older
+   * response when it lands (`requestId`): after an archive (SPEC §5.7) the
+   * pre-write read would otherwise repopulate the row this write just removed.
+   */
+  const refreshProfiles = ({ background = false, includeArchived = false, force = false } = {}) => {
+    const inFlight = includeArchived ? profilesArchivedPromise : profilesPromise
+    if (!force && inFlight !== null) return inFlight
+    if (includeArchived) profilesArchivedRequestId += 1
+    else profilesRequestId += 1
+    const requestId = includeArchived ? profilesArchivedRequestId : profilesRequestId
+    if (!background) store.dispatch('profiles-loading')
+    const promise = (async () => {
+      const result = await api.listProfiles({ includeArchived })
+      // A forced read superseded this one; its rows are older than the write
+      // that triggered the force, so publishing them would resurrect stale rows.
+      if (requestId !== (includeArchived ? profilesArchivedRequestId : profilesRequestId)) {
+        diagTrace('profiles.list.stale', { includeArchived, requestId })
+        return result
+      }
+      if (result.ok === true) {
+        store.dispatch('profiles-success', {
+          registryRevision: result.registryRevision,
+          activeId: result.activeId,
+          degraded: result.degraded === true,
+          list: result.profiles,
+          limits: result.limits,
+          includeArchived,
+        })
+      } else if (result.profilesAvailable === false) {
+        store.dispatch('profiles-unavailable')
+      } else {
+        store.dispatch('profiles-error', { code: result.code, message: result.message })
+      }
+      return result
+    })().finally(() => {
+      if (includeArchived) {
+        if (profilesArchivedPromise === promise) profilesArchivedPromise = null
+      } else if (profilesPromise === promise) {
+        profilesPromise = null
+      }
+    })
+    if (includeArchived) profilesArchivedPromise = promise
+    else profilesPromise = promise
+    return promise
+  }
+
+  /**
+   * SPEC §7.5: another window switched the active profile. The change router
+   * suppresses this for a local switch (`isLocalSwitch`); here the refreshed
+   * list resolves the human name for the passive toast.
+   */
+  const announcePassiveSwitch = (activeId) => {
+    refreshProfiles({ background: true }).then((result) => {
+      const profiles = Array.isArray(result?.profiles) ? result.profiles : []
+      const profile = profiles.find((entry) => entry?.id === activeId)
+      const name = typeof profile?.name === 'string' && profile.name !== '' ? profile.name : activeId
+      notify({ kind: 'info', message: t('profiles.switchedElsewhere', { name }) })
+    })
+  }
+
+  /** Live session ids for the switch preview classification (SPEC §8.4). */
+  const liveSessionIds = () => {
+    const sessions = services().sessions
+    const snapshot = sessions?.list?.getSnapshot?.() ?? null
+    if (!snapshot) return []
+    if (Array.isArray(snapshot.ids)) return snapshot.ids
+    return Object.keys(snapshot.byId ?? {})
+  }
+
+  /**
+   * Fetch one profile preview and store the doc/diff/token the switch dialog
+   * needs. Confirmation (`activateProfile`) consumes the same token, so the
+   * host's TOCTOU check covers the whole user think-time.
+   */
+  const previewProfile = async (id) => {
+    if (typeof id !== 'string' || id === '') return { ok: false, code: 'invalid-profile-id' }
+    const epochAtStart = store.getSnapshot().profileEpoch
+    store.dispatch('profile-preview-start', { targetId: id })
+    const result = await api.previewProfile(id)
+    if (store.getSnapshot().profileEpoch !== epochAtStart) {
+      diagTrace('profile.preview.stale', { targetId: id, reason: 'profile-epoch' })
+      return { ...result, ok: false, code: 'profile-changed' }
+    }
+    if (result.ok !== true) {
+      store.dispatch('profile-preview-error', { code: result.code, message: result.message })
+      return result
+    }
+    const current = store.getSnapshot()
+    const diff = diffDocs(current.doc, result.doc, liveSessionIds())
+    store.dispatch('profile-preview-success', {
+      targetId: result.profile?.id ?? id,
+      targetName: result.profile?.name ?? null,
+      targetRevision: result.revision,
+      previewToken: result.previewToken,
+      doc: result.doc,
+      diff,
+      baseActiveId: result.activeId ?? null,
+      baseActiveRevision: result.activeRevision ?? null,
+    })
+    return result
+  }
+
+  /**
+   * Activate a previewed profile (SPEC §7.4 step 6/7). The local target
+   * suppresses our own SSE `active` echo; the response supplies the doc and its
+   * revision becomes the next commit base. Failure keeps the current profile.
+   */
+  const activateProfile = async ({ id, previewToken } = {}) => {
+    if (typeof id !== 'string' || id === '') return { ok: false, code: 'invalid-profile-id' }
+    const epochAtStart = store.getSnapshot().profileEpoch
+    profileSwitchTarget = id
+    store.dispatch('profile-switch-start', { targetId: id })
+    let result
+    try {
+      result = await api.activateProfile({ id, previewToken })
+    } catch (error) {
+      result = { ok: false, code: 'network', message: String(error?.message ?? error) }
+    } finally {
+      if (profileSwitchTarget === id) profileSwitchTarget = null
+    }
+    const snapshot = store.getSnapshot()
+    // Another window switched while this activate was in flight: the router
+    // already reset/reloaded the view, so applying this stale response would
+    // stomp newer state. Report it as superseded instead.
+    const superseded =
+      snapshot.profileEpoch !== epochAtStart &&
+      snapshot.profileId !== id &&
+      snapshot.profiles.activeId !== id
+    if (superseded) {
+      diagTrace('profile.activate.superseded', { targetId: id, activeId: snapshot.profiles.activeId })
+      return { ...result, superseded: true }
+    }
+    if (result?.ok === true) {
+      store.dispatch('profile-switch-success', {
+        profileId: result.activeId ?? id,
+        doc: result.doc,
+        revision: result.doc?.revision,
+        registryRevision: result.registryRevision,
+      })
+      refreshProfiles({ background: true })
+      return result
+    }
+    store.dispatch('profile-switch-failure', { code: result?.code, message: result?.message })
+    return result
+  }
+
+  /**
+   * SPEC §9.4/§9.5: profile-write errors become inline dialog copy. Codes the
+   * host emits for these routes map onto the existing translated keys; there is
+   * no dedicated locale string for `profile-in-use`/`conflict`/io, so they fall
+   * back to the generic "could not complete" copy.
+   */
+  const profileDialogError = (code) => {
+    if (code === 'profile-name-invalid') return 'profiles.nameInvalid'
+    if (code === 'profile-name-duplicate') return 'profiles.nameDuplicate'
+    if (code === 'profile-limit') return 'profiles.limit'
+    if (code === 'registry-unhealthy' || code === 'profile-unhealthy') return 'profiles.degraded'
+    return 'profiles.saveFailed'
+  }
+
+  const profileDialogErrorParams = (code) =>
+    code === 'profile-limit' ? { max: store.getSnapshot().profiles.limits?.max ?? 20 } : null
+
+  /** Close the rename/archive dialog but keep the manage list (SPEC §9.5). */
+  const reopenProfileManage = () => {
+    store.dispatch('dialog', { dialog: { kind: 'profile-manage', titleKey: 'profiles.title' } })
+  }
+
+  /**
+   * SPEC §7.4 step 9/10 + §9.2: profile writes are refused while a switch runs
+   * or a document write is unsettled. Returns a result instead of throwing so
+   * the dialog can keep its inline error surface.
+   */
+  const profileWriteGuard = () => {
+    const snapshot = store.getSnapshot()
+    if (snapshot.profileSwitching === true) return { ok: false, code: 'profile-switching' }
+    if (queue?.isPending() === true) {
+      notify({ kind: 'info', message: t('profiles.switching') })
+      return { ok: false, code: 'pending' }
+    }
+    return null
+  }
+
+  /**
+   * SPEC §5.5/§9.4: save-as clones the active document and activates the copy.
+   * Success reuses the switch reset (`profile-switch-success`) because the new
+   * profile becomes active; failure keeps the dialog open for inline copy.
+   */
+  const createProfile = async ({ name } = {}) => {
+    const text = typeof name === 'string' ? name.trim() : ''
+    if (text === '') {
+      failDialog('profiles.nameInvalid')
+      return { ok: false, code: 'profile-name-invalid' }
+    }
+    const guard = profileWriteGuard()
+    if (guard !== null) return guard
+    const snapshot = store.getSnapshot()
+    let result
+    createInFlight = true
+    try {
+      result = await api.createProfile({ name: text, baseRevision: snapshot.profiles.registryRevision })
+    } catch (error) {
+      result = { ok: false, code: 'network', message: String(error?.message ?? error) }
+    } finally {
+      // Clear on both paths: a failed create must not keep suppressing later
+      // `active` events from other windows (SPEC §7.5).
+      createInFlight = false
+    }
+    if (result?.ok !== true) {
+      // A registry CAS loss leaves the local revision stale: refresh so the next
+      // confirm attempt uses the current base (SPEC §5.5/§10).
+      if (result?.code === 'conflict') refreshProfiles({ background: true })
+      failDialog(profileDialogError(result?.code), profileDialogErrorParams(result?.code))
+      return result
+    }
+    const profileName = result.profile?.name ?? text
+    store.dispatch('profile-switch-success', {
+      profileId: result.activeId ?? result.profile?.id ?? null,
+      doc: result.doc,
+      revision: result.doc?.revision,
+      registryRevision: result.registryRevision,
+    })
+    // The create response is the only owner of the local switch now that the
+    // SSE echo was suppressed: force the list so a read started before the
+    // write cannot hide the brand-new profile row.
+    refreshProfiles({ background: true, force: true })
+    notify({ kind: 'success', message: t('profiles.switched', { name: profileName }) })
+    return result
+  }
+
+  /** SPEC §5.6/§9.5: rename keeps the manage dialog in view afterwards. */
+  const renameProfile = async ({ id, name } = {}) => {
+    const text = typeof name === 'string' ? name.trim() : ''
+    if (text === '') {
+      failDialog('profiles.nameInvalid')
+      return { ok: false, code: 'profile-name-invalid' }
+    }
+    const guard = profileWriteGuard()
+    if (guard !== null) return guard
+    const snapshot = store.getSnapshot()
+    let result
+    try {
+      result = await api.renameProfile({ id, name: text, baseRevision: snapshot.profiles.registryRevision })
+    } catch (error) {
+      result = { ok: false, code: 'network', message: String(error?.message ?? error) }
+    }
+    if (result?.ok !== true) {
+      if (result?.code === 'conflict') refreshProfiles({ background: true })
+      failDialog(profileDialogError(result?.code), profileDialogErrorParams(result?.code))
+      return result
+    }
+    refreshProfiles({ background: true })
+    refreshProfiles({ background: true, includeArchived: true })
+    reopenProfileManage()
+    notify({ kind: 'success', message: t('toast.saved') })
+    return result
+  }
+
+  /** SPEC §5.7/§9.5: archive only hides the profile; its file and sessions stay. */
+  const archiveProfile = async ({ id } = {}) => {
+    const guard = profileWriteGuard()
+    if (guard !== null) return guard
+    const snapshot = store.getSnapshot()
+    let result
+    try {
+      result = await api.archiveProfile({ id, baseRevision: snapshot.profiles.registryRevision })
+    } catch (error) {
+      result = { ok: false, code: 'network', message: String(error?.message ?? error) }
+    }
+    if (result?.ok !== true) {
+      if (result?.code === 'conflict') refreshProfiles({ background: true })
+      failDialog(profileDialogError(result?.code), profileDialogErrorParams(result?.code))
+      return result
+    }
+    // SPEC §5.7: the archive just changed the registry. A read that started
+    // before the write must not win the race and re-show the archived row in
+    // the manage list, so both slots are forced; the archived read also moves
+    // the row into the read-only section immediately.
+    refreshProfiles({ background: true, force: true })
+    refreshProfiles({ background: true, includeArchived: true, force: true })
+    reopenProfileManage()
+    notify({ kind: 'success', message: t('toast.saved') })
+    return result
+  }
+
+  /** SPEC §7.3 reset hook: S6 registers drag/search/selection/scroll resets. */
+  const onProfileSwitchReset = (listener) => {
+    if (typeof listener !== 'function') return () => {}
+    profileResetListeners.add(listener)
+    return () => {
+      profileResetListeners.delete(listener)
+    }
+  }
+
+  const runProfileResets = () => {
+    pendingNewSessionPlacement = null
+    setFloatingLabel(null)
+    for (const listener of [...profileResetListeners]) {
+      try {
+        listener()
+      } catch {
+        /* one local reset must not block the others */
+      }
+    }
   }
 
   const startChangeStream = () => {
@@ -253,7 +643,7 @@ export const createPlugin = () => {
       storeSubscriptionDisposer = store.subscribe(() => {
         if (!refreshPending) return
         const snapshot = store.getSnapshot()
-        if (snapshot.optimistic || snapshot.docState === 'loading') return
+        if (snapshot.optimistic) return
         requestRefresh({ force: refreshForced })
       })
     }
@@ -265,17 +655,35 @@ export const createPlugin = () => {
       onRevision: (event) => {
         try {
           const payload = JSON.parse(event.data)
-          acceptExternalRevision(payload?.revision)
+          // SPEC §7.5 / WORKLOG S4 carry #1: revisions are scoped to the
+          // profile that accepted the write. A non-active profile's control or
+          // tool write must never advance the visible revision (that used to
+          // cause a self-sustaining background reload).
+          changeRouter?.revision(payload)
         } catch {
           /* ignore malformed invalidation */
         }
       },
       onOpen: () => {
-        // Reconnect recovery: catch revisions committed while the stream was down.
+        // Reconnect recovery: catch revisions and profile changes made while
+        // the stream was down (SPEC §7.5: /load + /profiles on open).
+        refreshProfiles({ background: true })
         requestRefresh({ force: true })
       },
     })
-    if (stream !== null) changeSource = stream
+    if (stream !== null) {
+      changeSource = stream
+      // The shared adapter only exposes the `revision` listener; subscribe to
+      // the additive `active` event on the same EventSource instance.
+      profileActiveListener = (event) => {
+        try {
+          changeRouter?.active(JSON.parse(event.data))
+        } catch {
+          /* ignore malformed switch notification */
+        }
+      }
+      stream.source?.addEventListener?.('active', profileActiveListener)
+    }
   }
 
   // --- slot lifecycle -------------------------------------------------------
@@ -536,9 +944,9 @@ export const createPlugin = () => {
 
   const closeDialog = () => store.dispatch('dialog', { dialog: null })
 
-  const failDialog = (messageKey) => {
+  const failDialog = (messageKey, params = null) => {
     const dialog = store.getSnapshot().dialog
-    if (dialog) store.dispatch('dialog', { dialog: { ...dialog, error: messageKey } })
+    if (dialog) store.dispatch('dialog', { dialog: { ...dialog, error: messageKey, errorParams: params } })
   }
 
   const commitDocFromAction = async (nextDoc, successKey = 'toast.saved') => {
@@ -685,10 +1093,58 @@ export const createPlugin = () => {
 
     queue = createOptimisticQueue({
       store,
-      commit: (doc, revision) => api.commit(doc, revision),
+      commit: (doc, revision, profileId) => api.commit(doc, revision, profileId),
       notify,
       t: (key, params) => t(key, params),
       trace: (type, detail) => diagTrace(type, detail),
+    })
+    changeRouter = createExternalChangeRouter({
+      store,
+      requestRefresh,
+      onActiveChange: (activeId, info) => {
+        // Local echo (activate target or save-as create): the response path owns
+        // the document read and the toast, so a passive-switch reload/toast here
+        // would duplicate it (SPEC §7.5).
+        if (info.local) return
+        const snapshot = store.getSnapshot()
+        // Our own successful switch echo (or a registry-only bump) when the
+        // document is already settled: the list refresh is enough.
+        if (!info.changed && snapshot.profileId === activeId && snapshot.docState === 'ready') {
+          refreshProfiles({ background: true })
+          return
+        }
+        // Any `active` event may have raced an in-flight read (the read can
+        // still return the previous profile), so invalidate it even when the
+        // registry id already matches the freshly loaded list.
+        loadGeneration += 1
+        refreshPending = false
+        refreshForced = true
+        if (info.changed) {
+          // The router already dispatched the reset (epoch/latest revision/doc
+          // state); read the new active document and registry list now, then
+          // announce the passive switch with the resolved profile name.
+          load()
+          announcePassiveSwitch(activeId)
+        } else {
+          load({ background: true })
+          refreshProfiles({ background: true })
+        }
+      },
+      isLocalSwitch: (activeId) =>
+        createInFlight || (profileSwitchTarget !== null && profileSwitchTarget === activeId),
+      trace: (type, detail) => diagTrace(type, detail),
+    })
+    lastProfileEpoch = store.getSnapshot().profileEpoch
+    profileEpochDisposer = store.subscribe(() => {
+      const epoch = store.getSnapshot().profileEpoch
+      if (epoch === lastProfileEpoch) return
+      lastProfileEpoch = epoch
+      // SPEC §7.3: the switch invalidates in-flight writes and every local
+      // GroupsView interaction; the next render reads the new profile's doc.
+      refreshPending = false
+      refreshForced = false
+      queue?.discardPending('profile-changed')
+      runProfileResets()
     })
 
     styleDisposer = installStyles(globalThis.document)
@@ -713,8 +1169,17 @@ export const createPlugin = () => {
       copySessionId,
       commitDoc,
       commitOptimistic,
+      /** SPEC §7.4 step 2: a switch must be refused while a write is pending. */
+      isPending: () => queue?.isPending() === true,
       load,
       retryLoad,
+      refreshProfiles,
+      previewProfile,
+      activateProfile,
+      createProfile,
+      renameProfile,
+      archiveProfile,
+      onProfileSwitchReset,
       setMode,
       toggleMode,
       openDialog,
@@ -736,6 +1201,9 @@ export const createPlugin = () => {
     }
     installClientRuntime(bridge)
     startChangeStream()
+    // SPEC §7.2/§7.7: probe the profile surface at mount. Old hosts answer a
+    // non-JSON 404 and the store silently switches to single-profile mode.
+    refreshProfiles()
 
     const onWindowResize = () => {
       if (updateManagedWidth(readSidebarWidth(), globalThis.innerWidth || 1440) === null) syncSidebarWidth()
@@ -791,13 +1259,24 @@ export const createPlugin = () => {
         configSlotDisposer = null
         if (typeof storeSubscriptionDisposer === 'function') storeSubscriptionDisposer()
         storeSubscriptionDisposer = null
+        if (typeof profileEpochDisposer === 'function') profileEpochDisposer()
+        profileEpochDisposer = null
         if (typeof pendingFollowGuardDisposer === 'function') pendingFollowGuardDisposer()
         pendingFollowGuardDisposer = null
+        if (changeSource !== null && typeof profileActiveListener === 'function') {
+          changeSource.source?.removeEventListener?.('active', profileActiveListener)
+        }
+        profileActiveListener = null
         changeSource?.close?.()
         changeSource = null
+        changeRouter = null
+        profileResetListeners.clear()
+        profileSwitchTarget = null
+        createInFlight = false
+        profilesPromise = null
+        profilesArchivedPromise = null
         refreshPending = false
         refreshForced = false
-        latestSeenRevision = 0
         if (typeof perfDisposer === 'function') perfDisposer()
         perfDisposer = null
         if (typeof styleDisposer === 'function') styleDisposer()

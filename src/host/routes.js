@@ -1,13 +1,21 @@
 /**
  * The host routes.
  *
- * GET  /dsh-session-grove/load         -> current revision + document
- * POST /dsh-session-grove/commit       -> compare-and-set write
+ * GET  /dsh-session-grove/load         -> active profile id + revision + document
+ * POST /dsh-session-grove/commit       -> compare-and-set write to the active profile
  * POST /dsh-session-grove/diagnostics  -> append-only drag trace (0.2.5)
+ * GET  /dsh-session-grove/profiles     -> profile list (mounted with a profile manager)
+ * GET  /dsh-session-grove/profiles/preview?id= -> read-only target preview + token
+ * POST /dsh-session-grove/profiles/{create,rename,archive,activate} -> registry writes
  *
  * Frozen contract: docs/CONTRACTS.md §2.
+ * Multi-profile: SPEC §4.6/4.7/5.1/5.2/5.3-5.10 (the default profile keeps the
+ * legacy load/commit semantics; named profiles are health-checked with the
+ * side-effect-free `peek()` before they are served or written).
  * Status matrix: 200 / 400 (unreadable body) / 405+Allow / 409 conflict /
- * 409 unsupported-version / 413 / 415 / 422 / 503 fence-unavailable|io.
+ * 409 unsupported-version / 409 profile-missing|profile-unhealthy|profile-changed|
+ * profile-archived|profile-in-use|profile-limit|preview-stale|registry-unhealthy /
+ * 413 / 415 / 422 invalid-profile-id|profile-name-* / 503 fence-unavailable|io.
  * Responses are JSON, `cache-control: no-store`, and never set CORS headers.
  * The fence runs before method/body handling. Diagnostics writes only the
  * dedicated `.ndjson` file under `storages/`, never the official host data.
@@ -19,18 +27,77 @@ import { dirname } from 'node:path'
 import { repairManagedSkill } from './skill-install.js'
 import { registerSessionRoutes } from './session-routes.js'
 import { registerControlRoutes } from './control-routes.js'
-import { COMMIT_PATH, DEBUG_PATH, DIAGNOSTICS_PATH, LOAD_PATH, MAX_BODY_BYTES, MAX_CONTROL_BODY_BYTES, MAX_DIAGNOSTICS_BODY_BYTES, MAX_DIAGNOSTICS_FILE_BYTES, SKILL_REPAIR_PATH } from './constants.js'
+import { registerProfileRoutes } from './profile-routes.js'
+import { COMMIT_PATH, DEBUG_PATH, DIAGNOSTICS_PATH, LOAD_PATH, MAX_BODY_BYTES, MAX_CONTROL_BODY_BYTES, MAX_DIAGNOSTICS_BODY_BYTES, MAX_DIAGNOSTICS_FILE_BYTES, SKILL_REPAIR_PATH, DEFAULT_PROFILE_ID } from './constants.js'
 import { fenceRequest, probeConnection } from './fence.js'
 import { logInfo, logWarn } from './log.js'
 
-import { sendJson, sendEmpty, sendMethodNotAllowed, contentTypeOf, readBoundedBody, controlPlanHash, unexpectedControlField, loadResponse, commitResponse, parseCommitBody, parseDiagnosticsBody } from './route-contract.js'
+import { sendJson, sendEmpty, sendMethodNotAllowed, contentTypeOf, readBoundedBody, unexpectedControlField, loadResponse, commitResponse, parseCommitBody, parseDiagnosticsBody, profileFailureResponse, profileChangedResponse, registryUnhealthyResponse, profileHealth } from './route-contract.js'
 export { loadResponse, commitResponse, parseCommitBody, parseDiagnosticsBody } from './route-contract.js'
+
+const isProfileManager = (value) =>
+  value !== null &&
+  typeof value === 'object' &&
+  typeof value.loadRegistry === 'function' &&
+  typeof value.storeFor === 'function' &&
+  typeof value.peekFor === 'function' &&
+  typeof value.entryFor === 'function'
+
+/**
+ * Minimal manager over a single legacy store (direct-route tests and the
+ * frozen integration harness pass only a store). The active profile is always
+ * `default`; no registry file is read or written.
+ */
+const createLegacyProfileManager = (store) => {
+  const defaultEntry = () => ({ id: DEFAULT_PROFILE_ID, name: null, dir: '.', archivedAt: null })
+  const assertDefault = (id) => {
+    if (id !== DEFAULT_PROFILE_ID) {
+      throw Object.assign(new Error(`unknown profile: ${String(id)}`), { code: 'invalid-profile-id' })
+    }
+  }
+  return {
+    // Informational only: the legacy adapter's routes never derive artifacts
+    // from a profile path, and synthetic test stores may omit `path`.
+    storageDir: typeof store?.path === 'string' && store.path.length > 0 ? dirname(store.path) : null,
+    activeId: async () => DEFAULT_PROFILE_ID,
+    activeStore: async () => store,
+    storeFor: (id) => {
+      assertDefault(id)
+      return store
+    },
+    peekFor: (id) => {
+      assertDefault(id)
+      return store.peek()
+    },
+    entryFor: async (id) => (id === DEFAULT_PROFILE_ID ? defaultEntry() : null),
+    loadRegistry: async () => ({
+      kind: 'ok',
+      registry: { version: 1, revision: 0, activeId: DEFAULT_PROFILE_ID, profiles: [defaultEntry()] },
+      revision: 0,
+      exists: false,
+      degraded: false,
+    }),
+  }
+}
 
 export const registerRoutes = (ctx, store, options = {}) => {
   if (typeof ctx?.webServer?.register !== 'function') {
     logWarn(ctx, 'dsh-session-grove: webServer.register is unavailable; host routes are not mounted')
     return { registered: false, routes: [] }
   }
+  const suppliedManager = isProfileManager(options.profileManager)
+    ? options.profileManager
+    : isProfileManager(store)
+      ? store
+      : null
+  const profileManager = suppliedManager ?? createLegacyProfileManager(store)
+  // The profile management routes need the registry; the legacy single-store
+  // adapter keeps the historical route set (no /profiles surface at all).
+  const manageProfiles =
+    suppliedManager !== null && typeof suppliedManager.registry?.createProfile === 'function'
+  // Legacy load/commit paths keep the default store; the control routes resolve
+  // their target store per request through the manager (SPEC 6.1).
+  const defaultStore = profileManager.storeFor(DEFAULT_PROFILE_ID)
   const diagnosticsFilePath =
     typeof options.diagnosticsFilePath === 'string' && options.diagnosticsFilePath.length > 0
       ? options.diagnosticsFilePath
@@ -50,12 +117,33 @@ export const registerRoutes = (ctx, store, options = {}) => {
   const controlSessionsEnabled = () => (typeof options.controlSessionsEnabled === 'function' ? options.controlSessionsEnabled() === true : options.controlSessionsEnabled === true)
   const skillDshHome = typeof options.skillDshHome === 'string' && options.skillDshHome.length > 0 ? options.skillDshHome : null
   const changeHub = options.changeHub ?? null
-  const publishChange = (revision, source) => {
+  const publishChange = (revision, source, profileId = DEFAULT_PROFILE_ID) => {
     try {
-      changeHub?.publish?.(revision, source)
+      changeHub?.publish?.(revision, source, profileId)
     } catch {
       /* notification must never fail a committed write */
     }
+  }
+  /** SPEC 5.8/5.9: announce a global active-profile switch after create/activate. */
+  const publishActive = (activeId, registryRevision) => {
+    try {
+      changeHub?.publishActive?.(activeId, registryRevision)
+    } catch {
+      /* notification must never fail a registry write */
+    }
+  }
+  const logLoadWarning = (result) => {
+    if (result.warning === undefined) return
+    logWarn(
+      ctx,
+      `dsh-session-grove: load warning ${result.warning}: ${result.detail ?? ''} (quarantined: ${
+        result.quarantinedTo ?? 'no'
+      })`,
+    )
+  }
+  const sendProfileFailure = (res, peek, activeId) => {
+    const code = peek.kind === 'missing' ? 'profile-missing' : 'profile-unhealthy'
+    sendJson(res, 409, profileFailureResponse(code, activeId, profileHealth(peek)).body)
   }
   const getService = (name) => {
     try {
@@ -156,16 +244,50 @@ export const registerRoutes = (ctx, store, options = {}) => {
         return
       }
       try {
-        const result = await store.load()
-        if (result.warning !== undefined) {
+        const registryState = await profileManager.loadRegistry()
+        if (registryState.degraded === true) {
+          // SPEC 4.3/5.1: a degraded registry still serves the default
+          // document (legacy read semantics) with an explicit warning.
           logWarn(
             ctx,
-            `dsh-session-grove: load warning ${result.warning}: ${result.detail ?? ''} (quarantined: ${
-              result.quarantinedTo ?? 'no'
-            })`,
+            `dsh-session-grove: profile registry degraded: ${registryState.detail ?? registryState.warning ?? ''}`,
           )
+          const result = await defaultStore.load()
+          logLoadWarning(result)
+          const { status, body } = loadResponse(result, DEFAULT_PROFILE_ID)
+          if (status === 200) body.warning = 'registry-degraded'
+          sendJson(res, status, { ...body, diagnostics: diagnosticsEnabled(), debugProbe: debugProbeEnabled() })
+          return
         }
-        const { status, body } = loadResponse(result)
+        const activeId = registryState.registry.activeId
+        if (activeId === DEFAULT_PROFILE_ID) {
+          // The default profile keeps the legacy load semantics: a missing
+          // file is a healthy empty document and corrupt/unsupported files
+          // keep their historical warnings/status codes.
+          const result = await defaultStore.load()
+          logLoadWarning(result)
+          const { status, body } = loadResponse(result, activeId)
+          sendJson(res, status, { ...body, diagnostics: diagnosticsEnabled(), debugProbe: debugProbeEnabled() })
+          return
+        }
+        // A named active profile is checked read-only first: `peek()` never
+        // quarantines, so an unhealthy document is not rewritten by a read. The
+        // entry comes from the same registry snapshot (one read, no TOCTOU).
+        const entry = registryState.registry.profiles.find((profile) => profile.id === activeId) ?? null
+        if (entry === null) {
+          sendJson(res, 409, profileFailureResponse('profile-missing', activeId, { kind: 'missing' }).body)
+          return
+        }
+        if (entry.archivedAt !== null) {
+          sendJson(res, 409, profileFailureResponse('profile-unhealthy', activeId, { kind: 'archived' }).body)
+          return
+        }
+        const peek = await profileManager.peekFor(activeId)
+        if (peek.kind !== 'ok') {
+          sendProfileFailure(res, peek, activeId)
+          return
+        }
+        const { status, body } = loadResponse({ kind: 'ok', revision: peek.revision, doc: peek.doc }, activeId)
         sendJson(res, status, { ...body, diagnostics: diagnosticsEnabled(), debugProbe: debugProbeEnabled() })
       } catch (error) {
         logWarn(ctx, `dsh-session-grove: load failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -224,9 +346,49 @@ export const registerRoutes = (ctx, store, options = {}) => {
       }
 
       try {
-        const result = await store.commit(parsed.baseRevision, parsed.doc)
-        const { status, body: payload } = commitResponse(result)
-        if (status === 200) publishChange(payload.revision, 'http-commit')
+        const registryState = await profileManager.loadRegistry()
+        if (registryState.degraded === true) {
+          sendJson(res, 409, registryUnhealthyResponse().body)
+          return
+        }
+        const activeId = registryState.registry.activeId
+        // Missing `profileId` means "the active profile" for old clients. An
+        // explicit different id is rejected, never silently rewritten.
+        const requestedProfileId = parsed.profileId ?? activeId
+        if (requestedProfileId !== activeId) {
+          const activeHealth = await profileManager.peekFor(activeId)
+          const revision =
+            activeHealth.kind === 'ok'
+              ? activeHealth.revision
+              : activeId === DEFAULT_PROFILE_ID
+                ? 0
+                : null
+          const { status, body: payload } = profileChangedResponse(activeId, revision, registryState.revision)
+          sendJson(res, status, payload)
+          return
+        }
+        if (activeId !== DEFAULT_PROFILE_ID) {
+          // Health is pre-checked read-only so a commit against a corrupt
+          // named document cannot quarantine it before the CAS runs. The entry
+          // comes from the same registry snapshot (one read, no TOCTOU).
+          const entry = registryState.registry.profiles.find((profile) => profile.id === activeId) ?? null
+          if (entry === null) {
+            sendJson(res, 409, profileFailureResponse('profile-missing', activeId, { kind: 'missing' }).body)
+            return
+          }
+          if (entry.archivedAt !== null) {
+            sendJson(res, 409, profileFailureResponse('profile-unhealthy', activeId, { kind: 'archived' }).body)
+            return
+          }
+          const health = await profileManager.peekFor(activeId)
+          if (health.kind !== 'ok') {
+            sendProfileFailure(res, health, activeId)
+            return
+          }
+        }
+        const result = await profileManager.storeFor(activeId).commit(parsed.baseRevision, parsed.doc)
+        const { status, body: payload } = commitResponse(result, activeId)
+        if (status === 200) publishChange(payload.revision, 'http-commit', activeId)
         sendJson(res, status, payload)
       } catch (error) {
         logWarn(ctx, `dsh-session-grove: commit failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -383,9 +545,9 @@ export const registerRoutes = (ctx, store, options = {}) => {
   let sessionArchivePath = null
   let skillRepairPath = null
   let eventsPath = null
-    const controlRoutes = registerControlRoutes({
+  const controlRoutes = registerControlRoutes({
     register,
-    store,
+    profileManager,
     ctx,
     options,
     changeHub,
@@ -400,7 +562,6 @@ export const registerRoutes = (ctx, store, options = {}) => {
     unexpectedControlField,
     loadResponse,
     commitResponse,
-    controlPlanHash,
     publishChange,
     logInfo,
   })
@@ -468,6 +629,27 @@ const sessionRoutes = registerSessionRoutes({
     )
   }
 
+  let profilesPath = null
+  let profilesPreviewPath = null
+  let profilesCreatePath = null
+  let profilesRenamePath = null
+  let profilesArchivePath = null
+  let profilesActivatePath = null
+  if (manageProfiles) {
+    const profileRoutes = registerProfileRoutes({
+      register,
+      profileManager,
+      fenceDenied,
+      publishActive,
+    })
+    profilesPath = profileRoutes.profilesPath
+    profilesPreviewPath = profileRoutes.previewPath
+    profilesCreatePath = profileRoutes.createPath
+    profilesRenamePath = profileRoutes.renamePath
+    profilesArchivePath = profileRoutes.archivePath
+    profilesActivatePath = profileRoutes.activatePath
+  }
+
   return {
     registered: true,
     routes: [
@@ -480,6 +662,16 @@ const sessionRoutes = registerSessionRoutes({
       ...(controlStatePath === null ? [] : [controlStatePath, controlCatalogPath, controlResolvePath, controlPlanPath, controlApplyPath]),
       ...(sessionInspectPath === null ? [] : [sessionInspectPath, sessionRenamePath, sessionArchivePath]),
       ...(skillRepairPath === null ? [] : [skillRepairPath]),
+      ...(profilesPath === null
+        ? []
+        : [
+            profilesPath,
+            profilesPreviewPath,
+            profilesCreatePath,
+            profilesRenamePath,
+            profilesArchivePath,
+            profilesActivatePath,
+          ]),
     ],
   }
 }

@@ -22,10 +22,36 @@ const menuSourceRow = (menu) => {
   return null
 }
 
+/**
+ * Transient toast. SPEC §7.8/§9.6: besides the message a toast may carry one
+ * text action (switch undo). The action clears the toast immediately when it
+ * runs; the plugin owns the 5s vs 2.6s dismissal timers.
+ */
 export const Toast = ({ store }) => {
   const toastState = store.toast
   if (!toastState) return null
-  return h('div', { class: 'dsg-toast', 'data-testid': 'session-groups-toast' }, toastState.message ?? '')
+  const action = toastState.action ?? null
+  if (!action) return h('div', { class: 'dsg-toast', 'data-testid': 'session-groups-toast' }, toastState.message ?? '')
+  return h(
+    'div',
+    { class: 'dsg-toast', 'data-testid': 'session-groups-toast' },
+    toastState.message ?? '',
+    h(
+      'button',
+      {
+        type: 'button',
+        class: 'dsg-toast-action',
+        'data-testid': 'session-groups-toast-action',
+        onClick: (event) => {
+          event.stopPropagation()
+          // Clear first: the action may raise its own toast (undo success/failure).
+          rt()?.store?.dispatch?.('toast', { toast: null })
+          action.onClick?.()
+        },
+      },
+      action.label ?? rt()?.t?.('profiles.undo') ?? 'Undo'
+    )
+  )
 }
 
 export const MenuPopover = ({ store, handlers }) => {

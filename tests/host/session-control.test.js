@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { tmpdir } from 'node:os'
 import {
   CONTROL_SESSION_ARCHIVE_PATH,
   CONTROL_SESSION_INSPECT_PATH,
@@ -246,4 +247,47 @@ test('rename and archive stay behind the session mutation switch before token an
   assert.equal(archived.res.statusCode, 200)
   assert.deepEqual(state.calls.archive, [['s-1', {}]])
   assert.deepEqual(state.registry.archivedSessionIds, ['s-1'])
+})
+
+test('session actions are host-scoped and reject a profileId field', async (t) => {
+  const state = sessionServices()
+  const store = {
+    async load() {
+      throw new Error('session actions must not read a profile document')
+    },
+    async commit() {
+      throw new Error('session actions must not write a profile document')
+    },
+  }
+  const profileManager = {
+    storageDir: tmpdir(),
+    defaultFilePath: null,
+    storeFor: () => store,
+    loadRegistry: async () => {
+      throw new Error('session actions must not read the profile registry')
+    },
+    peekFor: () => {
+      throw new Error('session actions must not peek a profile')
+    },
+    entryFor: () => {
+      throw new Error('session actions must not resolve a profile entry')
+    },
+  }
+  const mounted = await mountRoutes({
+    profileManager,
+    connection: connection(),
+    controlApiEnabled: true,
+    controlSessionsEnabled: true,
+    services: state.services,
+  })
+  t.after(() => mounted.cleanup())
+
+  const inspected = await mounted.call(CONTROL_SESSION_INSPECT_PATH, post({ sessionId: 's-1' }))
+  assert.equal(inspected.res.statusCode, 200)
+  assert.equal(inspected.json.title, 'old title')
+
+  const extra = await mounted.call(CONTROL_SESSION_INSPECT_PATH, post({ sessionId: 's-1', profileId: 'default' }))
+  assert.equal(extra.res.statusCode, 422)
+  assert.equal(extra.json.code, 'unexpected-field')
+  assert.equal(extra.json.field, 'profileId')
 })

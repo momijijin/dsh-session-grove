@@ -5,8 +5,14 @@
  * browser-session fence runs before plugin HTTP routes and rejects a CLI that
  * only carries the plugin bearer token. A Host tool executes in-process and
  * therefore does not cross that fence.
+ *
+ * Multi-profile (SPEC 6.1): `state`/`resolve` may target the active profile by
+ * default; `plan`/`apply` require an explicit `profileId` when more than one
+ * profile is unarchived. The plan hash includes the profile id, so a plan can
+ * never be replayed against another profile. There is deliberately no
+ * activate/switch action: the AI never changes the user's active profile.
  */
-import { createHash } from 'node:crypto'
+import { dirname } from 'node:path'
 import {
   applyControlOperations,
   buildControlState,
@@ -14,6 +20,8 @@ import {
   resolveGroupPath,
 } from '../core/control.js'
 import { buildControlCatalog } from '../core/catalog.js'
+import { DEFAULT_PROFILE_ID } from './constants.js'
+import { controlPlanHash, resolveControlProfile, withProfileStorage } from './route-contract.js'
 
 export const TOOL_NAME = 'session_grove_control'
 
@@ -29,14 +37,12 @@ const ACTIONS = [
   'session_archive',
 ]
 
-const planHashOf = (baseRevision, operations) =>
-  createHash('sha256').update(JSON.stringify({ baseRevision, operations })).digest('hex')
-
 const controlParameters = {
   type: 'object',
   additionalProperties: false,
   properties: {
     action: { type: 'string', enum: ACTIONS },
+    profileId: { type: 'string' },
     path: { type: 'array', items: { type: 'string' } },
     baseRevision: { type: 'integer' },
     operations: { type: 'array', items: { type: 'object', additionalProperties: true } },
@@ -51,6 +57,40 @@ const controlParameters = {
   required: ['action'],
 }
 
+const isProfileManager = (value) =>
+  value !== null &&
+  typeof value === 'object' &&
+  typeof value.loadRegistry === 'function' &&
+  typeof value.storeFor === 'function' &&
+  typeof value.peekFor === 'function'
+
+/**
+ * Single-profile view for callers that only pass a store (direct tool tests and
+ * the frozen integration harness). The active profile is always `default`; no
+ * registry file is read or written.
+ */
+const staticProfileManager = (store) => {
+  const entry = { id: DEFAULT_PROFILE_ID, name: null, dir: '.', archivedAt: null }
+  const registry = { version: 1, revision: 0, activeId: DEFAULT_PROFILE_ID, profiles: [entry] }
+  const invalid = (id) => {
+    throw Object.assign(new Error(`unknown profile: ${String(id)}`), { code: 'invalid-profile-id' })
+  }
+  return {
+    storageDir: typeof store?.path === 'string' && store.path.length > 0 ? dirname(store.path) : null,
+    registryFilePath: null,
+    defaultFilePath: null,
+    loadRegistry: async () => ({ kind: 'ok', registry, revision: 0, exists: false, degraded: false }),
+    storeFor: (id) => {
+      if (id !== DEFAULT_PROFILE_ID) invalid(id)
+      return store
+    },
+    peekFor: (id) => {
+      if (id !== DEFAULT_PROFILE_ID) invalid(id)
+      return store.peek()
+    },
+  }
+}
+
 const toolOutput = (value) => {
   if (value !== null && typeof value === 'object') return { ok: value.ok !== false, ...value }
   return { ok: true, value }
@@ -58,7 +98,8 @@ const toolOutput = (value) => {
 
 /**
  * @param {{
- *   store: object,
+ *   store?: object,
+ *   profileManager?: object,
  *   getService: (name: string) => unknown,
  *   controlApiEnabled: () => boolean,
  *   controlSessionsEnabled: () => boolean,
@@ -66,7 +107,11 @@ const toolOutput = (value) => {
  * }} options
  */
 export const createControlTool = (options) => {
-  const { store, getService } = options
+  const { store } = options
+  const profileManager = isProfileManager(options.profileManager)
+    ? options.profileManager
+    : staticProfileManager(store)
+  const { getService } = options
   const onCommit = typeof options.onCommit === 'function' ? options.onCommit : () => {}
   const doctorReport = typeof options.doctorReport === 'function' ? options.doctorReport : null
   const enabled = () => options.controlApiEnabled() === true
@@ -74,8 +119,8 @@ export const createControlTool = (options) => {
   const destructive = () => options.controlDestructiveEnabled() === true
   const failure = (code, message, extra = {}) => ({ ok: false, code, message, ...extra })
 
-  const load = async () => {
-    const result = await store.load()
+  const loadProfile = async (resolved) => {
+    const result = await resolved.store.load()
     if (result.kind === 'unsupported-version') {
       return {
         error: failure('unsupported-version', `document version ${String(result.version)} is newer than this host supports`, {
@@ -107,7 +152,7 @@ export const createControlTool = (options) => {
     if (action === 'doctor') {
       if (doctorReport === null) return failure('doctor-unavailable', 'compatibility doctor is not configured')
       try {
-        return await doctorReport()
+        return await withProfileStorage(await doctorReport(), profileManager)
       } catch (error) {
         return failure('doctor-failed', error instanceof Error ? error.message : String(error))
       }
@@ -119,36 +164,56 @@ export const createControlTool = (options) => {
     }
 
     if (action === 'state') {
-      const loaded = await load()
+      const resolved = await resolveControlProfile(profileManager, args.profileId)
+      if (!resolved.ok) return resolved.body
+      const loaded = await loadProfile(resolved)
       if (loaded.error !== undefined) return loaded.error
-      return { ok: true, protocol: CONTROL_PROTOCOL, ...buildControlState(loaded.result.doc, loaded.result.revision) }
+      return {
+        ok: true,
+        protocol: CONTROL_PROTOCOL,
+        profileId: resolved.profileId,
+        activeProfile: resolved.activeProfile,
+        ...buildControlState(loaded.result.doc, loaded.result.revision),
+      }
     }
 
     if (action === 'resolve') {
       if (!Array.isArray(args.path) || args.path.length === 0) {
         return failure('invalid-path', 'path must be a non-empty array of strings', { field: 'path' })
       }
-      const loaded = await load()
+      const resolved = await resolveControlProfile(profileManager, args.profileId)
+      if (!resolved.ok) return resolved.body
+      const loaded = await loadProfile(resolved)
       if (loaded.error !== undefined) return loaded.error
-      const resolved = resolveGroupPath(loaded.result.doc, args.path)
-      if (!resolved.ok) return { ...resolved, revision: loaded.result.revision }
-      return { ok: true, ...resolved, revision: loaded.result.revision }
+      const group = resolveGroupPath(loaded.result.doc, args.path)
+      if (!group.ok) return { ...group, revision: loaded.result.revision }
+      return {
+        ok: true,
+        ...group,
+        revision: loaded.result.revision,
+        profileId: resolved.profileId,
+        activeProfile: resolved.activeProfile,
+      }
     }
 
     if (action === 'plan' || action === 'apply') {
       if (!Number.isInteger(args.baseRevision) || args.baseRevision < 0) {
         return failure('invalid-revision', 'baseRevision must be a non-negative integer', { field: 'baseRevision' })
       }
+      const resolved = await resolveControlProfile(profileManager, args.profileId, {
+        requireExplicitWhenMultiple: true,
+      })
+      if (!resolved.ok) return resolved.body
       if (!Array.isArray(args.operations) || args.operations.length === 0) {
         return failure('operations-required', 'operations must be a non-empty array', { field: 'operations' })
       }
-      const hash = planHashOf(args.baseRevision, args.operations)
+      const hash = controlPlanHash(resolved.profileId, args.baseRevision, args.operations)
       if (action === 'apply' && (typeof args.planHash !== 'string' || args.planHash !== hash)) {
-        return failure('stale-plan', 'planHash does not match baseRevision + operations', {
+        return failure('stale-plan', 'planHash does not match profileId + baseRevision + operations', {
           planHash: hash,
         })
       }
-      const loaded = await load()
+      const loaded = await loadProfile(resolved)
       if (loaded.error !== undefined) return loaded.error
       if (loaded.result.revision !== args.baseRevision) {
         return failure('conflict', 'revision mismatch', { revision: loaded.result.revision })
@@ -161,21 +226,25 @@ export const createControlTool = (options) => {
         return {
           ok: true,
           protocol: CONTROL_PROTOCOL,
+          profileId: resolved.profileId,
           baseRevision: args.baseRevision,
           planHash: hash,
           changes: planned.changes,
         }
       }
-      const committed = await store.commit(args.baseRevision, planned.doc)
+      // Tool apply is intentionally not idempotent: there is no replay cache,
+      // and a second apply with the same baseRevision is a normal CAS conflict.
+      const committed = await resolved.store.commit(args.baseRevision, planned.doc)
       if (committed.kind === 'ok') {
         try {
-          onCommit(committed.revision, 'native-tool')
+          onCommit(committed.revision, 'native-tool', resolved.profileId)
         } catch {
           /* notification must never fail a committed write */
         }
         return {
           ok: true,
           protocol: CONTROL_PROTOCOL,
+          profileId: resolved.profileId,
           revision: committed.revision,
           planHash: hash,
           changes: planned.changes,
@@ -292,8 +361,10 @@ export const createControlTool = (options) => {
     description:
       'Read and safely change the DSH free-groups sidebar and session title/archive state in-process. ' +
       'Use action=catalog to read the available icon/color vocabulary and operation names. ' +
-      'Use action=state or resolve first; use plan then apply with the returned planHash and baseRevision for group writes. ' +
-      'Use action=doctor to inspect host compatibility, gates, storage and service availability. ' +
+      'Use action=state or resolve first (optionally with profileId; the active profile is the default). ' +
+      'Use plan then apply with the returned planHash and baseRevision for group writes; when multiple profiles exist, ' +
+      'plan/apply require an explicit profileId. Plans are scoped to one profile and never switch the active profile. ' +
+      'Use action=doctor to inspect host compatibility, gates, storage, profile registry and services. ' +
       'Session actions require an explicit live sessionId. Destructive group deletion requires controlDestructive.',
     parameters: controlParameters,
     output: {

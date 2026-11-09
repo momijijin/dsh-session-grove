@@ -13,6 +13,17 @@ import { dialogKeyboardDelta } from './dialog-keyboard.js'
 import { GroupListPicker } from './group-list-picker.js'
 import { ICON_GROUPS, renderGlyph, renderIcon } from './icons.js'
 import { ScrollArea } from './scroll-area.js'
+import { ProfilePreviewActions, ProfilePreviewBody } from './components-profiles.js'
+import {
+  ProfileArchiveBody,
+  ProfileManageBody,
+  ProfileRenameBody,
+  ProfileSaveAsBody,
+  confirmArchive,
+  confirmRename,
+  confirmSaveAs,
+  validateProfileName,
+} from './components-profile-dialogs.js'
 
 const h = createElement
 const dispatch = (action, payload) => rt()?.store.dispatch(action, payload)
@@ -28,12 +39,31 @@ const focusableIn = (element) =>
   )
 
 
-export const DialogHost = ({ store, props }) => {
+export const DialogHost = ({ store, props, sessionsById }) => {
   const dialog = store.dialog
   const t = rt()?.t
-  const [value, setValue] = useState('')
+  const dialogKind = dialog?.kind ?? ''
+  const isProfilePreview = dialogKind === 'profile-preview'
+  const isProfileSaveAs = dialogKind === 'profile-save-as'
+  const isProfileManage = dialogKind === 'profile-manage'
+  const isProfileRename = dialogKind === 'profile-rename'
+  const isProfileArchive = dialogKind === 'profile-archive'
+  const isProfileForm = isProfileSaveAs || isProfileRename
+  const needsNameInput =
+    dialogKind === 'new-group' ||
+    dialogKind === 'rename-group' ||
+    dialogKind === 'rename-session' ||
+    isProfileForm
+  // Seed from the dialog descriptor when the host is first created (tests call
+  // the component directly); the effect below still re-seeds on every dialog
+  // change, which is the production path.
+  const [value, setValue] = useState(() => dialog?.value ?? '')
   const [selection, setSelection] = useState(undefined)
   const [hexInput, setHexInput] = useState('')
+  const [profileBusy, setProfileBusy] = useState(false)
+  // Re-seed the local form state only when the edited target changes; an inline
+  // error dispatch replaces the descriptor object but must keep the typed value.
+  const dialogSeedRef = useRef(null)
   const inputRef = useRef(null)
   const dialogRef = useRef(null)
   const restoreFocusRef = useRef(null)
@@ -52,6 +82,15 @@ export const DialogHost = ({ store, props }) => {
     setDialogRect(saved ? clampDialogRect(saved, globalThis.innerWidth, globalThis.innerHeight) : null)
   }, [dialog?.kind])
 
+  // SPEC §9.3: Escape closes the preview through the generic dialog action; the
+  // preview target/token must be cleared with it, otherwise the next switch
+  // starts from a stale diff and disabled confirm.
+  useEffect(() => {
+    if (dialog) return
+    if (store?.profilePreview?.open !== true) return
+    dispatch('profile-preview-close')
+  }, [dialog, store?.profilePreview?.open])
+
   useEffect(() => {
     if (!dialog) {
       const previous = restoreFocusRef.current
@@ -68,10 +107,8 @@ export const DialogHost = ({ store, props }) => {
       const active = globalThis.document?.activeElement
       if (active && active !== globalThis.document?.body) restoreFocusRef.current = active
     }
-    const needsTextInput =
-      dialog.kind === 'new-group' || dialog.kind === 'rename-group' || dialog.kind === 'rename-session'
     const timer = setTimeout(() => {
-      if (needsTextInput) {
+      if (needsNameInput) {
         inputRef.current?.focus()
         return
       }
@@ -93,7 +130,11 @@ export const DialogHost = ({ store, props }) => {
       if (event.key === 'Escape') {
         event.preventDefault()
         event.stopPropagation()
-        dispatch('dialog', { dialog: null })
+        // SPEC §9.5: the rename/archive confirm dialogs return to the manage
+        // list instead of dropping the whole flow.
+        dispatch('dialog', {
+          dialog: dialog.returnTo === 'profile-manage' ? { kind: 'profile-manage', titleKey: 'profiles.title' } : null,
+        })
         return
       }
       if (event.key !== 'Tab') return
@@ -147,9 +188,12 @@ export const DialogHost = ({ store, props }) => {
         borderHeight
     )
     const naturalHeight = laidOutHeight || Math.ceil(box.height) || 320
+    // SPEC §9.3/§9.5: the switch preview and the manage list are wider (420)
+    // than the standard 360; save-as/rename/archive stay at 360.
+    const wideKind = dialog.kind === 'icon' || dialog.kind === 'profile-preview' || dialog.kind === 'profile-manage'
     setDialogRect(
       centeredDialogRect(
-        box.width || (dialog.kind === 'icon' ? 420 : 360),
+        box.width || (wideKind ? 420 : 360),
         naturalHeight || 320,
         globalThis.innerWidth,
         globalThis.innerHeight
@@ -332,7 +376,15 @@ export const DialogHost = ({ store, props }) => {
     []
   )
   useEffect(() => {
+    const seedKey = dialog
+      ? `${dialog.kind}:${dialog.groupId ?? dialog.sessionId ?? dialog.profileId ?? ''}`
+      : null
+    if (dialogSeedRef.current === seedKey) return undefined
+    dialogSeedRef.current = seedKey
     setValue(dialog?.value ?? '')
+    // A new dialog/edit target starts a fresh request slot for the profile
+    // footer's loading guard; an inline error on the same target keeps it.
+    setProfileBusy(false)
     // Every selection dialog opens with a visible current/inferred highlight;
     // when nothing usable exists Confirm stays disabled until the user picks.
     const initial = dialog ? initialDialogSelection(dialog, store.doc) : undefined
@@ -345,7 +397,12 @@ export const DialogHost = ({ store, props }) => {
     return undefined
   }, [dialog])
   if (!dialog) return null
-  const close = () => dispatch('dialog', { dialog: null })
+  const close = () => {
+    // SPEC §9.5: cancel/Escape on the rename/archive confirm returns to manage.
+    dispatch('dialog', {
+      dialog: dialog.returnTo === 'profile-manage' ? { kind: 'profile-manage', titleKey: 'profiles.title' } : null,
+    })
+  }
   const confirm = (payload) => rt()?.confirmDialog(dialog, payload)
   const persistDialogRect = () => {
     if (dialogRectRef.current) saveDialogGeometry(dialog.kind, dialogRectRef.current)
@@ -380,10 +437,68 @@ export const DialogHost = ({ store, props }) => {
     setDialogRect(next)
     saveDialogGeometry(dialog.kind, next)
   }
-  const errorText = dialog.error ? t(dialog.error === 'name-required' ? 'dialog.namePlaceholder' : dialog.error) : null
-  const title = t(dialog.titleKey)
+  const errorText = dialog.error
+    ? t(dialog.error === 'name-required' ? 'dialog.namePlaceholder' : dialog.error, dialog.errorParams ?? undefined)
+    : null
+  const title = isProfilePreview
+    ? t('profiles.previewTitle', {
+        name: dialog.targetName ?? store?.profilePreview?.targetName ?? dialog.targetId ?? '',
+      })
+    : t(dialog.titleKey)
+  // SPEC §9.4: save-as/rename validate the name client-first (the host re-checks
+  // under CAS); the error is inline and also blocks the confirm button.
+  const profileNameError = isProfileForm
+    ? validateProfileName(value, {
+        list: (store?.profiles?.list ?? []).filter((profile) => profile?.archived !== true),
+        exceptId: isProfileRename ? dialog.profileId : null,
+      })
+    : null
+  const changeProfileName = (next) => {
+    setValue(next)
+    if (dialog.error) dispatch('dialog', { dialog: { ...dialog, error: null, errorParams: null } })
+  }
+  const submitProfileForm = (event) => {
+    if (event?.key !== 'Enter' || profileBusy || profileNameError !== null) return
+    event.preventDefault()
+    if (isProfileSaveAs) void runProfileAction('save-as')
+    else if (isProfileRename) void runProfileAction('rename')
+  }
   const optionCheck = () => h('span', { class: 'dsg-dialog-option-check', 'aria-hidden': 'true' }, renderGlyph(h, 'check', 16))
   const bodyNodes = []
+  if (isProfilePreview) {
+    bodyNodes.push(h(ProfilePreviewBody, { store, t, byId: sessionsById }))
+  }
+  if (isProfileSaveAs) {
+    bodyNodes.push(
+      h(ProfileSaveAsBody, {
+        store,
+        t,
+        dialog,
+        value,
+        onValueChange: changeProfileName,
+        onKeyDown: submitProfileForm,
+        inputRef,
+      })
+    )
+  }
+  if (isProfileRename) {
+    bodyNodes.push(
+      h(ProfileRenameBody, {
+        t,
+        dialog,
+        value,
+        onValueChange: changeProfileName,
+        onKeyDown: submitProfileForm,
+        inputRef,
+      })
+    )
+  }
+  if (isProfileArchive) {
+    bodyNodes.push(h(ProfileArchiveBody, { t, dialog }))
+  }
+  if (isProfileManage) {
+    bodyNodes.push(h(ProfileManageBody, { store, t }))
+  }
   if (dialog.kind === 'delete-group') {
     const options = deleteGroupOptions(store.doc, dialog.groupId)
     bodyNodes.push(
@@ -618,6 +733,88 @@ export const DialogHost = ({ store, props }) => {
   const selectable = isSelectionDialog(dialog.kind)
   const danger = dialog.kind === 'delete-group' || dialog.kind === 'archive-running'
   const canConfirm = needsInput ? value.trim().length > 0 : selectable ? selectionIsValid(dialog, selection, store.doc) : true
+  // SPEC §9.4/§9.5 footer: Create/Rename/Archive carry the request loading guard
+  // and the client-side name error; none of them is the initial focus target.
+  const runProfileAction = async (kind) => {
+    if (profileBusy) return
+    setProfileBusy(true)
+    try {
+      if (kind === 'save-as') await confirmSaveAs({ store, t }, { name: value })
+      else if (kind === 'rename') await confirmRename({ store, t }, { profileId: dialog.profileId, name: value })
+      else if (kind === 'archive') await confirmArchive({ store, t }, { profileId: dialog.profileId })
+    } finally {
+      setProfileBusy(false)
+    }
+  }
+  const profileCancel = (testId) =>
+    h(
+      'button',
+      { type: 'button', class: 'dsg-dialog-cancel', 'data-testid': testId, onClick: close },
+      t('dialog.cancel')
+    )
+  const profileSubmit = (testId, label, disabled, onClick) =>
+    h(
+      'button',
+      {
+        type: 'button',
+        class: 'dsg-dialog-confirm',
+        'data-testid': testId,
+        ...(disabled ? { disabled: true } : {}),
+        onClick,
+      },
+      label
+    )
+  const profileActions = isProfileManage
+    ? [
+        h(
+          'button',
+          {
+            key: 'close',
+            type: 'button',
+            class: 'dsg-dialog-cancel',
+            'data-testid': 'session-groups-profile-manage-close',
+            onClick: close,
+          },
+          t('dialog.cancel')
+        ),
+      ]
+    : isProfileSaveAs
+      ? [
+          profileCancel('session-groups-profile-save-as-cancel'),
+          profileSubmit(
+            'session-groups-profile-save-as-confirm',
+            t('profiles.create'),
+            profileBusy || profileNameError !== null,
+            () => {
+              void runProfileAction('save-as')
+            }
+          ),
+        ]
+      : isProfileRename
+        ? [
+            profileCancel('session-groups-profile-rename-cancel'),
+            profileSubmit(
+              'session-groups-profile-rename-confirm',
+              t('profiles.rename'),
+              profileBusy || profileNameError !== null,
+              () => {
+                void runProfileAction('rename')
+              }
+            ),
+          ]
+        : isProfileArchive
+          ? [
+              profileCancel('session-groups-profile-archive-cancel'),
+              profileSubmit(
+                'session-groups-profile-archive-confirm',
+                t('profiles.archive'),
+                profileBusy,
+                () => {
+                  void runProfileAction('archive')
+                }
+              ),
+            ]
+          : null
   return h(
     'div',
     {
@@ -686,25 +883,52 @@ export const DialogHost = ({ store, props }) => {
               },
             })
           : null,
-        errorText ? h('div', { class: 'dsg-dialog-error' }, errorText) : null
+        profileNameError
+          ? h(
+              'div',
+              {
+                class: 'dsg-dialog-error',
+                'data-testid': 'session-groups-profile-dialog-error',
+                'aria-live': 'polite',
+              },
+              t(profileNameError)
+            )
+          : errorText
+            ? h(
+                'div',
+                {
+                  class: 'dsg-dialog-error',
+                  ...(isProfileForm || isProfileArchive || isProfileManage
+                    ? { 'data-testid': 'session-groups-profile-dialog-error' }
+                    : {}),
+                },
+                errorText
+              )
+            : null
       ),
       h(
         'div',
-        { class: 'dsg-dialog-actions' },
-        h('button', { type: 'button', class: 'dsg-dialog-cancel', 'data-testid': 'session-groups-dialog-cancel', onClick: close }, t('dialog.cancel')),
-        h(
-          'button',
-          {
-            type: 'button',
-            class: 'dsg-dialog-confirm',
-            'data-testid': 'session-groups-dialog-confirm',
-            'data-variant': danger ? 'danger' : 'primary',
-            disabled: !canConfirm,
-            onClick: () =>
-              confirm(needsInput ? { value: value.trim() } : selectable ? dialogConfirmPayload(dialog, selection) : {}),
-          },
-          danger ? (dialog.kind === 'delete-group' ? t('dialog.moveAndDelete') : t('dialog.stopAndArchive')) : t('dialog.confirm')
-        )
+        { class: isProfilePreview ? 'dsg-dialog-actions dsg-profile-preview-actions' : 'dsg-dialog-actions' },
+        ...(isProfilePreview
+          ? // SPEC §9.3 footer: [x] switch directly / Cancel / Switch. Confirm is
+            // never the initial focus target; DialogHost focuses the checkbox.
+            ProfilePreviewActions({ store, t })
+          : profileActions ?? [
+              h('button', { type: 'button', class: 'dsg-dialog-cancel', 'data-testid': 'session-groups-dialog-cancel', onClick: close }, t('dialog.cancel')),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  class: 'dsg-dialog-confirm',
+                  'data-testid': 'session-groups-dialog-confirm',
+                  'data-variant': danger ? 'danger' : 'primary',
+                  disabled: !canConfirm,
+                  onClick: () =>
+                    confirm(needsInput ? { value: value.trim() } : selectable ? dialogConfirmPayload(dialog, selection) : {}),
+                },
+                danger ? (dialog.kind === 'delete-group' ? t('dialog.moveAndDelete') : t('dialog.stopAndArchive')) : t('dialog.confirm')
+              ),
+            ])
       ),
       ...['n', 'e', 's', 'w', 'ne', 'nw', 'se', 'sw'].map((dir) => {
         const keyboardResizable = dir === 'se'

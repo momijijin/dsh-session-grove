@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { emptyDoc } from '../../src/shared/model.js'
 import { createStore } from '../../src/host/store.js'
@@ -290,4 +290,98 @@ test('load propagates genuine IO errors (record path is a directory)', async (t)
   await mkdir(temp.filePath, { recursive: true })
   const store = createStore({ filePath: temp.filePath })
   await assert.rejects(() => store.load(), /EISDIR|illegal operation on a directory/)
+})
+
+test('peek reads a valid document without locking, writing, or creating siblings', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  await writeFile(temp.filePath, `${JSON.stringify({ ...sampleDoc(), revision: 4 }, null, 2)}\n`, 'utf8')
+  const beforeHash = await sha256(temp.filePath)
+  const beforeMtime = (await stat(temp.filePath)).mtimeMs
+
+  const peeked = await temp.store.peek()
+  assert.equal(peeked.kind, 'ok')
+  assert.equal(peeked.exists, true)
+  assert.equal(peeked.revision, 4)
+  assert.deepEqual(peeked.doc, { ...sampleDoc(), revision: 4 })
+
+  assert.equal(await sha256(temp.filePath), beforeHash)
+  assert.equal((await stat(temp.filePath)).mtimeMs, beforeMtime)
+  assert.deepEqual(await list(temp.storages), ['dsh-session-grove.json'])
+})
+
+test('peek reports a missing file without creating its directory', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  const missingDir = join(temp.dir, 'missing-storages')
+  const store = createStore({ filePath: join(missingDir, 'dsh-session-grove.json') })
+
+  const peeked = await store.peek()
+  assert.equal(peeked.kind, 'missing')
+  assert.match(peeked.detail, /does not exist/)
+  await assert.rejects(() => stat(missingDir), (error) => error?.code === 'ENOENT')
+})
+
+test('peek classifies corrupt, invalid, and unsupported documents without quarantining', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+
+  const garbage = '{"version":1,"revision":2,"groups":['
+  await writeFile(temp.filePath, garbage, 'utf8')
+  const beforeHash = await sha256(temp.filePath)
+  const corrupt = await createStore({ filePath: temp.filePath }).peek()
+  assert.equal(corrupt.kind, 'corrupt')
+  assert.match(corrupt.detail, /JSON/)
+  assert.equal(await sha256(temp.filePath), beforeHash)
+  assert.deepEqual(await list(temp.storages), ['dsh-session-grove.json'])
+
+  await writeFile(
+    temp.filePath,
+    JSON.stringify({ version: 1, revision: 1, groups: [{ id: 'g-a', name: '', parentId: null, sessionIds: [] }], ungrouped: [] }),
+    'utf8',
+  )
+  const invalid = await temp.store.peek()
+  assert.equal(invalid.kind, 'invalid')
+  assert.match(invalid.detail, /group-name:g-a/)
+
+  await writeFile(temp.filePath, JSON.stringify({ version: 2, revision: 5, groups: [], ungrouped: [] }), 'utf8')
+  const future = await temp.store.peek()
+  assert.equal(future.kind, 'unsupported-version')
+  assert.equal(future.version, 2)
+  assert.match(future.detail, /newer than 1/)
+  assert.equal(JSON.parse(await readFile(temp.filePath, 'utf8')).version, 2)
+})
+
+test('peek has no quarantine side effect, unlike load()', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  const garbage = '{broken'
+  await writeFile(temp.filePath, garbage, 'utf8')
+
+  assert.equal((await temp.store.peek()).kind, 'corrupt')
+  assert.deepEqual(await list(temp.storages), ['dsh-session-grove.json'])
+
+  const loaded = await temp.store.load()
+  assert.equal(loaded.warning, 'corrupt-file')
+  assert.match(loaded.quarantinedTo, /dsh-session-grove\.corrupt-.*\.json$/)
+  const files = await list(temp.storages)
+  assert.equal(files.includes('dsh-session-grove.json'), false)
+  assert.equal(files.some((name) => name.startsWith('dsh-session-grove.corrupt-')), true)
+  assert.equal(files.some((name) => name.endsWith('.lock')), false)
+})
+
+test('peek ignores a live filesystem lock and never waits for it', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  await writeFile(temp.filePath, JSON.stringify({ ...sampleDoc(), revision: 1 }), 'utf8')
+  await writeFile(
+    `${temp.filePath}.lock`,
+    JSON.stringify({ pid: process.pid, token: 'live', createdAt: new Date().toISOString() }),
+    'utf8',
+  )
+  const store = createStore({ filePath: temp.filePath, lockWaitMs: 30, lockRetryMs: 5 })
+
+  const peeked = await store.peek()
+  assert.equal(peeked.kind, 'ok')
+  assert.equal(peeked.revision, 1)
 })

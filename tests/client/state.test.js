@@ -199,3 +199,371 @@ test('a throwing subscriber cannot break other subscribers or the store', () => 
   assert.deepEqual(seen, [true])
   assert.equal(store.getSnapshot().saving, true)
 })
+
+test('profiles summary starts available and records load/error/unavailable', () => {
+  const store = createStore({ storage: fakeStorage() })
+  const initial = store.getSnapshot()
+  assert.equal(initial.profileId, null)
+  assert.equal(initial.profiles.available, true)
+  assert.equal(initial.profiles.loading, false)
+  assert.deepEqual(initial.profiles.list, [])
+  assert.equal(initial.profileSwitching, false)
+  assert.equal(initial.profileEpoch, 0)
+  assert.equal(initial.latestSeenRevision, 0)
+
+  store.dispatch('profiles-loading')
+  assert.equal(store.getSnapshot().profiles.loading, true)
+  assert.equal(store.dispatch('profiles-loading'), store.getSnapshot(), 'a second start is a no-op')
+
+  store.dispatch('profiles-success', {
+    registryRevision: 3,
+    activeId: 'work-1',
+    degraded: false,
+    list: [{ id: 'default', name: null }, { id: 'work-1', name: 'Work' }],
+  })
+  const loaded = store.getSnapshot().profiles
+  assert.equal(loaded.available, true)
+  assert.equal(loaded.loading, false)
+  assert.equal(loaded.degraded, false)
+  assert.equal(loaded.registryRevision, 3)
+  assert.equal(loaded.activeId, 'work-1')
+  assert.equal(loaded.list.length, 2)
+  assert.equal(loaded.error, null)
+
+  store.dispatch('profiles-error', { code: 'io', message: 'disk' })
+  assert.equal(store.getSnapshot().profiles.loading, false)
+  assert.deepEqual(store.getSnapshot().profiles.error, { code: 'io', message: 'disk' })
+
+  store.dispatch('profiles-unavailable')
+  assert.equal(store.getSnapshot().profiles.available, false)
+  assert.equal(store.getSnapshot().profiles.loading, false)
+  assert.deepEqual(store.getSnapshot().profiles.list, [])
+  assert.equal(store.getSnapshot().profiles.error, null)
+})
+
+test('an older profile list response cannot move activeId back', () => {
+  const store = createStore({ storage: fakeStorage() })
+  store.dispatch('profiles-success', {
+    registryRevision: 7,
+    activeId: 'work-1',
+    list: [{ id: 'work-1', name: 'Work' }],
+  })
+  store.dispatch('profiles-success', {
+    registryRevision: 6,
+    activeId: 'default',
+    list: [{ id: 'default', name: null }],
+  })
+  const profiles = store.getSnapshot().profiles
+  assert.equal(profiles.activeId, 'work-1')
+  assert.equal(profiles.registryRevision, 7)
+  assert.deepEqual(profiles.list, [{ id: 'default', name: null }], 'rows still refresh')
+})
+
+test('profiles keep the host limit and split archived rows into their own list', () => {
+  const store = createStore({ storage: fakeStorage() })
+  const initial = store.getSnapshot().profiles
+  assert.deepEqual(initial.limits, { max: 20 })
+  assert.deepEqual(initial.archivedList, [])
+
+  store.dispatch('profiles-success', {
+    registryRevision: 2,
+    activeId: 'work-1',
+    list: [{ id: 'work-1', name: 'Work' }, { id: 'old', name: 'Old', archived: true }],
+    limits: { max: 5 },
+    includeArchived: true,
+  })
+  const loaded = store.getSnapshot().profiles
+  assert.deepEqual(loaded.limits, { max: 5 })
+  assert.deepEqual(loaded.list.map((profile) => profile.id), ['work-1'])
+  assert.deepEqual(loaded.archivedList.map((profile) => profile.id), ['old'])
+
+  // A plain switcher refresh replaces the unarchived rows but must not drop the
+  // archived rows the manage dialog is showing (SPEC §9.5).
+  store.dispatch('profiles-success', {
+    registryRevision: 3,
+    activeId: 'work-1',
+    list: [{ id: 'work-1', name: 'Work' }],
+  })
+  const refreshed = store.getSnapshot().profiles
+  assert.deepEqual(refreshed.list.map((profile) => profile.id), ['work-1'])
+  assert.deepEqual(refreshed.archivedList.map((profile) => profile.id), ['old'])
+  assert.deepEqual(refreshed.limits, { max: 5 }, 'a host without limits keeps the last known cap')
+
+  store.dispatch('profiles-unavailable')
+  assert.deepEqual(store.getSnapshot().profiles.archivedList, [])
+})
+
+test('an archive-triggered includeArchived read moves the row out of the active list', () => {
+  const store = createStore({ storage: fakeStorage() })
+  store.dispatch('profiles-success', {
+    registryRevision: 4,
+    activeId: 'work-1',
+    list: [
+      { id: 'default', name: null },
+      { id: 'work-1', name: 'Work' },
+      { id: 'side', name: 'Side' },
+    ],
+    limits: { max: 20 },
+  })
+  // The forced manage read after archiving `side` is authoritative: the row is
+  // no longer in the switcher list and shows up as read-only archive data.
+  store.dispatch('profiles-success', {
+    registryRevision: 5,
+    activeId: 'work-1',
+    list: [
+      { id: 'default', name: null },
+      { id: 'work-1', name: 'Work' },
+      { id: 'side', name: 'Side', archived: true },
+    ],
+    limits: { max: 20 },
+    includeArchived: true,
+  })
+  const profiles = store.getSnapshot().profiles
+  assert.equal(profiles.registryRevision, 5)
+  assert.deepEqual(profiles.list.map((profile) => profile.id), ['default', 'work-1'])
+  assert.deepEqual(profiles.archivedList.map((profile) => profile.id), ['side'])
+})
+
+test('profile preview state opens, turns stale and clears on confirmation', () => {
+  const store = createStore({ storage: fakeStorage() })
+  const targetDoc = { version: 1, revision: 2, groups: [], ungrouped: [] }
+  store.dispatch('profile-preview-start', { targetId: 'work-1', targetName: 'Work' })
+  assert.equal(store.getSnapshot().profilePreview.loading, true)
+  assert.equal(store.getSnapshot().profilePreview.targetId, 'work-1')
+
+  store.dispatch('profile-preview-success', {
+    targetId: 'work-1',
+    targetName: 'Work',
+    targetRevision: 2,
+    previewToken: 'tok',
+    doc: targetDoc,
+    diff: { summary: {} },
+    baseActiveId: 'default',
+    baseActiveRevision: 1,
+  })
+  const preview = store.getSnapshot().profilePreview
+  assert.equal(preview.open, false)
+  assert.equal(preview.loading, false)
+  assert.equal(preview.previewToken, 'tok')
+  assert.equal(preview.doc, targetDoc)
+  assert.equal(preview.baseActiveId, 'default')
+  assert.equal(preview.baseActiveRevision, 1)
+  assert.equal(preview.error, null)
+
+  store.dispatch('profile-preview-open')
+  assert.equal(store.getSnapshot().profilePreview.open, true)
+  store.dispatch('profile-preview-stale', { message: 'changed' })
+  assert.equal(store.getSnapshot().profilePreview.stale, true)
+  assert.equal(store.getSnapshot().profilePreview.error.code, 'preview-stale')
+
+  store.dispatch('profile-preview-close')
+  assert.deepEqual(store.getSnapshot().profilePreview, {
+    open: false,
+    loading: false,
+    targetId: null,
+    targetName: null,
+    targetRevision: null,
+    previewToken: null,
+    doc: null,
+    diff: null,
+    baseActiveId: null,
+    baseActiveRevision: null,
+    error: null,
+    stale: false,
+  })
+})
+
+test('initial load records profileId without an epoch bump', () => {
+  const store = createStore({ storage: fakeStorage() })
+  const doc = { version: 1, revision: 4, groups: [], ungrouped: [] }
+  store.dispatch('load-success', { doc, revision: 4, profileId: 'work-1' })
+  assert.equal(store.getSnapshot().profileId, 'work-1')
+  assert.equal(store.getSnapshot().profiles.activeId, 'work-1')
+  assert.equal(store.getSnapshot().profileEpoch, 0)
+  assert.equal(store.getSnapshot().latestSeenRevision, 0)
+})
+
+test('a load that reveals another profile resets epoch, revision and interactions', () => {
+  const storage = fakeStorage({
+    [COLLAPSED_KEY]: JSON.stringify({ 'work-1': { g1: true } }),
+  })
+  const store = createStore({ storage })
+  const base = { version: 1, revision: 2, groups: [], ungrouped: [] }
+  store.dispatch('load-success', { doc: base, revision: 2, profileId: 'default' })
+  store.dispatch('external-revision', { latestSeenRevision: 9 })
+  store.dispatch('menu', { menu: { kind: 'group', groupId: 'g1' } })
+
+  const target = { version: 1, revision: 3, groups: [{ id: 'g1' }], ungrouped: [] }
+  store.dispatch('load-success', { doc: target, revision: 3, profileId: 'work-1' })
+  const snapshot = store.getSnapshot()
+  assert.equal(snapshot.profileId, 'work-1')
+  assert.equal(snapshot.profiles.activeId, 'work-1')
+  assert.equal(snapshot.profileEpoch, 1)
+  assert.equal(snapshot.latestSeenRevision, 0)
+  assert.equal(snapshot.doc, target)
+  assert.equal(snapshot.lastConfirmed, target)
+  assert.deepEqual(snapshot.collapsed, { g1: true })
+  assert.equal(snapshot.menu, null)
+})
+
+test('profile switch success applies the response doc and resets switch state', () => {
+  const storage = fakeStorage({
+    [COLLAPSED_KEY]: JSON.stringify({ 'work-1': { g9: true } }),
+  })
+  const store = createStore({ storage })
+  const base = { version: 1, revision: 3, groups: [], ungrouped: [] }
+  store.dispatch('load-success', { doc: base, revision: 3, profileId: 'default' })
+  store.dispatch('optimistic-doc', { doc: { ...base, groups: [{ id: 'optimistic' }] } })
+  store.dispatch('external-revision', { latestSeenRevision: 12 })
+  store.dispatch('banner', { banner: { kind: 'error', code: 'io' } })
+  store.dispatch('profile-switch-start', { targetId: 'work-1' })
+  assert.equal(store.getSnapshot().profileSwitching, true)
+
+  const target = { version: 1, revision: 5, groups: [{ id: 'g1' }], ungrouped: [] }
+  store.dispatch('profile-switch-success', {
+    profileId: 'work-1',
+    doc: target,
+    revision: 5,
+    registryRevision: 7,
+  })
+  const snapshot = store.getSnapshot()
+  assert.equal(snapshot.profileSwitching, false)
+  assert.equal(snapshot.profileEpoch, 1)
+  assert.equal(snapshot.latestSeenRevision, 0)
+  assert.equal(snapshot.optimistic, false)
+  assert.equal(snapshot.doc, target)
+  assert.equal(snapshot.revision, 5)
+  assert.equal(snapshot.lastConfirmed, target)
+  assert.equal(snapshot.warning, null)
+  assert.equal(snapshot.banner, null)
+  assert.equal(snapshot.profileId, 'work-1')
+  assert.equal(snapshot.profiles.activeId, 'work-1')
+  assert.equal(snapshot.profiles.registryRevision, 7)
+  assert.deepEqual(snapshot.collapsed, { g9: true })
+  assert.equal(snapshot.profilePreview.open, false)
+})
+
+test('profile external active bumps the epoch once, clears the doc queue and keeps the old doc off-confirmed', () => {
+  const store = createStore({ storage: fakeStorage() })
+  const base = { version: 1, revision: 3, groups: [], ungrouped: [] }
+  store.dispatch('load-success', { doc: base, revision: 3, profileId: 'default' })
+  store.dispatch('optimistic-doc', { doc: { ...base, groups: [{ id: 'x' }] } })
+  store.dispatch('external-revision', { latestSeenRevision: 8 })
+  store.dispatch('profile-preview-start', { targetId: 'work-1' })
+  store.dispatch('profile-switch-start', { targetId: 'work-1' })
+  store.dispatch('dialog', { dialog: { kind: 'profile-preview' } })
+
+  store.dispatch('profile-external-active', { activeId: 'work-1', registryRevision: 6 })
+  const snapshot = store.getSnapshot()
+  assert.equal(snapshot.profileEpoch, 1)
+  assert.equal(snapshot.latestSeenRevision, 0)
+  assert.equal(snapshot.profileSwitching, false)
+  assert.equal(snapshot.profiles.activeId, 'work-1')
+  assert.equal(snapshot.profiles.registryRevision, 6)
+  assert.equal(snapshot.optimistic, false)
+  assert.equal(snapshot.lastConfirmed, null)
+  assert.equal(snapshot.docState, 'loading')
+  assert.equal(snapshot.doc, base, 'the previous doc stays until /load answers')
+  assert.equal(snapshot.dialog, null)
+  assert.equal(snapshot.profilePreview.targetId, null)
+
+  const deduped = store.getSnapshot()
+  store.dispatch('profile-external-active', { activeId: 'work-1' })
+  assert.equal(store.getSnapshot(), deduped, 'a repeated active event is a no-op')
+})
+
+test('external revisions advance only through the store action monotonic max', () => {
+  const store = createStore({ storage: fakeStorage() })
+  store.dispatch('external-revision', { latestSeenRevision: 4 })
+  assert.equal(store.getSnapshot().latestSeenRevision, 4)
+  store.dispatch('external-revision', { latestSeenRevision: 2 })
+  assert.equal(store.getSnapshot().latestSeenRevision, 4)
+  store.dispatch('external-revision', { latestSeenRevision: 7 })
+  assert.equal(store.getSnapshot().latestSeenRevision, 7)
+})
+
+test('a load after a passive active event does not bump the epoch a second time', () => {
+  const storage = fakeStorage({
+    [COLLAPSED_KEY]: JSON.stringify({ 'work-1': { g1: true } }),
+  })
+  const store = createStore({ storage })
+  const base = { version: 1, revision: 1, groups: [], ungrouped: [] }
+  store.dispatch('load-success', { doc: base, revision: 1, profileId: 'default' })
+  store.dispatch('profile-external-active', { activeId: 'work-1', registryRevision: 4 })
+  assert.equal(store.getSnapshot().profileEpoch, 1)
+
+  const target = { version: 1, revision: 2, groups: [{ id: 'g1' }], ungrouped: [] }
+  store.dispatch('load-success', { doc: target, revision: 2, profileId: 'work-1' })
+  const snapshot = store.getSnapshot()
+  assert.equal(snapshot.profileEpoch, 1, 'one active change -> one epoch increment')
+  assert.equal(snapshot.profileId, 'work-1')
+  assert.deepEqual(snapshot.collapsed, { g1: true })
+  assert.equal(snapshot.docState, 'ready')
+})
+
+test('collapsed expansion is scoped per profile and survives profile switches', () => {
+  const storage = fakeStorage()
+  const store = createStore({ storage })
+  const defaultDoc = { version: 1, revision: 1, groups: [], ungrouped: [] }
+  const workDoc = { version: 1, revision: 1, groups: [], ungrouped: [] }
+
+  store.dispatch('load-success', { doc: defaultDoc, revision: 1, profileId: 'default' })
+  store.dispatch('collapse-group', { id: 'default-group' })
+  assert.deepEqual(store.getSnapshot().collapsed, { 'default-group': true })
+
+  store.dispatch('profile-switch-success', { profileId: 'work-1', doc: workDoc, revision: 1 })
+  assert.deepEqual(store.getSnapshot().collapsed, {}, 'another profile starts expanded')
+  store.dispatch('collapse-group', { id: 'work-group' })
+  store.dispatch('collapse-group', { id: 'work-group-2' })
+  assert.deepEqual(store.getSnapshot().collapsed, { 'work-group': true, 'work-group-2': true })
+
+  // Only the active profile is touched by a write; both maps coexist.
+  const table = JSON.parse(storage.getItem(COLLAPSED_KEY))
+  assert.deepEqual(table, {
+    default: { 'default-group': true },
+    'work-1': { 'work-group': true, 'work-group-2': true },
+  })
+
+  store.dispatch('reset-collapsed')
+  assert.deepEqual(store.getSnapshot().collapsed, {})
+  const resetTable = JSON.parse(storage.getItem(COLLAPSED_KEY))
+  assert.deepEqual(resetTable, { default: { 'default-group': true } })
+
+  store.dispatch('profile-switch-success', { profileId: 'default', doc: defaultDoc, revision: 2 })
+  assert.deepEqual(store.getSnapshot().collapsed, { 'default-group': true })
+})
+
+test('legacy flat collapsed values migrate to the default profile on the next write', () => {
+  const storage = fakeStorage({ [COLLAPSED_KEY]: JSON.stringify({ g1: true }) })
+  const store = createStore({ storage })
+  assert.deepEqual(store.getSnapshot().collapsed, { g1: true })
+
+  store.dispatch('collapse-group', { id: 'g2' })
+  const table = JSON.parse(storage.getItem(COLLAPSED_KEY))
+  assert.deepEqual(table, { default: { g1: true, g2: true } })
+
+  // A fresh store now reads the same scoped value through the default profile.
+  const reopened = createStore({ storage })
+  assert.deepEqual(reopened.getSnapshot().collapsed, { g1: true, g2: true })
+
+  reopened.dispatch('load-success', {
+    doc: { version: 1, revision: 0, groups: [], ungrouped: [] },
+    revision: 0,
+    profileId: 'work-1',
+  })
+  assert.deepEqual(reopened.getSnapshot().collapsed, {}, 'the work profile has no collapsed ids')
+  reopened.dispatch('collapse-group', { id: 'w1' })
+  assert.deepEqual(JSON.parse(storage.getItem(COLLAPSED_KEY)), {
+    default: { g1: true, g2: true },
+    'work-1': { w1: true },
+  })
+})
+
+test('switching profiles does not rewrite another profile collapsed map', () => {
+  const storage = fakeStorage({ [COLLAPSED_KEY]: JSON.stringify({ default: { g1: true } }) })
+  const store = createStore({ storage })
+  const before = storage.getItem(COLLAPSED_KEY)
+  const target = { version: 1, revision: 1, groups: [], ungrouped: [] }
+  store.dispatch('profile-switch-success', { profileId: 'work-1', doc: target, revision: 1 })
+  assert.equal(storage.getItem(COLLAPSED_KEY), before)
+})

@@ -1,7 +1,60 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { createControlTool, TOOL_NAME } from '../../src/host/tool.js'
-import { sampleDoc } from './helpers.js'
+import { DEFAULT_PROFILE_ID, PROFILES_DIR_NAME, RECORD_FILE_NAME } from '../../src/host/constants.js'
+import { controlPlanHash } from '../../src/host/route-contract.js'
+import {
+  FIXED_TIMESTAMP,
+  PROFILE_ID,
+  createTestProfileManager,
+  makeTempProfileHome,
+  sampleDefaultProfile,
+  sampleDoc,
+  sampleNamedProfile,
+  sampleRegistry,
+  writeJsonFile,
+  writeProfileDoc,
+} from './helpers.js'
+
+const connectionlessServices = () => ({ get: () => null })
+
+const namedGroups = () => sampleDoc().groups.map((group) => ({ ...group, name: `${group.name}-工作` }))
+
+const mountProfileTool = async (t, options = {}) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  await writeJsonFile(
+    home.registryFilePath,
+    sampleRegistry({
+      revision: options.registryRevision ?? 2,
+      activeId: options.activeId ?? DEFAULT_PROFILE_ID,
+      profiles: options.profiles ?? [sampleDefaultProfile(), sampleNamedProfile()],
+    }),
+  )
+  await writeProfileDoc(home, DEFAULT_PROFILE_ID, { revision: options.defaultRevision ?? 2 })
+  if (options.writeNamed !== false) {
+    await writeProfileDoc(home, PROFILE_ID, {
+      revision: options.namedRevision ?? 2,
+      groups: options.namedGroups ?? namedGroups(),
+    })
+  }
+  const manager = createTestProfileManager(home)
+  const notifications = []
+  const tool = createControlTool({
+    store: manager.storeFor(DEFAULT_PROFILE_ID),
+    profileManager: manager,
+    getService: connectionlessServices(),
+    controlApiEnabled: () => options.controlApiEnabled?.() ?? true,
+    controlSessionsEnabled: () => false,
+    controlDestructiveEnabled: () => false,
+    onCommit: (...args) => notifications.push(args),
+    doctorReport: options.doctorReport,
+  })
+  return { home, manager, tool, notifications }
+}
+
 
 const setup = (overrides = {}) => {
   let doc = { ...sampleDoc(), revision: 2 }
@@ -275,4 +328,216 @@ test('native tool validates archive inputs, conflicts, no-op and forwards stopAc
   const failure = await failed.tool.execute({ action: 'session_archive', sessionId: 's-current', archived: true })
   assert.equal(failure.code, 'session-operation-failed')
   assert.match(failure.message, /archive failed/)
+})
+
+test('native tool state and resolve default to the active profile and echo profileId/activeProfile', async (t) => {
+  const { tool } = await mountProfileTool(t)
+  const state = await tool.execute({ action: 'state' })
+  assert.equal(state.ok, true)
+  assert.equal(state.profileId, DEFAULT_PROFILE_ID)
+  assert.deepEqual(state.activeProfile, { id: DEFAULT_PROFILE_ID, name: null })
+  assert.equal(state.groups[0].name, '施工中')
+
+  const named = await tool.execute({ action: 'state', profileId: PROFILE_ID })
+  assert.equal(named.profileId, PROFILE_ID)
+  assert.deepEqual(named.activeProfile, { id: DEFAULT_PROFILE_ID, name: null })
+  assert.equal(named.groups[0].name, '施工中-工作')
+
+  const resolved = await tool.execute({
+    action: 'resolve',
+    profileId: PROFILE_ID,
+    path: ['施工中-工作', '子组-工作'],
+  })
+  assert.equal(resolved.ok, true)
+  assert.equal(resolved.profileId, PROFILE_ID)
+  assert.deepEqual(resolved.activeProfile, { id: DEFAULT_PROFILE_ID, name: null })
+  assert.equal(resolved.groupId, named.groups[1].id)
+})
+
+test('native tool requires profileId for plan/apply with multiple profiles and scopes planHash', async (t) => {
+  const { tool, notifications } = await mountProfileTool(t)
+  const operations = [{ op: 'group.create', name: 'AI', parentId: null, index: 0 }]
+
+  const missing = await tool.execute({ action: 'plan', baseRevision: 2, operations })
+  assert.equal(missing.ok, false)
+  assert.equal(missing.code, 'profile-required')
+  const missingApply = await tool.execute({
+    action: 'apply',
+    baseRevision: 2,
+    operations,
+    planHash: 'x'.repeat(64),
+  })
+  assert.equal(missingApply.code, 'profile-required')
+
+  const defaultPlan = await tool.execute({
+    action: 'plan',
+    profileId: DEFAULT_PROFILE_ID,
+    baseRevision: 2,
+    operations,
+  })
+  const namedPlan = await tool.execute({ action: 'plan', profileId: PROFILE_ID, baseRevision: 2, operations })
+  assert.equal(defaultPlan.ok, true)
+  assert.equal(namedPlan.ok, true)
+  assert.equal(defaultPlan.profileId, DEFAULT_PROFILE_ID)
+  assert.equal(namedPlan.profileId, PROFILE_ID)
+  assert.equal(defaultPlan.planHash, controlPlanHash(DEFAULT_PROFILE_ID, 2, operations))
+  assert.equal(namedPlan.planHash, controlPlanHash(PROFILE_ID, 2, operations))
+  assert.notEqual(defaultPlan.planHash, namedPlan.planHash)
+
+  const crossProfile = await tool.execute({
+    action: 'apply',
+    profileId: PROFILE_ID,
+    baseRevision: 2,
+    operations,
+    planHash: defaultPlan.planHash,
+  })
+  assert.equal(crossProfile.code, 'stale-plan')
+
+  // The named profile is not active; apply still targets it explicitly and
+  // returns no document (unlike the HTTP control apply response).
+  const applied = await tool.execute({
+    action: 'apply',
+    profileId: PROFILE_ID,
+    baseRevision: 2,
+    operations,
+    planHash: namedPlan.planHash,
+  })
+  assert.equal(applied.ok, true)
+  assert.equal(applied.profileId, PROFILE_ID)
+  assert.equal(applied.revision, 3)
+  assert.equal('doc' in applied, false)
+  assert.deepEqual(notifications, [[3, 'native-tool', PROFILE_ID]])
+
+  const namedState = await tool.execute({ action: 'state', profileId: PROFILE_ID })
+  assert.equal(namedState.revision, 3)
+  const activeState = await tool.execute({ action: 'state' })
+  assert.equal(activeState.revision, 2)
+
+  // No apply replay cache: the same apply is a normal CAS conflict.
+  const replay = await tool.execute({
+    action: 'apply',
+    profileId: PROFILE_ID,
+    baseRevision: 2,
+    operations,
+    planHash: namedPlan.planHash,
+  })
+  assert.equal(replay.ok, false)
+  assert.equal(replay.code, 'conflict')
+})
+
+test('native tool has no activate/switch action', async (t) => {
+  const { tool } = await mountProfileTool(t)
+  assert.deepEqual(tool.parameters.properties.action.enum.includes('activate'), false)
+  assert.deepEqual(tool.parameters.properties.action.enum.includes('switch'), false)
+  assert.equal(tool.parameters.properties.profileId.type, 'string')
+  const activate = await tool.execute({ action: 'activate', profileId: PROFILE_ID })
+  assert.equal(activate.code, 'invalid-action')
+})
+
+test('native tool reports invalid, missing, archived, unhealthy and degraded profile targets', async (t) => {
+  const { tool, home } = await mountProfileTool(t)
+  const invalid = await tool.execute({ action: 'state', profileId: 'Bad_ID' })
+  assert.equal(invalid.code, 'invalid-profile-id')
+  const missing = await tool.execute({ action: 'state', profileId: 'p-unknown-123' })
+  assert.equal(missing.code, 'profile-missing')
+  assert.equal(missing.profileId, 'p-unknown-123')
+
+  const archivedHome = await makeTempProfileHome()
+  t.after(archivedHome.cleanup)
+  await writeJsonFile(
+    archivedHome.registryFilePath,
+    sampleRegistry({
+      revision: 1,
+      profiles: [sampleDefaultProfile(), sampleNamedProfile({ archivedAt: FIXED_TIMESTAMP })],
+    }),
+  )
+  await writeProfileDoc(archivedHome, DEFAULT_PROFILE_ID, { revision: 1 })
+  const archivedManager = createTestProfileManager(archivedHome)
+  const archived = createControlTool({
+    store: archivedManager.storeFor(DEFAULT_PROFILE_ID),
+    profileManager: archivedManager,
+    getService: connectionlessServices(),
+    controlApiEnabled: () => true,
+    controlSessionsEnabled: () => false,
+    controlDestructiveEnabled: () => false,
+  })
+  const archivedState = await archived.execute({ action: 'state', profileId: PROFILE_ID })
+  assert.equal(archivedState.code, 'profile-archived')
+
+  await writeJsonFile(join(home.storageDir, PROFILES_DIR_NAME, PROFILE_ID, RECORD_FILE_NAME), {
+    version: 1,
+    revision: 2,
+    groups: 'not-an-array',
+    ungrouped: [],
+  })
+  const unhealthy = await tool.execute({ action: 'state', profileId: PROFILE_ID })
+  assert.equal(unhealthy.code, 'profile-unhealthy')
+  assert.equal(unhealthy.profileId, PROFILE_ID)
+  assert.equal(unhealthy.health.kind, 'invalid')
+
+  const degradedHome = await makeTempProfileHome()
+  t.after(degradedHome.cleanup)
+  await writeProfileDoc(degradedHome, DEFAULT_PROFILE_ID, { revision: 1 })
+  await writeFile(degradedHome.registryFilePath, '{ not-a-registry', 'utf8')
+  const degradedManager = createTestProfileManager(degradedHome)
+  const degraded = createControlTool({
+    store: degradedManager.storeFor(DEFAULT_PROFILE_ID),
+    profileManager: degradedManager,
+    getService: connectionlessServices(),
+    controlApiEnabled: () => true,
+    controlSessionsEnabled: () => false,
+    controlDestructiveEnabled: () => false,
+  })
+  const degradedState = await degraded.execute({ action: 'state' })
+  assert.equal(degradedState.code, 'registry-unhealthy')
+})
+
+test('native tool keeps profileId optional with only the default profile', async (t) => {
+  const { tool } = await mountProfileTool(t, {
+    profiles: [sampleDefaultProfile()],
+    defaultRevision: 1,
+    writeNamed: false,
+  })
+  const operations = [{ op: 'group.create', name: 'Solo', parentId: null, index: 0 }]
+  const plan = await tool.execute({ action: 'plan', baseRevision: 1, operations })
+  assert.equal(plan.ok, true)
+  assert.equal(plan.profileId, DEFAULT_PROFILE_ID)
+  assert.equal(plan.planHash, controlPlanHash(DEFAULT_PROFILE_ID, 1, operations))
+  const applied = await tool.execute({
+    action: 'apply',
+    baseRevision: 1,
+    operations,
+    planHash: plan.planHash,
+  })
+  assert.equal(applied.ok, true)
+  assert.equal(applied.revision, 2)
+})
+
+test('native tool doctor reports the profile registry and document rows', async (t) => {
+  const { home, tool } = await mountProfileTool(t, {
+    controlApiEnabled: () => false,
+    doctorReport: async () => ({ ok: true, protocol: 1, storage: { health: { status: 'ok' } } }),
+  })
+  const profileDir = join(home.storageDir, PROFILES_DIR_NAME, PROFILE_ID)
+  await writeJsonFile(join(profileDir, `${RECORD_FILE_NAME.slice(0, -5)}.corrupt-2026-01-01.json`), { old: true })
+  await writeJsonFile(join(profileDir, RECORD_FILE_NAME), {
+    version: 1,
+    revision: 2,
+    groups: 'not-an-array',
+    ungrouped: [],
+  })
+
+  const report = await tool.execute({ action: 'doctor' })
+  assert.equal(report.ok, true)
+  assert.equal(report.storage.health.status, 'ok')
+  assert.equal(report.storage.registry.status, 'ok')
+  assert.equal(report.storage.registry.activeId, DEFAULT_PROFILE_ID)
+  assert.equal(report.storage.registry.profileCount, 2)
+  const rows = new Map(report.storage.profiles.map((profile) => [profile.id, profile]))
+  assert.equal(rows.get(DEFAULT_PROFILE_ID).healthy, true)
+  assert.equal(rows.get(DEFAULT_PROFILE_ID).revision, 2)
+  assert.equal(rows.get(DEFAULT_PROFILE_ID).backupStatus, 'missing')
+  assert.equal(rows.get(PROFILE_ID).healthy, false)
+  assert.equal(rows.get(PROFILE_ID).quarantined, 1)
+  assert.match(rows.get(PROFILE_ID).quarantinedTo, /dsh-session-grove\.corrupt-\*\.json$/)
 })
