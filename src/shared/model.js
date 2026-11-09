@@ -287,6 +287,14 @@ export const assignSession = (doc, sessionId, groupId, index) => {
   return next
 }
 
+/** Remove a session from its group or the explicit ungrouped list. */
+export const detachSession = (doc, sessionId) => {
+  if (typeof sessionId !== 'string' || sessionId === '') throw new Error('session-required')
+  const next = cloneDoc(doc)
+  removeSessionEverywhere(next, sessionId)
+  return next
+}
+
 export const reorderUngrouped = (doc, sessionIds) => {
   const next = cloneDoc(doc)
   const seen = new Set()

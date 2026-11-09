@@ -6,8 +6,9 @@
  * Cordis validates plugin return values as effects (Gate 0: returning an object
  * raises `TypeError: Invalid effect`).
  */
-import { createGroup, deleteGroup, deleteGroupTo, moveGroup, renameGroup, setGroupColor, setGroupColorHex, setGroupIcon } from '../shared/model.js'
+import { assignSession, createGroup, deleteGroup, deleteGroupTo, detachSession, findGroup, moveGroup, renameGroup, setGroupColor, setGroupColorHex, setGroupIcon, workspaceOfSession } from '../shared/model.js'
 import { placeForkedSession } from '../core/fork.js'
+import { newSessionFollow, pendingFollowStillValid } from '../core/new-session-follow.js'
 import { createApi } from './api.js'
 import { createStore, safeStorage } from './state.js'
 import { createActions } from './actions.js'
@@ -370,10 +371,21 @@ export const createPlugin = () => {
   const getDoc = () => store.getSnapshot().doc
   const actions = createActions({ getServices: services, getDoc, commitDoc, notify, t, clipboard: writeClipboard })
 
+  // A host workspace switch may replace the freshly created blank with that
+  // workspace's reusable blank. Keep the originating group intent for the whole
+  // pre-prompt blank lifetime; every active switch follows immediately.
+  let pendingNewSessionPlacement = null
+  let pendingFollowGuardDisposer = null
+
   /** Direct group-head "+" / context-menu action: use the inferred workspace. */
   const newSessionInGroup = async (groupId, workspaceId) => {
     try {
       const result = await actions.createSessionInGroup({ groupId, workspaceId })
+      pendingNewSessionPlacement = {
+        groupId,
+        trackedSessionId: result.sessionId,
+        workspaceId,
+      }
       if (store.getSnapshot().archiveFilter === 'only') {
         setArchiveFilter('all')
         notify({ kind: 'info', message: t('toast.archivedFilterChanged') })
@@ -383,6 +395,56 @@ export const createPlugin = () => {
     } catch (error) {
       notify({ kind: 'error', message: t('dialog.createFailed') })
       throw error
+    }
+  }
+
+  /**
+   * If the host replaced the current blank after a group-head create, move the
+   * replacement into the originating group and drop the abandoned blank. Every
+   * pre-prompt workspace switch follows; a nonblank active session ends it.
+   */
+  const reconcileNewSessionGroup = async (activeSessionId) => {
+    const pending = pendingNewSessionPlacement
+    if (!pending || typeof activeSessionId !== 'string' || activeSessionId === '') return
+    const snapshot = services().sessions?.list?.getSnapshot?.()
+    const activeRow = snapshot?.byId?.[activeSessionId]
+    if (activeSessionId === pending.trackedSessionId) {
+      if (!activeRow || activeRow.blank !== true) pendingNewSessionPlacement = null
+      return
+    }
+    const workspaceItems = services().workspaces?.list?.getSnapshot?.()?.items ?? []
+    const activeWorkspaceId = workspaceOfSession(workspaceItems, activeSessionId)?.workspaceId ?? null
+    const workspaceChanged =
+      typeof pending.workspaceId === 'string' && pending.workspaceId !== '' &&
+      typeof activeWorkspaceId === 'string' && activeWorkspaceId !== '' &&
+      activeWorkspaceId !== pending.workspaceId
+    const decision = newSessionFollow(
+      pending,
+      activeSessionId,
+      snapshot?.byId ?? {},
+      findGroup(getDoc(), pending.groupId) !== null,
+      workspaceChanged,
+    )
+    if (!decision) {
+      if (!activeRow || activeRow.blank !== true || !findGroup(getDoc(), pending.groupId)) {
+        pendingNewSessionPlacement = null
+      }
+      return
+    }
+    // Update the tracked blank before the optimistic doc dispatch so the
+    // manual-edit guard sees the target group for this new active id.
+    pending.trackedSessionId = activeSessionId
+    if (activeWorkspaceId !== null) pending.workspaceId = activeWorkspaceId
+    try {
+      const write = commitOptimistic((latest) => {
+        let next = assignSession(latest, activeSessionId, decision.targetGroupId, 0)
+        if (decision.removePrevious) next = detachSession(next, decision.previousSessionId)
+        return next
+      })
+      await write
+    } catch (error) {
+      pendingNewSessionPlacement = null
+      if (globalThis.console?.warn) globalThis.console.warn('[dsh-session-grove] active session follow failed', error)
     }
   }
 
@@ -606,6 +668,13 @@ export const createPlugin = () => {
     }
     store = createStore({ storage: safeStorage() })
     if (perfEnabled()) perfDisposer = store.subscribe(() => perfCount('store:publish'))
+    // Any manual group change that moves the tracked blank closes the pending
+    // follow intent; otherwise a later workspace switch could undo the user's move.
+    pendingFollowGuardDisposer = store.subscribe(() => {
+      const pending = pendingNewSessionPlacement
+      if (!pending) return
+      if (!pendingFollowStillValid(store.getSnapshot().doc, pending)) pendingNewSessionPlacement = null
+    })
     // Diagnostics are opt-in (0.2.18): either the generic plugin-config switch
     // arrives in the load response, or a developer/localStorage override is set.
     if (diagnosticsEnabled()) initDiagnostics()
@@ -650,6 +719,7 @@ export const createPlugin = () => {
       toggleMode,
       openDialog,
       newSessionInGroup,
+      reconcileNewSessionGroup,
       confirmDialog,
       deleteGroupDirect,
       setArchiveFilter,
@@ -721,6 +791,8 @@ export const createPlugin = () => {
         configSlotDisposer = null
         if (typeof storeSubscriptionDisposer === 'function') storeSubscriptionDisposer()
         storeSubscriptionDisposer = null
+        if (typeof pendingFollowGuardDisposer === 'function') pendingFollowGuardDisposer()
+        pendingFollowGuardDisposer = null
         changeSource?.close?.()
         changeSource = null
         refreshPending = false
