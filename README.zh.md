@@ -14,6 +14,8 @@
 已验证桌面壳：**社区版 DSH Desktop Stable 2.0.18**（rc.2）与**官方 DeepSeek Harness 桌面版 0.2.1.0**（rc.5，隔离运行时 A+）  
 不官方支持、不承诺兼容：**社区版 DSH Desktop Beta**、**社区版 DSH NEXT（`-next` 通道）**
 
+分发与未发布改动：`0.4.0-beta.59` 已于 2026-11-09 发布（GitHub Release 附件：`.tgz` + `SHA256SUMS`），并已上架 **dshmarket**；GitHub Release 附件与本地 tarball 仅维护者/调试路径。`dev` 在 `.59` 之后还有未发布的多配置（profiles）与切换预览布局修复；下一个 beta 在发布时确定。
+
 本地化：已打包**英文、中文、日文、韩文、德文、法文、西班牙文、巴西葡萄牙文、意大利文、荷兰文、波兰文、土耳其文、越南文、泰文、印度尼西亚文、俄文、印地文、繁体中文、阿拉伯文**字典；locale id 按基础语言解析（`ja-JP` → `ja`、`zh-Hant`/`zh-TW` → `zh-Hant`、`pt-BR` → `pt`），未支持语言回退英文。阿拉伯文会把插件根节点切到 RTL，并带核心列表/header/弹窗的 RTL 覆盖。会话数量与展开标签使用 CLDR 复数模板；分组配置切换器、切换预览与管理弹窗在 19 份字典中均已本地化。插件会把所有字典注册到 Host，但不会主动向 Host 语言目录添加语言。
 
 依赖声明：官方 `@deepseek-ai/*` 运行时包使用 `peerDependencies`，由 DSH 宿主提供，插件不再打包一份重复副本。
@@ -59,6 +61,8 @@ Beta 和 NEXT 即使能加载插件，也不构成发布门禁，不扩大支持
 - 视图模式、宽度、折叠状态、归档筛选、弹窗位置都会持久化
 
 ### 分组配置
+
+分组配置属于 `dev` 上未发布的改动，`0.4.0-beta.59` 发布包不包含该功能。
 
 分组配置（profile）是一份命名的分组方案：拥有自己的分组树与会话归属，但共用同一份官方工作区/会话数据。切换只改变显示哪份分组文档，不复制、不改写、不删除会话。
 
@@ -145,7 +149,7 @@ Beta 和 NEXT 即使能加载插件，也不构成发布门禁，不扩大支持
 dsh-session-grove
 ```
 
-市场条目正在准备中。上架后，普通用户应完全通过 dshmarket 安装和更新，不需要本地路径或命令行。
+市场条目已上架（经 `awesome-dsh-plugin` 目录）。普通用户应完全通过 dshmarket 安装和更新，不需要本地路径或命令行。
 
 更新由 dshmarket / 插件管理器负责。插件不做自更新，也不知道下一版本的下载地址。如果之前用本地 tarball 安装，需要通过市场重新安装一次，让安装来源绑定到目录。
 
@@ -376,11 +380,10 @@ node scripts/session-grove-control.mjs doctor
 - `profiles.counts` 用同一个 CLDR 复数模板显示分组数与会话数；少数语言会出现近似的名词形式（例如英文 “1 sessions”）；后续应拆分为 `countsGroups` / `countsSessions` 两个键，当前仍为 deferred。
 - 写入使用进程内队列 + 短生命周期 `<record>.lock` 文件做跨进程串行化；持有者 PID 消失或锁文件超过 30 秒时会自动回收。
 - 大列表懒渲染仍在 deferred；当前只虚拟化未归组列表，折叠子树的 React 节点仍会构建。
-- dshmarket 目录条目尚未发布；当前 beta 阶段使用本地 tarball。
 - 搜索最多返回 20 条，只匹配标题/工作区/组路径。
 - 宽度覆盖依赖 DSH 左侧栏 DOM；宿主大改布局时 fail-soft，分组功能不受影响。
 - 对话框移动/缩放已有键盘支持；全量 axe/对比度审计和整棵树的键盘拖拽仍为 deferred。
-- 当前发布验证以 **698 项单元/契约测试 + 38 个 UI runtime case + 1 个浏览器 runtime spec** 为准；用户桌面回归是历史证据，不是每个候选版本的 CI 产物；`e2e/groups.spec.mjs` 是历史手工脚本，不进入默认门禁，当前脚本化 A+ 为 `e2e/isolated.spec.mjs`（需手工对隔离宿主运行，不在 CI 内）。手工 spec 中的配置 UI 流程已于 2026-11-09 在社区版隔离宿主通过（`test:isolated`、`test:ui-browser`、`test:locale-pack`、`test:all-locales` 23/23）；官方宿主的配置证据仍待补。`npm run check:release` 是 release workflow 强制的发布结构门禁（版本一致、tag 匹配、release note、客户端版本戳、打包路径）；A+ 和 all-locales 是手工本地证据，不是 CI 产物。
+- 已发布的 `0.4.0-beta.59` 以 **529 项单元/契约测试 + 15 个 UI runtime case** 验证；`dev` 上未发布的 profiles + 预览修复当前为 **699 项单元/契约测试 + 39 个 UI runtime case + 1 个浏览器 runtime spec**；用户桌面回归是历史证据，不是每个候选版本的 CI 产物；`e2e/groups.spec.mjs` 是历史手工脚本，不进入默认门禁，当前脚本化 A+ 为 `e2e/isolated.spec.mjs`（需手工对隔离宿主运行，不在 CI 内）。手工 spec 中的配置 UI 流程已于 2026-11-09 在社区版隔离宿主通过（`test:isolated`、`test:ui-browser`、`test:locale-pack`、`test:all-locales` 23/23）；官方宿主的配置证据仍待补。`npm run check:release` 是 release workflow 强制的发布结构门禁（版本一致、tag 匹配、release note、客户端版本戳、打包路径）；A+ 和 all-locales 是手工本地证据，不是 CI 产物。
 
 ## 文档
 
@@ -408,11 +411,11 @@ npm run check:release
 npm pack
 ```
 
-- `npm test`：698 项单元/契约测试
+- `npm test`：699 项单元/契约测试
 - `npm run check:style`: zero-dependency style guard (tabs/trailing whitespace/final newline)
 - `npm run check:lib`: rebuild and verify lib/ is current with src/
 - `npm run test:ui-browser`: real-browser UI runtime coverage (isolated host; manual)
-- `npm run check:ui`：UI runtime smoke（38 个 UI runtime case：1 个模块加载 + 37 个组件测试，覆盖 17 个组件、21 个客户端模块；不并入逻辑 coverage）
+- `npm run check:ui`：UI runtime smoke（39 个 UI runtime case：1 个模块加载 + 38 个组件测试，覆盖 17 个组件、21 个客户端模块；不并入逻辑 coverage）
 - `npm run check:coverage`：Node 内置 coverage 报告（当前约 93.1% lines / 83.9% branches / 90.5% functions）
 - `npm run check:release`：release workflow 发布门禁；校验 `package.json` / `dsh.plugin.json` / `src/shared/constants.js` / `package-lock.json` 版本一致；设置了 `GITHUB_REF_NAME` 时要求 tag 等于 `v<version>`；并检查 release note、`lib/client.js` 版本戳和 `package.json.files` 的全部路径
 - 分层：`src/core` 纯函数核心，`src/adapters` 承载 DSH 版本适配；见 `docs/ARCHITECTURE.md`
@@ -430,6 +433,12 @@ npm pack
 - 发布包：`dsh-session-grove-0.4.0-beta.59.tgz`
 - 详细发布步骤见 `docs/RELEASE.md`
 - 历史测试快照见 `docs/TEST-RESULTS.md`（0.4.0-beta.13；当前状态以 `docs/TEST-MATRIX.md` 为准）
+
+## 交流群
+
+DSH Session Grove 用户交流 QQ 群（暂无微信群）：
+
+![dsh-session-grove QQ 群二维码](assets/qrcode_1794236242994.jpg)
 
 ## 许可
 

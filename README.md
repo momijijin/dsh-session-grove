@@ -14,6 +14,8 @@ Primary support: **DSH core/API `@deepseek-ai/dsh` 0.2.1-rc.2 and 0.2.1-rc.5** (
 Verified shells: **community DSH Desktop Stable 2.0.18** (rc.2) and **official DeepSeek Harness desktop 0.2.1.0** (rc.5, isolated runtime A+)  
 Not supported or promised: **community DSH Desktop Beta** and **community DSH NEXT (`-next` channel)**
 
+Distribution and unreleased work: `0.4.0-beta.59` was published on 2026-11-09 (GitHub Release assets: `.tgz` + `SHA256SUMS`) and is listed in **dshmarket**; the GitHub Release assets and the local tarball are maintainer/debug paths. `dev` after `.59` also contains unreleased multiple group profiles and the profile switch-preview layout fix; the next beta is chosen at publish time.
+
 Localization: **English, Chinese, Japanese, Korean, German, French, Spanish, Brazilian Portuguese, Italian, Dutch, Polish, Turkish, Vietnamese, Thai, Indonesian, Russian, Hindi, Traditional Chinese and Arabic** dictionaries are packaged. Locale ids resolve by base language (`ja-JP` → `ja`, `zh-Hant`/`zh-TW` → `zh-Hant`, `pt-BR` → `pt`); unsupported languages fall back to English. Arabic switches the plugin root to RTL and includes the core list/header/dialog RTL overrides. Session count and expand labels use CLDR plural templates. The profile switcher, switch preview and management dialogs are localized in all 19 dictionaries. The plugin registers every dictionary with the host, but does not add languages to the host catalog itself.
 
 Dependency policy: official `@deepseek-ai/*` runtime packages are declared as `peerDependencies`; the DSH host supplies them instead of the plugin bundling a duplicate copy.
@@ -59,6 +61,8 @@ Beta and NEXT may happen to load the plugin, but their results are not a release
 - persist view mode, width, collapsed groups, archive filter and dialog geometry.
 
 ### Profiles
+
+Profiles are part of the unreleased `dev` tree; the published `0.4.0-beta.59` package does not include them.
 
 A profile is a named group configuration: its own group tree and session assignment, over the same official workspace/session data. Switching profiles changes only which group document is displayed; it never copies, rewrites or deletes sessions.
 
@@ -139,7 +143,7 @@ Install from **dshmarket** and search for:
 dsh-session-grove
 ```
 
-The market entry is being prepared. Once it is listed, install and update the plugin entirely through dshmarket; users should not need a local path or a terminal command.
+The catalog entry is live (via `awesome-dsh-plugin`). Install and update the plugin entirely through dshmarket; ordinary users do not need a local path or a terminal command.
 
 Updates are owned by dshmarket / the plugin manager. The plugin does not self-update and does not know where its next version is hosted. If you previously installed a local tarball, reinstall once from the market so the installed source is bound to the catalog.
 
@@ -364,8 +368,7 @@ Only while `diagnostics` is on. It contains drag events, ids and timings, never 
 - dialog move/resize has keyboard support; a full automated axe/contrast audit and keyboard drag for the whole tree remain deferred;
 - writes use an in-process queue plus a short-lived `<record>.lock` file for cross-process serialization; stale locks are reclaimed after the owner PID dies or the lock is 30 seconds old;
 - large-list lazy rendering remains deferred; the current Ungrouped list is virtualized, but a collapsed subtree is still built by `buildRenderTree`;
-- the dshmarket catalog entry is not published yet; local tarball installs are for the beta period;
-- current release validation is **698 unit/contract tests + 38 UI runtime cases + 1 browser runtime spec**; the maintainer desktop pass is historical evidence, not a per-candidate CI artifact; `e2e/groups.spec.mjs` is a historical manual script, while the default scripted A+ is `e2e/isolated.spec.mjs` (run manually against an isolated host, not in CI). Profile UI flows in the manual specs passed on 2026-11-09 against a community isolated host (`test:isolated`, `test:ui-browser`, `test:locale-pack`, `test:all-locales` 23/23); official-host profile evidence is still pending. `npm run check:release` is the release-workflow-enforced structural release gate (version consistency, tag match, release note, bundle stamp, packaged paths); A+ and all-locales runs are manual local evidence, not CI artifacts.
+- the published `0.4.0-beta.59` release was validated with **529 unit/contract tests + 15 UI runtime cases**; the unreleased `dev` tree (profiles + preview fix) currently runs **699 unit/contract tests + 39 UI runtime cases + 1 browser runtime spec**; the maintainer desktop pass is historical evidence, not a per-candidate CI artifact; `e2e/groups.spec.mjs` is a historical manual script, while the default scripted A+ is `e2e/isolated.spec.mjs` (run manually against an isolated host, not in CI). Profile UI flows in the manual specs passed on 2026-11-09 against a community isolated host (`test:isolated`, `test:ui-browser`, `test:locale-pack`, `test:all-locales` 23/23); official-host profile evidence is still pending. `npm run check:release` is the release-workflow-enforced structural release gate (version consistency, tag match, release note, bundle stamp, packaged paths); A+ and all-locales runs are manual local evidence, not CI artifacts.
 
 ## Documentation
 
@@ -393,11 +396,11 @@ npm run check:release
 npm pack
 ```
 
-- `npm test`: 698 unit/contract tests;
+- `npm test`: 699 unit/contract tests;
 - `npm run check:style`: zero-dependency style guard (tabs/trailing whitespace/final newline)
 - `npm run check:lib`: rebuild and verify lib/ is current with src/
 - `npm run test:ui-browser`: real-browser UI runtime coverage (isolated host; manual)
-- `npm run check:ui`: UI runtime smoke (38 UI runtime cases (1 module-load + 37 component tests, covering 17 components across 21 client modules) + 1 browser runtime spec; separate from logic coverage);
+- `npm run check:ui`: UI runtime smoke (39 UI runtime cases (1 module-load + 38 component tests, covering 17 components across 21 client modules) + 1 browser runtime spec; separate from logic coverage);
 - `npm run test:all-locales`: all 19 packaged languages + aliases through the test-only locale pack (header, new-group dialog, group menu, settings and profile popover/preview; requires an isolated web instance; manual local evidence, not a CI gate);
 - `npm run check:coverage`: Node built-in coverage (currently about 93.1% lines / 83.9% branches / 90.5% functions, `src/**` scope);
 - `npm run check:release`: release-workflow release gate; checks version consistency across `package.json` / `dsh.plugin.json` / `src/shared/constants.js` / `package-lock.json`, requires `GITHUB_REF_NAME` to equal `v<version>` when set, checks the release note, the `lib/client.js` version stamp and every `package.json.files` path;
@@ -411,6 +414,12 @@ npm pack
 - package: `dsh-session-grove-0.4.0-beta.59.tgz`;
 - release steps: `docs/RELEASE.md`;
 - historical test snapshot: `docs/TEST-RESULTS.md` (0.4.0-beta.13; current status is `docs/TEST-MATRIX.md`).
+
+## Community
+
+QQ group for questions and feedback (there is no WeChat group yet):
+
+![dsh-session-grove QQ group QR code](assets/qrcode_1794236242994.jpg)
 
 ## License
 
