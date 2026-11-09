@@ -5,8 +5,8 @@
 import { createHash } from 'node:crypto'
 import { basename } from 'node:path'
 import { DOC_VERSION } from '../shared/constants.js'
-import { normalizeColor, normalizeColorHex, validateDoc } from '../shared/model.js'
-import { MAX_BODY_BYTES, MAX_DIAGNOSTICS_EVENTS } from './constants.js'
+import { hasControlChars, normalizeColor, normalizeColorHex, validateDoc } from '../shared/model.js'
+import { MAX_BODY_BYTES, MAX_DIAGNOSTICS_EVENTS, MAX_PROFILE_NAME, MAX_PROFILES } from './constants.js'
 
 export const sendJson = (res, status, payload) => {
   res.statusCode = status
@@ -95,10 +95,15 @@ export const loadResponse = (result, profileId) => {
 }
 
 /** Map a store commit result to the wire response. */
-export const commitResponse = (result) => {
+export const commitResponse = (result, profileId) => {
   switch (result.kind) {
-    case 'ok':
-      return { status: 200, body: { ok: true, revision: result.revision, doc: result.doc } }
+    case 'ok': {
+      // SPEC 5.2: the success body names the profile that accepted the write so
+      // a client can confirm it is still scoped to the profile it loaded.
+      const body = { ok: true, revision: result.revision, doc: result.doc }
+      if (typeof profileId === 'string' && profileId.length > 0) body.profileId = profileId
+      return { status: 200, body }
+    }
     case 'conflict':
       return {
         status: 409,
@@ -156,6 +161,189 @@ export const registryUnhealthyResponse = () => ({
     message: 'profile registry is degraded; profile writes are disabled',
   },
 })
+
+// ---------------------------------------------------------------------------
+// Multi-profile helpers (SPEC 4.8/5.3-5.8)
+// ---------------------------------------------------------------------------
+
+/** Public registry-entry shape used by create/rename/activate responses. */
+export const profileWire = (entry) => ({
+  id: entry.id,
+  name: entry.name ?? null,
+  archived: entry.archivedAt !== null,
+  createdAt: entry.createdAt,
+  updatedAt: entry.updatedAt,
+})
+
+/**
+ * `GET /profiles` row (SPEC 5.3): health and counts come from the read-only
+ * peek; an unreadable document reports zero counts instead of failing the list.
+ */
+export const profileListEntry = (entry, health) => {
+  const healthy = health.healthy === true
+  const doc = healthy ? health.doc : null
+  let groupCount = 0
+  let sessionCount = 0
+  if (doc !== null && typeof doc === 'object') {
+    groupCount = Array.isArray(doc.groups) ? doc.groups.length : 0
+    sessionCount = Array.isArray(doc.ungrouped) ? doc.ungrouped.length : 0
+    if (Array.isArray(doc.groups)) {
+      for (const group of doc.groups) {
+        if (Array.isArray(group?.sessionIds)) sessionCount += group.sessionIds.length
+      }
+    }
+  }
+  return {
+    id: entry.id,
+    name: entry.name ?? null,
+    archived: entry.archivedAt !== null,
+    healthy,
+    groupCount,
+    sessionCount,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+  }
+}
+
+/**
+ * Wire health for one profile peek. A missing file is not echoed back as a
+ * path; every other detail string is useful for recovery.
+ */
+export const profileHealth = (peek) => {
+  const health = { kind: peek.kind }
+  if (peek.kind !== 'missing' && typeof peek.detail === 'string') health.detail = peek.detail
+  return health
+}
+
+/** 409 for a profile target that cannot be previewed/activated. */
+export const profileTargetFailure = (code, profileId, health = null) => {
+  const body = { ok: false, code, profileId }
+  if (health !== null) body.health = health
+  return { status: 409, body }
+}
+
+/**
+ * SPEC 5.4: non-secret TOCTOU token over the active/target/registry revisions.
+ * `activeRevision` is `null` when the active document is unhealthy.
+ */
+export const previewTokenFor = ({ activeId, activeRevision, targetId, targetRevision, registryRevision }) =>
+  createHash('sha256')
+    .update(JSON.stringify({ activeId, activeRevision, targetId, targetRevision, registryRevision }))
+    .digest('hex')
+
+/** 409 when an activate request was computed against older state. */
+export const previewStaleResponse = ({ activeId, activeRevision, registryRevision } = {}) => {
+  const body = {
+    ok: false,
+    code: 'preview-stale',
+    message: 'preview token no longer matches the current active profile, target revision or registry revision',
+  }
+  if (typeof activeId === 'string') body.activeId = activeId
+  if (activeRevision !== undefined) body.activeRevision = activeRevision
+  if (Number.isInteger(registryRevision) && registryRevision >= 0) body.registryRevision = registryRevision
+  return { status: 409, body }
+}
+
+/**
+ * Validate a profile display name before a doc-first create writes an orphan.
+ * The registry re-validates under its CAS lock, so this is a pre-check only.
+ *
+ * @returns {{ ok: true, name: string } | { ok: false, reason: string }}
+ */
+export const normalizeProfileNameInput = (name) => {
+  if (typeof name !== 'string') return { ok: false, reason: 'name-required' }
+  const text = name.trim()
+  if (text.length === 0) return { ok: false, reason: 'name-required' }
+  if (text.length > MAX_PROFILE_NAME) return { ok: false, reason: 'name-too-long' }
+  if (hasControlChars(text)) return { ok: false, reason: 'name-control-chars' }
+  return { ok: true, name: text }
+}
+
+/** Case-insensitive duplicate check over the unarchived profiles (SPEC 4.3). */
+export const profileNameTaken = (registry, name, exceptId = null) => {
+  const key = name.trim().toLowerCase()
+  return registry.profiles.some(
+    (profile) =>
+      profile.archivedAt === null &&
+      profile.id !== exceptId &&
+      typeof profile.name === 'string' &&
+      profile.name.trim().toLowerCase() === key,
+  )
+}
+
+/**
+ * Map one registry mutation result to the wire response (SPEC 4.8). Every
+ * profile route funnels failures here so status codes and shapes stay uniform.
+ * Unknown kinds throw: a silent fallback would hide a contract bug.
+ */
+export const profileWriteFailure = (result) => {
+  switch (result.kind) {
+    case 'conflict':
+      return {
+        status: 409,
+        body: { ok: false, code: 'conflict', message: 'revision mismatch', revision: result.revision },
+      }
+    case 'preview-stale':
+      return previewStaleResponse({ registryRevision: result.revision })
+    case 'registry-unhealthy':
+      return registryUnhealthyResponse()
+    case 'profile-limit':
+      return {
+        status: 409,
+        body: {
+          ok: false,
+          code: 'profile-limit',
+          message: `at most ${String(MAX_PROFILES)} unarchived profiles are allowed`,
+        },
+      }
+    case 'profile-name-invalid':
+      return {
+        status: 422,
+        body: {
+          ok: false,
+          code: 'profile-name-invalid',
+          message: 'profile name is invalid',
+          reason: result.reason ?? null,
+        },
+      }
+    case 'profile-name-duplicate':
+      return {
+        status: 422,
+        body: { ok: false, code: 'profile-name-duplicate', message: 'profile name is already in use' },
+      }
+    case 'profile-missing':
+      return {
+        status: 409,
+        body: { ok: false, code: 'profile-missing', message: 'profile does not exist' },
+      }
+    case 'profile-archived':
+      return {
+        status: 409,
+        body: { ok: false, code: 'profile-archived', message: 'profile is archived' },
+      }
+    case 'profile-in-use':
+      return {
+        status: 409,
+        body: {
+          ok: false,
+          code: 'profile-in-use',
+          message: 'the active, default or last unarchived profile cannot be archived',
+        },
+      }
+    case 'invalid-profile-id':
+      return {
+        status: 422,
+        body: {
+          ok: false,
+          code: 'invalid-profile-id',
+          message: 'profile id is invalid',
+          reason: result.reason ?? null,
+        },
+      }
+    default:
+      throw new Error(`unknown profile result ${JSON.stringify(result.kind)}`)
+  }
+}
 
 /**
  * Validate one commit request body; returns

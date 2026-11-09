@@ -1,14 +1,21 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile, readdir } from 'node:fs/promises'
+import { access, readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { apply, Config, inject, name } from '../../src/index.js'
 import {
+  COMMIT_PATH,
   CONTROL_TOKEN_FILE_NAME,
   DEBUG_FILE_NAME,
   DIAGNOSTICS_FILE_NAME,
   LOAD_PATH,
+  PROFILES_ACTIVATE_PATH,
+  PROFILES_ARCHIVE_PATH,
+  PROFILES_CREATE_PATH,
+  PROFILES_PATH,
+  PROFILES_PREVIEW_PATH,
+  PROFILES_RENAME_PATH,
   RECORD_FILE_NAME,
 } from '../../src/host/constants.js'
 import {
@@ -19,6 +26,7 @@ import {
   makeTempProfileHome,
   makeTempStore,
   sampleDefaultProfile,
+  sampleDoc,
   sampleNamedProfile,
   sampleRegistry,
   writeJsonFile,
@@ -123,8 +131,18 @@ test('apply() returns void synchronously and mounts the host routes inside ctx.e
 
   // Cordis 4.0.5 treats the return value as the plugin effect list.
   assert.equal(returned, undefined)
-  assert.equal(routes.length, 15)
+  assert.equal(routes.length, 21)
   assert.equal(routes.some((route) => route.path === '/dsh-session-grove/control/catalog'), true)
+  for (const path of [
+    PROFILES_PATH,
+    PROFILES_PREVIEW_PATH,
+    PROFILES_CREATE_PATH,
+    PROFILES_RENAME_PATH,
+    PROFILES_ARCHIVE_PATH,
+    PROFILES_ACTIVATE_PATH,
+  ]) {
+    assert.equal(routes.some((route) => route.path === path), true, `${path} must be mounted in production`)
+  }
   assert.equal(ready.filePath, temp.filePath)
   assert.equal(ready.storageDir, temp.storages)
   assert.equal(ready.diagnosticsFilePath, join(temp.storages, DIAGNOSTICS_FILE_NAME))
@@ -137,6 +155,56 @@ test('apply() returns void synchronously and mounts the host routes inside ctx.e
   assert.equal(typeof ready.storageSource, 'string')
   assert.equal(logs.info.some((line) => line.includes('host ready') && line.includes('storageSource=')), true)
   assert.equal(logs.info.some((line) => line.includes('diagnostics=')), true)
+})
+
+test('production first start (manager + default + no registry) serves HTTP load and commit', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  const { ctx, routes, disposeAll } = makeContext({
+    connection: { requestRejection: () => undefined },
+  })
+  t.after(() => disposeAll())
+  let ready
+  apply(ctx, {
+    storageDir: home.storageDir,
+    onReady: (value) => {
+      ready = value
+    },
+  })
+  // The entry always builds the profile manager over the resolved storages dir.
+  assert.equal(ready.profileManager.registryFilePath, home.registryFilePath)
+  assert.equal(await ready.profileManager.activeId(), 'default')
+
+  const load = routes.find((route) => route.path === LOAD_PATH)
+  const loaded = makeResponse()
+  await load.handler(makeRequest({ headers: { host: '127.0.0.1:4400' } }), loaded)
+  assert.equal(loaded.statusCode, 200)
+  const loadedBody = JSON.parse(loaded.body)
+  assert.equal(loadedBody.ok, true)
+  assert.equal(loadedBody.profileId, 'default')
+  assert.equal(loadedBody.revision, 0)
+  assert.deepEqual(loadedBody.doc, { version: 1, revision: 0, groups: [], ungrouped: [] })
+
+  const commit = routes.find((route) => route.path === COMMIT_PATH)
+  const committed = makeResponse()
+  await commit.handler(
+    makeRequest({
+      method: 'POST',
+      headers: {
+        host: '127.0.0.1:4400',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ baseRevision: 0, doc: sampleDoc() }),
+    }),
+    committed,
+  )
+  assert.equal(committed.statusCode, 200)
+  const committedBody = JSON.parse(committed.body)
+  assert.equal(committedBody.profileId, 'default')
+  assert.equal(committedBody.revision, 1)
+  assert.equal(JSON.parse(await readFile(home.defaultFilePath, 'utf8')).revision, 1)
+  // A first start with only the default profile performs no registry write.
+  await assert.rejects(access(home.registryFilePath), /ENOENT/)
 })
 
 test('global artifacts stay in storageDir while a named profile is active', async (t) => {
