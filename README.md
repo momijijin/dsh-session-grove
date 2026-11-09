@@ -9,12 +9,12 @@ A free-form grouping layer over the shipped DSH Desktop workspace/session sideba
 - session titles and archive state change only through explicit user actions or the opt-in `controlSessions` API;
 - `workspace.json` is never written.
 
-Current version: **0.4.0-beta.59**  
+Current version: **0.4.0-beta.60**  
 Primary support: **DSH core/API `@deepseek-ai/dsh` 0.2.1-rc.2 and 0.2.1-rc.5** (`engines.dsh: >=0.2.0-rc.2 <0.3.0`)  
 Verified shells: **community DSH Desktop Stable 2.0.18** (rc.2) and **official DeepSeek Harness desktop 0.2.1.0** (rc.5, isolated runtime A+)  
 Not supported or promised: **community DSH Desktop Beta** and **community DSH NEXT (`-next` channel)**
 
-Distribution and unreleased work: `0.4.0-beta.59` was published on 2026-11-09 (GitHub Release assets: `.tgz` + `SHA256SUMS`) and is listed in **dshmarket**; the GitHub Release assets and the local tarball are maintainer/debug paths. `dev` after `.59` also contains unreleased multiple group profiles and the profile switch-preview layout fix; the next beta is chosen at publish time.
+Distribution: `0.4.0-beta.60` is the current release (2026-11-10; GitHub Release assets: `.tgz` + `SHA256SUMS`, two assets) and is listed in **dshmarket**; `0.4.0-beta.59` (2026-11-09) is the previous release. The GitHub Release assets and the local tarball are maintainer/debug paths. Multiple group profiles and the profile switch-preview layout fix ship in `.60`; `dev` after `.60` is the next development line.
 
 Localization: **English, Chinese, Japanese, Korean, German, French, Spanish, Brazilian Portuguese, Italian, Dutch, Polish, Turkish, Vietnamese, Thai, Indonesian, Russian, Hindi, Traditional Chinese and Arabic** dictionaries are packaged. Locale ids resolve by base language (`ja-JP` → `ja`, `zh-Hant`/`zh-TW` → `zh-Hant`, `pt-BR` → `pt`); unsupported languages fall back to English. Arabic switches the plugin root to RTL and includes the core list/header/dialog RTL overrides. Session count and expand labels use CLDR plural templates. The profile switcher, switch preview and management dialogs are localized in all 19 dictionaries. The plugin registers every dictionary with the host, but does not add languages to the host catalog itself.
 
@@ -62,7 +62,7 @@ Beta and NEXT may happen to load the plugin, but their results are not a release
 
 ### Profiles
 
-Profiles are part of the unreleased `dev` tree; the published `0.4.0-beta.59` package does not include them.
+Profiles ship in `0.4.0-beta.60`; the previous `0.4.0-beta.59` package does not include them.
 
 A profile is a named group configuration: its own group tree and session assignment, over the same official workspace/session data. Switching profiles changes only which group document is displayed; it never copies, rewrites or deletes sessions.
 
@@ -368,7 +368,7 @@ Only while `diagnostics` is on. It contains drag events, ids and timings, never 
 - dialog move/resize has keyboard support; a full automated axe/contrast audit and keyboard drag for the whole tree remain deferred;
 - writes use an in-process queue plus a short-lived `<record>.lock` file for cross-process serialization; stale locks are reclaimed after the owner PID dies or the lock is 30 seconds old;
 - large-list lazy rendering remains deferred; the current Ungrouped list is virtualized, but a collapsed subtree is still built by `buildRenderTree`;
-- the published `0.4.0-beta.59` release was validated with **529 unit/contract tests + 15 UI runtime cases**; the unreleased `dev` tree (profiles + preview fix) currently runs **699 unit/contract tests + 39 UI runtime cases + 1 browser runtime spec**; the maintainer desktop pass is historical evidence, not a per-candidate CI artifact; `e2e/groups.spec.mjs` is a historical manual script, while the default scripted A+ is `e2e/isolated.spec.mjs` (run manually against an isolated host, not in CI). Profile UI flows in the manual specs passed on 2026-11-09 against a community isolated host (`test:isolated`, `test:ui-browser`, `test:locale-pack`, `test:all-locales` 23/23); official-host profile evidence is still pending. `npm run check:release` is the release-workflow-enforced structural release gate (version consistency, tag match, release note, bundle stamp, packaged paths); A+ and all-locales runs are manual local evidence, not CI artifacts.
+- the `0.4.0-beta.60` release was validated with **699 unit/contract tests + 39 UI runtime cases + 1 browser runtime spec**; the previous `0.4.0-beta.59` release used 529 unit/contract tests + 15 UI runtime cases; manual evidence is not a per-candidate CI artifact: profile UI flows passed on 2026-11-09 against a community isolated host (`test:isolated`, `test:ui-browser`, `test:locale-pack`, `test:all-locales` 23/23); official A+ O profile evidence PASSED on 2026-11-10 against the `.60` tarball on the official DeepSeek Harness desktop 0.2.1.0 / DSH 0.2.1-rc.5 isolated host (`test:isolated` and `test:ui-browser`, `executedRatio` 1; see [docs/TEST-MATRIX.md](docs/TEST-MATRIX.md)); the latest all-locales / locale-pack evidence remains the 2026-11-09 `.59` 23/23 run and `.60` was not re-swept; user desktop acceptance is dated 2026-11-10; `e2e/groups.spec.mjs` is a historical manual script, while the default scripted A+ is `e2e/isolated.spec.mjs` (run manually against an isolated host, not in CI). `npm run check:release` is the release-workflow-enforced structural release gate (version consistency, tag match, release note, bundle stamp, packaged paths); A+ and all-locales runs are manual local evidence, not CI artifacts.
 
 ## Documentation
 
@@ -411,7 +411,7 @@ npm pack
 - `scripts/qa/lifecycle-isolated.ps1`: isolated install → uninstall → reinstall with record hash preservation;
 - `scripts/qa/start-isolated-web.ps1` + `npm run test:isolated`: A+ isolated Playwright smoke, including two-window concurrent CAS and the profile create/switch/preview/save-as/rename/archive/limit flow plus returning to the default profile (manual local evidence; the release workflow does not run it); the unhealthy-active recovery strip is not covered by this script and remains manual/pending;
 - build artifact: `lib/client.js`;
-- package: `dsh-session-grove-0.4.0-beta.59.tgz`;
+- package: `dsh-session-grove-0.4.0-beta.60.tgz`;
 - release steps: `docs/RELEASE.md`;
 - historical test snapshot: `docs/TEST-RESULTS.md` (0.4.0-beta.13; current status is `docs/TEST-MATRIX.md`).
 

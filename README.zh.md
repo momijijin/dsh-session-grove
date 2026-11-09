@@ -9,12 +9,12 @@
 - 会话标题、归档状态只在用户主动操作或开启 `controlSessions` 时由受控接口改变；
 - 不写入 `workspace.json`。
 
-当前版本：**0.4.0-beta.59**  
+当前版本：**0.4.0-beta.60**  
 主要支持：**DSH core/API `@deepseek-ai/dsh` 0.2.1-rc.2 与 0.2.1-rc.5**（`engines.dsh: >=0.2.0-rc.2 <0.3.0`）  
 已验证桌面壳：**社区版 DSH Desktop Stable 2.0.18**（rc.2）与**官方 DeepSeek Harness 桌面版 0.2.1.0**（rc.5，隔离运行时 A+）  
 不官方支持、不承诺兼容：**社区版 DSH Desktop Beta**、**社区版 DSH NEXT（`-next` 通道）**
 
-分发与未发布改动：`0.4.0-beta.59` 已于 2026-11-09 发布（GitHub Release 附件：`.tgz` + `SHA256SUMS`），并已上架 **dshmarket**；GitHub Release 附件与本地 tarball 仅维护者/调试路径。`dev` 在 `.59` 之后还有未发布的多配置（profiles）与切换预览布局修复；下一个 beta 在发布时确定。
+分发：`0.4.0-beta.60` 为当前发布版本（2026-11-10；GitHub Release 附件 `.tgz` + `SHA256SUMS`，共 2 个），并已上架 **dshmarket**；`0.4.0-beta.59`（2026-11-09）为上一版。GitHub Release 附件与本地 tarball 仅维护者/调试路径。多配置（profiles）与切换预览布局修复随 `.60` 发布；`.60` 之后的 `dev` 进入下一个开发线。
 
 本地化：已打包**英文、中文、日文、韩文、德文、法文、西班牙文、巴西葡萄牙文、意大利文、荷兰文、波兰文、土耳其文、越南文、泰文、印度尼西亚文、俄文、印地文、繁体中文、阿拉伯文**字典；locale id 按基础语言解析（`ja-JP` → `ja`、`zh-Hant`/`zh-TW` → `zh-Hant`、`pt-BR` → `pt`），未支持语言回退英文。阿拉伯文会把插件根节点切到 RTL，并带核心列表/header/弹窗的 RTL 覆盖。会话数量与展开标签使用 CLDR 复数模板；分组配置切换器、切换预览与管理弹窗在 19 份字典中均已本地化。插件会把所有字典注册到 Host，但不会主动向 Host 语言目录添加语言。
 
@@ -62,7 +62,7 @@ Beta 和 NEXT 即使能加载插件，也不构成发布门禁，不扩大支持
 
 ### 分组配置
 
-分组配置属于 `dev` 上未发布的改动，`0.4.0-beta.59` 发布包不包含该功能。
+分组配置随 `0.4.0-beta.60` 发布；上一版 `0.4.0-beta.59` 发布包不包含该功能。
 
 分组配置（profile）是一份命名的分组方案：拥有自己的分组树与会话归属，但共用同一份官方工作区/会话数据。切换只改变显示哪份分组文档，不复制、不改写、不删除会话。
 
@@ -383,7 +383,7 @@ node scripts/session-grove-control.mjs doctor
 - 搜索最多返回 20 条，只匹配标题/工作区/组路径。
 - 宽度覆盖依赖 DSH 左侧栏 DOM；宿主大改布局时 fail-soft，分组功能不受影响。
 - 对话框移动/缩放已有键盘支持；全量 axe/对比度审计和整棵树的键盘拖拽仍为 deferred。
-- 已发布的 `0.4.0-beta.59` 以 **529 项单元/契约测试 + 15 个 UI runtime case** 验证；`dev` 上未发布的 profiles + 预览修复当前为 **699 项单元/契约测试 + 39 个 UI runtime case + 1 个浏览器 runtime spec**；用户桌面回归是历史证据，不是每个候选版本的 CI 产物；`e2e/groups.spec.mjs` 是历史手工脚本，不进入默认门禁，当前脚本化 A+ 为 `e2e/isolated.spec.mjs`（需手工对隔离宿主运行，不在 CI 内）。手工 spec 中的配置 UI 流程已于 2026-11-09 在社区版隔离宿主通过（`test:isolated`、`test:ui-browser`、`test:locale-pack`、`test:all-locales` 23/23）；官方宿主的配置证据仍待补。`npm run check:release` 是 release workflow 强制的发布结构门禁（版本一致、tag 匹配、release note、客户端版本戳、打包路径）；A+ 和 all-locales 是手工本地证据，不是 CI 产物。
+- `0.4.0-beta.60` 以 **699 项单元/契约测试 + 39 个 UI runtime case + 1 个浏览器 runtime spec** 验证；上一版 `0.4.0-beta.59` 为 529 项单元/契约测试 + 15 个 UI runtime case；手工证据不是每个候选版本的 CI 产物：配置 UI 流程已于 2026-11-09 在社区版隔离宿主通过（`test:isolated`、`test:ui-browser`、`test:locale-pack`、`test:all-locales` 23/23）；官方 A+ O 的配置证据已于 2026-11-10 PASS（官方 DeepSeek Harness 桌面版 0.2.1.0 / DSH 0.2.1-rc.5 隔离宿主，`.60` tarball：`test:isolated` + `test:ui-browser`，`executedRatio` 1；见 [docs/TEST-MATRIX.md](docs/TEST-MATRIX.md)）；all-locales / locale-pack 最新证据仍为 2026-11-09 的 `.59` 23/23，`.60` 未复跑；用户桌面验收日期为 2026-11-10；`e2e/groups.spec.mjs` 是历史手工脚本，不进入默认门禁，当前脚本化 A+ 为 `e2e/isolated.spec.mjs`（需手工对隔离宿主运行，不在 CI 内）。`npm run check:release` 是 release workflow 强制的发布结构门禁（版本一致、tag 匹配、release note、客户端版本戳、打包路径）；A+ 和 all-locales 是手工本地证据，不是 CI 产物。
 
 ## 文档
 
@@ -430,7 +430,7 @@ npm pack
   - 必须先启动独立 web，取得 `web.json` 的 URL 和 testHome
   - Playwright 拒绝真实 43120 端口和真实 `~/.dsh`
 - 构建产物：`lib/client.js`
-- 发布包：`dsh-session-grove-0.4.0-beta.59.tgz`
+- 发布包：`dsh-session-grove-0.4.0-beta.60.tgz`
 - 详细发布步骤见 `docs/RELEASE.md`
 - 历史测试快照见 `docs/TEST-RESULTS.md`（0.4.0-beta.13；当前状态以 `docs/TEST-MATRIX.md` 为准）
 
