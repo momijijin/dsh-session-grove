@@ -9,8 +9,9 @@
 import { assignSession, createGroup, deleteGroup, deleteGroupTo, detachSession, findGroup, moveGroup, renameGroup, setGroupColor, setGroupColorHex, setGroupIcon, workspaceOfSession } from '../shared/model.js'
 import { placeForkedSession } from '../core/fork.js'
 import { newSessionFollow, pendingFollowStillValid } from '../core/new-session-follow.js'
+import { diffDocs } from '../core/profile-diff.js'
 import { createApi } from './api.js'
-import { createStore, safeStorage } from './state.js'
+import { createExternalChangeRouter, createStore, safeStorage } from './state.js'
 import { createActions } from './actions.js'
 import { createLocaleRuntime } from './plugin-locale.js'
 import { installSettingsSlot } from './plugin-settings.js'
@@ -83,15 +84,25 @@ export const createPlugin = () => {
   let configSlotDisposer = null
   let perfDisposer = null
   let loadPromise = null
+  /** Monotonic token that invalidates an in-flight read on an active switch. */
+  let loadGeneration = 0
   let commitTail = Promise.resolve()
   let queue = null
   let bridge = null
   let debugProbe = false
   let changeSource = null
+  let changeRouter = null
+  let profileActiveListener = null
   let refreshPending = false
   let refreshForced = false
-  let latestSeenRevision = 0
   let storeSubscriptionDisposer = null
+  let profileEpochDisposer = null
+  let lastProfileEpoch = 0
+  let profilesPromise = null
+  /** Target of the local activate request (suppresses our own SSE `active`). */
+  let profileSwitchTarget = null
+  /** SPEC §7.3 local resets (search/drag/scroll/selection/…) registered by S6. */
+  const profileResetListeners = new Set()
 
   const services = () => {
     const ctx = ctxRef
@@ -180,16 +191,26 @@ export const createPlugin = () => {
   // --- document load ---------------------------------------------------------
   const load = ({ background = false } = {}) => {
     if (loadPromise !== null) return loadPromise
+    const epochAtStart = store.getSnapshot().profileEpoch
+    const generationAtStart = loadGeneration
     const showLoading = shouldShowLoading({ background, docState: store.getSnapshot().docState })
     loadPromise = (async () => {
       if (showLoading) store.dispatch('load-start')
       let loadedOk = false
+      let stale = false
       const fail = (code) => {
         if (showLoading) store.dispatch('load-error', { code })
         else store.dispatch('banner', { banner: { kind: 'error', code } })
       }
       try {
         const result = await api.load()
+        // SPEC §10: an active switch while this read was in flight means this
+        // response belongs to the previous profile — discard it and re-read.
+        stale = store.getSnapshot().profileEpoch !== epochAtStart || loadGeneration !== generationAtStart
+        if (stale) {
+          diagTrace('load.stale', { reason: 'profile-epoch' })
+          return
+        }
         if (result.ok === true) {
           debugProbe = result.debugProbe === true
           if (result.diagnostics === true) {
@@ -197,22 +218,47 @@ export const createPlugin = () => {
           } else if (diagEnabled()) {
             stopDiagnostics()
           }
-          store.dispatch('load-success', { doc: result.doc, revision: result.revision, warning: result.warning })
+          // `profileId` is additive (SPEC §5.1); a legacy host omits it and the
+          // store keeps the previously known/default profile id.
+          store.dispatch('load-success', {
+            doc: result.doc,
+            revision: result.revision,
+            warning: result.warning,
+            profileId: result.profileId,
+          })
           loadedOk = true
           return
         }
         fail(result.routeUnavailable ? 'route-unavailable' : result.code ?? 'load-failed')
+        if (result.code === 'profile-unhealthy' || result.code === 'profile-missing') {
+          // SPEC §7.3 recovery: expose the healthy profiles so the shell can
+          // offer a recovery target; the main view shows the load error until
+          // an explicit preview/activate succeeds.
+          refreshProfiles({ background: true })
+        }
       } catch (error) {
+        if (store.getSnapshot().profileEpoch !== epochAtStart || loadGeneration !== generationAtStart) {
+          stale = true
+          return
+        }
         fail('load-failed')
         if (globalThis.console?.warn) globalThis.console.warn('[dsh-session-grove] load failed', error)
       } finally {
         loadPromise = null
+        if (stale) {
+          // Re-read the newly active profile once the old promise settles.
+          refreshPending = true
+          refreshForced = true
+        }
         // A newer revision may have arrived while this read was in flight, or
         // a refresh may have been deferred behind an optimistic write. Re-check
         // against the just-loaded snapshot before declaring the view settled.
-        if (loadedOk && (refreshPending || latestSeenRevision > store.getSnapshot().revision)) {
-          const pendingForce = refreshForced
-          queueMicrotask(() => requestRefresh({ force: pendingForce }))
+        if (loadedOk || stale) {
+          const current = store.getSnapshot()
+          if (refreshPending || current.latestSeenRevision > current.revision) {
+            const pendingForce = refreshForced
+            queueMicrotask(() => requestRefresh({ force: pendingForce }))
+          }
         }
       }
     })()
@@ -226,12 +272,12 @@ export const createPlugin = () => {
 
   const requestRefresh = ({ force = false } = {}) => {
     const snapshot = store.getSnapshot()
-    if (loadPromise !== null || snapshot.docState === 'loading' || snapshot.optimistic) {
+    if (loadPromise !== null || snapshot.optimistic) {
       refreshPending = true
       refreshForced = refreshForced || force
       return loadPromise
     }
-    if (!force && latestSeenRevision <= snapshot.revision) {
+    if (!force && snapshot.latestSeenRevision <= snapshot.revision) {
       refreshPending = false
       refreshForced = false
       return null
@@ -241,11 +287,141 @@ export const createPlugin = () => {
     return load({ background: true })
   }
 
-  const acceptExternalRevision = (revision) => {
-    if (!Number.isInteger(revision) || revision < 0) return
-    latestSeenRevision = Math.max(latestSeenRevision, revision)
-    if (revision <= store.getSnapshot().revision) return
-    requestRefresh()
+  // --- profile data (SPEC §7.1-§7.7) ----------------------------------------
+  /**
+   * Load the registry-backed profile list. A non-JSON 404 means the host has no
+   * profile surface at all (SPEC §7.7): flip `profiles.available` and keep the
+   * single-profile behaviour without touching the main view.
+   */
+  const refreshProfiles = ({ background = false } = {}) => {
+    if (profilesPromise !== null) return profilesPromise
+    if (!background) store.dispatch('profiles-loading')
+    profilesPromise = (async () => {
+      const result = await api.listProfiles()
+      if (result.ok === true) {
+        store.dispatch('profiles-success', {
+          registryRevision: result.registryRevision,
+          activeId: result.activeId,
+          degraded: result.degraded === true,
+          list: result.profiles,
+        })
+      } else if (result.profilesAvailable === false) {
+        store.dispatch('profiles-unavailable')
+      } else {
+        store.dispatch('profiles-error', { code: result.code, message: result.message })
+      }
+      return result
+    })().finally(() => {
+      profilesPromise = null
+    })
+    return profilesPromise
+  }
+
+  /** Live session ids for the switch preview classification (SPEC §8.4). */
+  const liveSessionIds = () => {
+    const sessions = services().sessions
+    const snapshot = sessions?.list?.getSnapshot?.() ?? null
+    if (!snapshot) return []
+    if (Array.isArray(snapshot.ids)) return snapshot.ids
+    return Object.keys(snapshot.byId ?? {})
+  }
+
+  /**
+   * Fetch one profile preview and store the doc/diff/token the switch dialog
+   * needs. Confirmation (`activateProfile`) consumes the same token, so the
+   * host's TOCTOU check covers the whole user think-time.
+   */
+  const previewProfile = async (id) => {
+    if (typeof id !== 'string' || id === '') return { ok: false, code: 'invalid-profile-id' }
+    const epochAtStart = store.getSnapshot().profileEpoch
+    store.dispatch('profile-preview-start', { targetId: id })
+    const result = await api.previewProfile(id)
+    if (store.getSnapshot().profileEpoch !== epochAtStart) {
+      diagTrace('profile.preview.stale', { targetId: id, reason: 'profile-epoch' })
+      return { ...result, ok: false, code: 'profile-changed' }
+    }
+    if (result.ok !== true) {
+      store.dispatch('profile-preview-error', { code: result.code, message: result.message })
+      return result
+    }
+    const current = store.getSnapshot()
+    const diff = diffDocs(current.doc, result.doc, liveSessionIds())
+    store.dispatch('profile-preview-success', {
+      targetId: result.profile?.id ?? id,
+      targetName: result.profile?.name ?? null,
+      targetRevision: result.revision,
+      previewToken: result.previewToken,
+      doc: result.doc,
+      diff,
+      baseActiveId: result.activeId ?? null,
+      baseActiveRevision: result.activeRevision ?? null,
+    })
+    return result
+  }
+
+  /**
+   * Activate a previewed profile (SPEC §7.4 step 6/7). The local target
+   * suppresses our own SSE `active` echo; the response supplies the doc and its
+   * revision becomes the next commit base. Failure keeps the current profile.
+   */
+  const activateProfile = async ({ id, previewToken } = {}) => {
+    if (typeof id !== 'string' || id === '') return { ok: false, code: 'invalid-profile-id' }
+    const epochAtStart = store.getSnapshot().profileEpoch
+    profileSwitchTarget = id
+    store.dispatch('profile-switch-start', { targetId: id })
+    let result
+    try {
+      result = await api.activateProfile({ id, previewToken })
+    } catch (error) {
+      result = { ok: false, code: 'network', message: String(error?.message ?? error) }
+    } finally {
+      if (profileSwitchTarget === id) profileSwitchTarget = null
+    }
+    const snapshot = store.getSnapshot()
+    // Another window switched while this activate was in flight: the router
+    // already reset/reloaded the view, so applying this stale response would
+    // stomp newer state. Report it as superseded instead.
+    const superseded =
+      snapshot.profileEpoch !== epochAtStart &&
+      snapshot.profileId !== id &&
+      snapshot.profiles.activeId !== id
+    if (superseded) {
+      diagTrace('profile.activate.superseded', { targetId: id, activeId: snapshot.profiles.activeId })
+      return { ...result, superseded: true }
+    }
+    if (result?.ok === true) {
+      store.dispatch('profile-switch-success', {
+        profileId: result.activeId ?? id,
+        doc: result.doc,
+        revision: result.doc?.revision,
+        registryRevision: result.registryRevision,
+      })
+      refreshProfiles({ background: true })
+      return result
+    }
+    store.dispatch('profile-switch-failure', { code: result?.code, message: result?.message })
+    return result
+  }
+
+  /** SPEC §7.3 reset hook: S6 registers drag/search/selection/scroll resets. */
+  const onProfileSwitchReset = (listener) => {
+    if (typeof listener !== 'function') return () => {}
+    profileResetListeners.add(listener)
+    return () => {
+      profileResetListeners.delete(listener)
+    }
+  }
+
+  const runProfileResets = () => {
+    pendingNewSessionPlacement = null
+    setFloatingLabel(null)
+    for (const listener of [...profileResetListeners]) {
+      try {
+        listener()
+      } catch {
+        /* one local reset must not block the others */
+      }
+    }
   }
 
   const startChangeStream = () => {
@@ -253,7 +429,7 @@ export const createPlugin = () => {
       storeSubscriptionDisposer = store.subscribe(() => {
         if (!refreshPending) return
         const snapshot = store.getSnapshot()
-        if (snapshot.optimistic || snapshot.docState === 'loading') return
+        if (snapshot.optimistic) return
         requestRefresh({ force: refreshForced })
       })
     }
@@ -265,17 +441,35 @@ export const createPlugin = () => {
       onRevision: (event) => {
         try {
           const payload = JSON.parse(event.data)
-          acceptExternalRevision(payload?.revision)
+          // SPEC §7.5 / WORKLOG S4 carry #1: revisions are scoped to the
+          // profile that accepted the write. A non-active profile's control or
+          // tool write must never advance the visible revision (that used to
+          // cause a self-sustaining background reload).
+          changeRouter?.revision(payload)
         } catch {
           /* ignore malformed invalidation */
         }
       },
       onOpen: () => {
-        // Reconnect recovery: catch revisions committed while the stream was down.
+        // Reconnect recovery: catch revisions and profile changes made while
+        // the stream was down (SPEC §7.5: /load + /profiles on open).
+        refreshProfiles({ background: true })
         requestRefresh({ force: true })
       },
     })
-    if (stream !== null) changeSource = stream
+    if (stream !== null) {
+      changeSource = stream
+      // The shared adapter only exposes the `revision` listener; subscribe to
+      // the additive `active` event on the same EventSource instance.
+      profileActiveListener = (event) => {
+        try {
+          changeRouter?.active(JSON.parse(event.data))
+        } catch {
+          /* ignore malformed switch notification */
+        }
+      }
+      stream.source?.addEventListener?.('active', profileActiveListener)
+    }
   }
 
   // --- slot lifecycle -------------------------------------------------------
@@ -685,10 +879,52 @@ export const createPlugin = () => {
 
     queue = createOptimisticQueue({
       store,
-      commit: (doc, revision) => api.commit(doc, revision),
+      commit: (doc, revision, profileId) => api.commit(doc, revision, profileId),
       notify,
       t: (key, params) => t(key, params),
       trace: (type, detail) => diagTrace(type, detail),
+    })
+    changeRouter = createExternalChangeRouter({
+      store,
+      requestRefresh,
+      onActiveChange: (activeId, info) => {
+        if (info.local) return
+        const snapshot = store.getSnapshot()
+        // Our own successful switch echo (or a registry-only bump) when the
+        // document is already settled: the list refresh is enough.
+        if (!info.changed && snapshot.profileId === activeId && snapshot.docState === 'ready') {
+          refreshProfiles({ background: true })
+          return
+        }
+        // Any `active` event may have raced an in-flight read (the read can
+        // still return the previous profile), so invalidate it even when the
+        // registry id already matches the freshly loaded list.
+        loadGeneration += 1
+        refreshPending = false
+        refreshForced = true
+        if (info.changed) {
+          // The router already dispatched the reset (epoch/latest revision/doc
+          // state); read the new active document and registry list now.
+          load()
+        } else {
+          load({ background: true })
+        }
+        refreshProfiles({ background: true })
+      },
+      isLocalSwitch: (activeId) => profileSwitchTarget !== null && profileSwitchTarget === activeId,
+      trace: (type, detail) => diagTrace(type, detail),
+    })
+    lastProfileEpoch = store.getSnapshot().profileEpoch
+    profileEpochDisposer = store.subscribe(() => {
+      const epoch = store.getSnapshot().profileEpoch
+      if (epoch === lastProfileEpoch) return
+      lastProfileEpoch = epoch
+      // SPEC §7.3: the switch invalidates in-flight writes and every local
+      // GroupsView interaction; the next render reads the new profile's doc.
+      refreshPending = false
+      refreshForced = false
+      queue?.discardPending('profile-changed')
+      runProfileResets()
     })
 
     styleDisposer = installStyles(globalThis.document)
@@ -713,8 +949,14 @@ export const createPlugin = () => {
       copySessionId,
       commitDoc,
       commitOptimistic,
+      /** SPEC §7.4 step 2: a switch must be refused while a write is pending. */
+      isPending: () => queue?.isPending() === true,
       load,
       retryLoad,
+      refreshProfiles,
+      previewProfile,
+      activateProfile,
+      onProfileSwitchReset,
       setMode,
       toggleMode,
       openDialog,
@@ -736,6 +978,9 @@ export const createPlugin = () => {
     }
     installClientRuntime(bridge)
     startChangeStream()
+    // SPEC §7.2/§7.7: probe the profile surface at mount. Old hosts answer a
+    // non-JSON 404 and the store silently switches to single-profile mode.
+    refreshProfiles()
 
     const onWindowResize = () => {
       if (updateManagedWidth(readSidebarWidth(), globalThis.innerWidth || 1440) === null) syncSidebarWidth()
@@ -791,13 +1036,21 @@ export const createPlugin = () => {
         configSlotDisposer = null
         if (typeof storeSubscriptionDisposer === 'function') storeSubscriptionDisposer()
         storeSubscriptionDisposer = null
+        if (typeof profileEpochDisposer === 'function') profileEpochDisposer()
+        profileEpochDisposer = null
         if (typeof pendingFollowGuardDisposer === 'function') pendingFollowGuardDisposer()
         pendingFollowGuardDisposer = null
+        if (changeSource !== null && typeof profileActiveListener === 'function') {
+          changeSource.source?.removeEventListener?.('active', profileActiveListener)
+        }
+        profileActiveListener = null
         changeSource?.close?.()
         changeSource = null
+        changeRouter = null
+        profileResetListeners.clear()
+        profileSwitchTarget = null
         refreshPending = false
         refreshForced = false
-        latestSeenRevision = 0
         if (typeof perfDisposer === 'function') perfDisposer()
         perfDisposer = null
         if (typeof styleDisposer === 'function') styleDisposer()

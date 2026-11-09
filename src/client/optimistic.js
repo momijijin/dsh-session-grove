@@ -29,6 +29,11 @@
  *    (never a stale pre-drop snapshot). Optimistic drops that arrive during a
  *    strict write are deferred until it settles and then computed against the
  *    fresh document, so a stale doc can never be written over newer state.
+ * 6. Multi-profile (SPEC §7.3/§7.5): every queued write carries the
+ *    `profileId`/`profileEpoch` it was computed against. A response that comes
+ *    back after the active profile changed is discarded instead of reconciling
+ *    the old profile's doc into the new one; a 409 `profile-changed` rolls back
+ *    and is surfaced, never retried silently.
  *
  * The module is DOM-free and injects its store/commit/notify dependencies so the
  * queue semantics are unit-tested without React or the network.
@@ -55,7 +60,7 @@ const deferred = () => {
  *
  * @param {{
  *   store: { getSnapshot: () => object, dispatch: (action: string, payload?: object) => object },
- *   commit: (doc: object, baseRevision: number) => Promise<object>,
+ *   commit: (doc: object, baseRevision: number, profileId?: string) => Promise<object>,
  *   notify?: (toast: { kind: string, message?: string }) => void,
  *   t?: (key: string, params?: object) => string,
  *   onError?: (error: Error) => void,
@@ -66,6 +71,8 @@ export const createOptimisticQueue = ({ store, commit, notify = () => {}, t = (k
   let pendingDoc = null
   /** Resolvers for `commitOptimistic` callers of the pending batch. */
   let pendingWaiters = []
+  /** Profile context captured when the pending batch was computed. */
+  let pendingContext = null
   /** Promise of the active drain loop (null = no writer running). */
   let drainPromise = null
   /** Promise gate held while a non-optimistic (strict) write owns the writer. */
@@ -74,6 +81,23 @@ export const createOptimisticQueue = ({ store, commit, notify = () => {}, t = (k
 
   const snapshot = () => store.getSnapshot()
 
+  /** Profile/Epoch the next write must be scoped to (SPEC §7.3). */
+  const profileContext = () => {
+    const current = snapshot()
+    return {
+      epoch: Number.isInteger(current.profileEpoch) ? current.profileEpoch : 0,
+      profileId:
+        typeof current.profileId === 'string' && current.profileId !== '' ? current.profileId : null,
+    }
+  }
+
+  const sameContext = (left, right) => {
+    if (left === null || right === null) return left === right
+    return left.epoch === right.epoch && left.profileId === right.profileId
+  }
+
+  const contextMatches = (context) => sameContext(context, profileContext())
+
   const settle = (waiters, error) => {
     for (const waiter of waiters) {
       if (error) waiter.reject(error)
@@ -81,14 +105,25 @@ export const createOptimisticQueue = ({ store, commit, notify = () => {}, t = (k
     }
   }
 
+  /** Drop not-yet-sent work after a switch; the new profile owns the queue. */
+  const discardPending = (code = 'profile-changed') => {
+    if (pendingDoc === null && pendingWaiters.length === 0) return
+    const failure = asReported(new Error(code), code)
+    trace('queue.discard', { code, waiters: pendingWaiters.length })
+    settle(pendingWaiters, failure)
+    pendingWaiters = []
+    pendingDoc = null
+    pendingContext = null
+  }
+
   const surfaceFailure = (error, result) => {
     const code = result?.code ?? error?.code ?? 'commit-failed'
     const failure = asReported(error, code)
-    trace('queue.rollback', { code, conflict: code === 'conflict' })
+    trace('queue.rollback', { code, conflict: code === 'conflict' || code === 'profile-changed' })
     // Restore the last confirmed doc/revision: optimistic dispatches never
     // changed the revision, so the confirmed revision is still in the store.
     store.dispatch('optimistic-rollback', { code })
-    if (code === 'conflict') notify({ kind: 'error', message: t('banner.conflict') })
+    if (code === 'conflict' || code === 'profile-changed') notify({ kind: 'error', message: t('banner.conflict') })
     else notify({ kind: 'error', message: t('toast.dropFailed') })
     onError?.(failure)
     return failure
@@ -97,21 +132,37 @@ export const createOptimisticQueue = ({ store, commit, notify = () => {}, t = (k
   const drain = async () => {
     while (!disposed && pendingDoc !== null && strictGate === null) {
       const sentDoc = pendingDoc
+      const sentContext = pendingContext
       const waiters = pendingWaiters
       pendingDoc = null
       pendingWaiters = []
+      pendingContext = null
       const baseRevision = snapshot().revision
       let result
-      trace('queue.send', { revision: baseRevision, events: waiters.length })
+      trace('queue.send', { revision: baseRevision, events: waiters.length, profileId: sentContext?.profileId ?? null })
       try {
-        result = await commit(sentDoc, baseRevision)
+        result = await commit(sentDoc, baseRevision, sentContext?.profileId ?? undefined)
       } catch (error) {
+        if (!contextMatches(sentContext)) {
+          // The active profile changed while this write was in flight; the new
+          // profile's state is already reset, so never reconcile it here.
+          trace('queue.stale', { reason: 'profile-epoch' })
+          settle(waiters, asReported(error, 'profile-changed'))
+          continue
+        }
         const failure = surfaceFailure(error, null)
         settle(waiters, failure)
         settle(pendingWaiters, failure)
         pendingWaiters = []
         pendingDoc = null
+        pendingContext = null
         return
+      }
+      if (!contextMatches(sentContext)) {
+        trace('queue.stale', { reason: 'profile-epoch', ok: result?.ok === true })
+        if (result?.ok === true) settle(waiters, null)
+        else settle(waiters, asReported(new Error(result?.message ?? 'profile-changed'), 'profile-changed'))
+        continue
       }
       if (result?.ok === true) {
         // Keep a newer optimistic doc when the user dropped again while this
@@ -131,6 +182,7 @@ export const createOptimisticQueue = ({ store, commit, notify = () => {}, t = (k
       settle(pendingWaiters, failure)
       pendingWaiters = []
       pendingDoc = null
+      pendingContext = null
       return
     }
   }
@@ -175,10 +227,21 @@ export const createOptimisticQueue = ({ store, commit, notify = () => {}, t = (k
         reject(new Error('doc-required'))
         return
       }
+      const context = profileContext()
+      // A profile switch clears the queue through the plugin reset hook; keep
+      // this guard so a stale pending batch can never be sent under the new
+      // profile even if a caller forgets that step.
+      if (pendingContext !== null && !sameContext(pendingContext, context)) discardPending()
       const coalesced = pendingDoc !== null || drainPromise !== null
-      trace('optimistic.enqueue', { coalesced, revision: snapshot().revision, waiters: pendingWaiters.length + 1 })
+      trace('optimistic.enqueue', {
+        coalesced,
+        revision: snapshot().revision,
+        waiters: pendingWaiters.length + 1,
+        profileId: context.profileId,
+      })
       store.dispatch('optimistic-doc', { doc: nextDoc })
       pendingDoc = nextDoc
+      pendingContext = context
       pendingWaiters.push({ resolve: () => resolve(nextDoc), reject })
       trace('optimistic.dispatch', { revision: snapshot().revision, optimistic: true, coalesced })
       schedule()
@@ -218,12 +281,26 @@ export const createOptimisticQueue = ({ store, commit, notify = () => {}, t = (k
       const current = snapshot()
       const nextDoc = typeof updater === 'function' ? updater(current.doc) : updater
       const baseRevision = current.revision
-      trace('queue.strict.start', { revision: baseRevision })
-      const result = await commit(nextDoc, baseRevision)
+      const context = profileContext()
+      trace('queue.strict.start', { revision: baseRevision, profileId: context.profileId })
+      const result = await commit(nextDoc, baseRevision, context.profileId ?? undefined)
+      if (!contextMatches(context)) {
+        trace('queue.strict.stale', { reason: 'profile-epoch' })
+        throw asReported(new Error(result?.message ?? 'profile-changed'), 'profile-changed')
+      }
       if (result?.ok === true) {
         trace('queue.strict.end', { ok: true, revision: result.revision })
         store.dispatch('doc', { doc: result.doc, revision: result.revision })
         return result.doc
+      }
+      if (result?.code === 'profile-changed') {
+        // SPEC §10: never write this doc into another profile; roll the view
+        // back to the confirmed doc and surface the conflict copy.
+        trace('queue.strict.end', { ok: false, code: 'profile-changed' })
+        store.dispatch('banner', { banner: { kind: 'warning', code: 'conflict' } })
+        const error = new Error(result.message ?? 'profile-changed')
+        error.code = 'profile-changed'
+        throw error
       }
       if (result?.code === 'conflict' && result.doc) {
         trace('queue.strict.end', { ok: false, code: 'conflict' })
@@ -247,6 +324,7 @@ export const createOptimisticQueue = ({ store, commit, notify = () => {}, t = (k
     commitOptimistic,
     commitStrict,
     flush,
+    discardPending,
     /** Whether a write is pending/in flight (tests + shell diagnostics). */
     isPending: () => pendingDoc !== null || drainPromise !== null || strictGate !== null,
     dispose: () => {
@@ -255,6 +333,7 @@ export const createOptimisticQueue = ({ store, commit, notify = () => {}, t = (k
       settle(pendingWaiters, failure)
       pendingWaiters = []
       pendingDoc = null
+      pendingContext = null
     },
   }
 }
