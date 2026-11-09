@@ -237,6 +237,7 @@ export const apply = (ctx, config = {}) => {
         toolCtx.tools.register(
           createControlTool({
             store,
+            profileManager,
             getService: (serviceName) => {
               try {
                 return toolCtx.get?.(serviceName) ?? ctx.get?.(serviceName) ?? null
@@ -247,7 +248,7 @@ export const apply = (ctx, config = {}) => {
             controlApiEnabled: () => readFlag('controlApi'),
             controlSessionsEnabled: () => readFlag('controlSessions'),
             controlDestructiveEnabled: () => readFlag('controlDestructive'),
-            onCommit: (revision, source) => changeHub.publish(revision, source),
+            onCommit: (revision, source, profileId) => changeHub.publish(revision, source, profileId),
             doctorReport,
           }),
         ),
