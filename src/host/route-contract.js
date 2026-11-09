@@ -64,8 +64,14 @@ export const unexpectedControlField = (body, allowed) => {
   return Object.keys(body).find((key) => !allowed.has(key)) ?? null
 }
 
-/** Map a store load result to the wire response. */
-export const loadResponse = (result) => {  if (result.kind === 'unsupported-version') {
+/**
+ * Map a store load result to the wire response.
+ *
+ * `profileId` is additive (SPEC 5.1): old clients ignore it, new clients use it
+ * to scope revision tracking. Error branches keep their frozen shapes.
+ */
+export const loadResponse = (result, profileId) => {
+  if (result.kind === 'unsupported-version') {
     return {
       status: 409,
       body: {
@@ -77,6 +83,7 @@ export const loadResponse = (result) => {  if (result.kind === 'unsupported-vers
     }
   }
   const body = { ok: true, revision: result.revision, doc: result.doc }
+  if (typeof profileId === 'string' && profileId.length > 0) body.profileId = profileId
   if (result.warning !== undefined) {
     body.warning = result.warning
     if (result.detail !== undefined) body.detail = result.detail
@@ -120,12 +127,51 @@ export const commitResponse = (result) => {
   }
 }
 
-/** Validate one commit request body; returns `{ ok, baseRevision, doc }`. */
+/**
+ * 409 for an active profile that cannot serve reads/writes (SPEC 4.7/5.1/5.2).
+ * @param {'profile-missing'|'profile-unhealthy'} code
+ * @param {string} activeId
+ * @param {{ kind: string, detail?: string }} health
+ */
+export const profileFailureResponse = (code, activeId, health) => ({
+  status: 409,
+  body: { ok: false, code, activeId, health },
+})
+
+/** 409 when a commit targets a profile other than the current active one. */
+export const profileChangedResponse = (activeId, revision, registryRevision) => {
+  const body = { ok: false, code: 'profile-changed', activeId, revision }
+  if (Number.isInteger(registryRevision) && registryRevision >= 0) {
+    body.registryRevision = registryRevision
+  }
+  return { status: 409, body }
+}
+
+/** 409 for every profile write while the registry is degraded (SPEC 4.3). */
+export const registryUnhealthyResponse = () => ({
+  status: 409,
+  body: {
+    ok: false,
+    code: 'registry-unhealthy',
+    message: 'profile registry is degraded; profile writes are disabled',
+  },
+})
+
+/**
+ * Validate one commit request body; returns
+ * `{ ok, baseRevision, doc, profileId }` where `profileId` is `null` when the
+ * optional field is absent (legacy clients commit to the active profile).
+ */
 export const parseCommitBody = (body) => {
   if (!isObject(body)) return { ok: false, message: 'body must be a JSON object' }
-  const { baseRevision, doc } = body
+  const { baseRevision, doc, profileId } = body
   if (!Number.isInteger(baseRevision) || baseRevision < 0) {
     return { ok: false, message: 'baseRevision must be a non-negative integer' }
+  }
+  if (profileId !== undefined) {
+    if (typeof profileId !== 'string' || profileId.trim().length === 0 || profileId.length > 64) {
+      return { ok: false, message: 'profileId must be a non-empty string of at most 64 characters' }
+    }
   }
   if (!isObject(doc)) return { ok: false, message: 'doc must be a JSON object' }
   // The host owns revision: ignore whatever the client sent and validate the
@@ -155,7 +201,7 @@ export const parseCommitBody = (body) => {
   // the host normalizes every persisted group to an explicit palette id so new
   // writes never depend on the client-side blue fallback.
   candidate.groups = candidate.groups.map((group) => ({ ...group, color: normalizeColor(group.color) }))
-  return { ok: true, baseRevision, doc: candidate }
+  return { ok: true, baseRevision, doc: candidate, profileId: profileId ?? null }
 }
 
 /**
@@ -185,8 +231,8 @@ export const parseDiagnosticsBody = (body) => {
  * Fail-soft: a composition without a webServer only logs a warning.
  *
  * @param {object} ctx Cordis context.
- * @param {object} store group document store.
- * @param {{ diagnosticsFilePath?: string | null, debugFilePath?: string | null, diagnosticsEnabled?: boolean | (() => boolean), debugProbeEnabled?: boolean | (() => boolean) }} [options] host-half options
+ * @param {object} store profile manager, or (legacy/tests) the default document store.
+ * @param {{ profileManager?: object, diagnosticsFilePath?: string | null, debugFilePath?: string | null, diagnosticsEnabled?: boolean | (() => boolean), debugProbeEnabled?: boolean | (() => boolean) }} [options] host-half options
  *   (`diagnosticsFilePath` is resolved from `dshHomePath('storages')`; diagnostics default true for direct route
  *   tests, while the Cordis entry passes the plugin config flag).
  * @returns {{ registered: boolean, routes: string[] }}
