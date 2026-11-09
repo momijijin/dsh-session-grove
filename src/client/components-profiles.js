@@ -609,13 +609,43 @@ const sessionLabel = (sessionId, byId, t) => {
   return typeof sessionId === 'string' ? sessionId.slice(0, 8) : ''
 }
 
+/** Order-only note (the changed group set is otherwise identical). */
 const previewRow = (kind, text, key) =>
   h('div', { key, class: 'dsg-profile-preview-row', 'data-kind': kind }, text)
 
-const summaryRow = (t, labelKey, from, to, key) =>
+const previewArrow = (key) =>
+  h('span', { key, class: 'dsg-profile-preview-arrow', 'aria-hidden': 'true' }, '→')
+
+const pathOld = (path, key) =>
+  h('span', { key, class: 'dsg-profile-preview-path-old' }, String(path ?? ''))
+
+const pathNew = (path, key) =>
+  h('span', { key, class: 'dsg-profile-preview-path-new' }, String(path ?? ''))
+
+const changeMarker = (marker, key) =>
+  h('span', { key, class: 'dsg-profile-preview-change-marker', 'aria-hidden': 'true' }, marker)
+
+/**
+ * One diff entry as a two-level block: a wrapping title line and an indented
+ * detail line (old path → new path, marker + path, or a stale tag). Keeping the
+ * two lines in separate elements is what makes long titles/paths readable
+ * instead of collapsing into one `title · path` sentence.
+ */
+const previewChange = (change, key) =>
   h(
     'div',
-    { key, class: 'dsg-profile-preview-summary-row' },
+    { key, class: 'dsg-profile-preview-change', 'data-kind': change.kind },
+    h('div', { key: 'title', class: 'dsg-profile-preview-change-title' }, change.title),
+    change.detail
+      ? h('div', { key: 'detail', class: 'dsg-profile-preview-change-detail' }, change.detail)
+      : null
+  )
+
+/** One `label from → to` stat; the container wraps the three onto shared lines. */
+const summaryStat = (t, labelKey, from, to, key) =>
+  h(
+    'span',
+    { key, class: 'dsg-profile-preview-summary-stat', 'data-stat': key },
     h('span', { class: 'dsg-profile-preview-summary-label' }, t(labelKey)),
     h('span', { class: 'dsg-profile-preview-summary-value' }, `${from ?? 0} → ${to ?? 0}`)
   )
@@ -625,16 +655,21 @@ const groupChangeBlocks = (diff) => {
   const groups = diff?.groups ?? {}
   const added = (Array.isArray(groups.added) ? groups.added : []).map((path) => ({
     kind: 'added',
-    text: String(path ?? ''),
+    title: [changeMarker('+', 'marker'), pathNew(path, 'path')],
   }))
   const removed = (Array.isArray(groups.removed) ? groups.removed : []).map((path) => ({
     kind: 'removed',
-    text: String(path ?? ''),
+    title: [changeMarker('−', 'marker'), pathOld(path, 'path')],
   }))
   const changed = (Array.isArray(groups.changed) ? groups.changed : []).map((entry) => {
     const from = typeof entry?.from === 'string' ? entry.from : ''
     const to = typeof entry?.to === 'string' ? entry.to : from
-    return { kind: 'changed', text: from === to ? to : `${from} → ${to}` }
+    // New path on the title line, the replaced path as the indented detail.
+    return {
+      kind: 'changed',
+      title: [changeMarker('~', 'marker'), pathNew(to, 'path')],
+      detail: [pathOld(from, 'from')],
+    }
   })
   const blocks = []
   if (added.length > 0) blocks.push({ key: 'added', labelKey: 'profiles.preview.added', rows: added })
@@ -648,15 +683,22 @@ const sessionChangeBlocks = (diff, byId, t) => {
   const sessions = diff?.sessions ?? {}
   const moved = (Array.isArray(sessions.moved) ? sessions.moved : []).map((entry) => ({
     kind: 'moved',
-    text: `${sessionLabel(entry?.sessionId, byId, t)} · ${entry?.from ?? ''} → ${entry?.to ?? ''}`,
+    title: sessionLabel(entry?.sessionId, byId, t),
+    detail: [pathOld(entry?.from, 'from'), previewArrow('arrow'), pathNew(entry?.to, 'to')],
   }))
   const newlyGrouped = (Array.isArray(sessions.newlyGrouped) ? sessions.newlyGrouped : []).map((entry) => ({
     kind: 'newlyGrouped',
-    text: `${sessionLabel(entry?.sessionId, byId, t)} · → ${entry?.to ?? ''}`,
+    title: sessionLabel(entry?.sessionId, byId, t),
+    detail: [previewArrow('arrow'), pathNew(entry?.to, 'to')],
   }))
   const ungrouped = (Array.isArray(sessions.ungrouped) ? sessions.ungrouped : []).map((entry) => ({
     kind: 'ungrouped',
-    text: `${sessionLabel(entry?.sessionId, byId, t)} · ${entry?.from ?? ''} → ${t('ungrouped.title')}`,
+    title: sessionLabel(entry?.sessionId, byId, t),
+    detail: [
+      pathOld(entry?.from, 'from'),
+      previewArrow('arrow'),
+      h('span', { key: 'to', class: 'dsg-profile-preview-path-muted' }, t('ungrouped.title')),
+    ],
   }))
   const blocks = []
   if (moved.length > 0) blocks.push({ key: 'moved', labelKey: 'profiles.preview.moved', rows: moved })
@@ -668,7 +710,8 @@ const sessionChangeBlocks = (diff, byId, t) => {
 const staleRows = (diff, byId, t) =>
   (Array.isArray(diff?.sessions?.stale) ? diff.sessions.stale : []).map((sessionId) => ({
     kind: 'stale',
-    text: sessionLabel(sessionId, byId, t),
+    title: sessionLabel(sessionId, byId, t),
+    detail: h('span', { key: 'tag', class: 'dsg-profile-preview-change-tag' }, t('profiles.preview.stale')),
   }))
 
 /** Truncate a section at `cap` rows and report how many rows are hidden. */
@@ -693,7 +736,7 @@ const previewBlocks = (blocks, t) =>
       h(
         'div',
         { key: 'rows', class: 'dsg-profile-preview-list' },
-        ...block.rows.map((row, index) => previewRow(row.kind, row.text, `${block.key}-${index}`))
+        ...block.rows.map((row, index) => previewChange(row, `${block.key}-${index}`))
       )
     )
   )
@@ -739,9 +782,9 @@ const ProfilePreviewBody = ({ store, t: tProp, byId }) => {
       h(
         'div',
         { key: 'summary', class: 'dsg-profile-preview-summary', 'data-testid': 'session-groups-profile-preview-summary' },
-        summaryRow(t, 'profiles.preview.groups', summary.groups?.current, summary.groups?.target, 'groups'),
-        summaryRow(t, 'profiles.preview.sessions', summary.grouped?.current, summary.grouped?.target, 'sessions'),
-        summaryRow(t, 'profiles.preview.ungrouped', summary.ungrouped?.current, summary.ungrouped?.target, 'ungrouped')
+        summaryStat(t, 'profiles.preview.groups', summary.groups?.current, summary.groups?.target, 'groups'),
+        summaryStat(t, 'profiles.preview.sessions', summary.grouped?.current, summary.grouped?.target, 'sessions'),
+        summaryStat(t, 'profiles.preview.ungrouped', summary.ungrouped?.current, summary.ungrouped?.target, 'ungrouped')
       )
     )
     if ((summary.sessions?.ungrouped ?? 0) > 0) {
@@ -814,7 +857,7 @@ const ProfilePreviewBody = ({ store, t: tProp, byId }) => {
           h(
             'div',
             { class: 'dsg-profile-preview-list' },
-            ...shown.map((row, index) => previewRow(row.kind, row.text, `stale-${index}`))
+            ...shown.map((row, index) => previewChange(row, `stale-${index}`))
           ),
           stale.length > MAX_STALE_ROWS
             ? h(
