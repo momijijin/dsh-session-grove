@@ -311,5 +311,59 @@
   "status.subagentsRunning": {
     "one": "{n} subagent actief",
     "other": "{n} subagenten actief"
-  }
+  },
+  "profiles.open": "Groeperingsprofiel wisselen",
+  "profiles.title": "Groeperingsprofielen",
+  "profiles.defaultName": "Standaard",
+  "profiles.copySuffix": "kopie",
+  "profiles.counts": {
+    "one": "{groups} groep · {sessions} sessies",
+    "other": "{groups} groepen · {sessions} sessies"
+  },
+  "profiles.saveAs": "Opslaan als nieuw profiel…",
+  "profiles.manage": "Profielen beheren…",
+  "profiles.switch": "Wisselen",
+  "profiles.current": "Huidig",
+  "profiles.empty": "Nog geen groeperingsprofielen",
+  "profiles.degraded": "Het profielregister is verslechterd. Profielwijzigingen zijn beperkt; schakel over naar een gezond profiel om door te gaan.",
+  "profiles.limit": "Maximaal {max} profielen",
+  "profiles.nameLabel": "Profielnaam",
+  "profiles.namePlaceholder": "Profielnaam",
+  "profiles.nameInvalid": "Gebruik 1–40 tekens.",
+  "profiles.nameDuplicate": "Die naam is al in gebruik.",
+  "profiles.create": "Aanmaken",
+  "profiles.createPreview": "Kopieert het huidige profiel: {groups} groepen · {sessions} sessies",
+  "profiles.rename": "Naam wijzigen",
+  "profiles.archive": "Archiveren",
+  "profiles.archiveConfirm": "Archiveren verbergt het uit de wissellijst en bewaart het bestand; er wordt geen sessie verwijderd en je kunt het handmatig herstellen.",
+  "profiles.archived": "Gearchiveerd",
+  "profiles.previewTitle": "Wisselen naar ‘{name}’",
+  "profiles.previewSubtitle": "Huidig: {current} · Doel: {target}",
+  "profiles.preview.groups": "Groepen",
+  "profiles.preview.sessions": "Sessies",
+  "profiles.preview.added": "Toegevoegd",
+  "profiles.preview.removed": "Verwijderd",
+  "profiles.preview.changed": "Gewijzigd",
+  "profiles.preview.reordered": "Volgorde gewijzigd",
+  "profiles.preview.moved": "Verplaatst tussen groepen",
+  "profiles.preview.newlyGrouped": "Nieuw gegroepeerd",
+  "profiles.preview.ungrouped": "Niet-gegroepeerd",
+  "profiles.preview.stale": "Ontbrekende sessies",
+  "profiles.preview.ungroupedWarning": {
+    "one": "{n} sessie gaat terug naar niet-gegroepeerd.",
+    "other": "{n} sessies gaan terug naar niet-gegroepeerd."
+  },
+  "profiles.preview.noDelete": "Er wordt niets verwijderd; terugwisselen herstelt alles.",
+  "profiles.preview.disable": "Voortaan direct wisselen",
+  "profiles.preview.confirm": "Naar dit profiel wisselen",
+  "profiles.preview.staleRefresh": "Deze voorbeeldweergave is verouderd. Sluit hem en selecteer het profiel opnieuw.",
+  "profiles.preview.truncated": {
+    "one": "{n} extra item niet getoond",
+    "other": "{n} extra items niet getoond"
+  },
+  "profiles.switched": "Gewisseld naar ‘{name}’",
+  "profiles.switchedElsewhere": "Een ander venster is naar ‘{name}’ gewisseld",
+  "profiles.undo": "Ongedaan maken",
+  "profiles.switching": "Wisselen…",
+  "profiles.saveFailed": "De profielwijziging kon niet worden voltooid."
 }

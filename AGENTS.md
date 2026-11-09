@@ -79,7 +79,7 @@ git branch -d feature/<slug>
    - `package-lock.json`（`npm install --package-lock-only`）
    - 当前文档中的版本引用
 2. 更新 `CHANGELOG.md`。
-3. 仅当这一批确定要发 Release 时，才新建或更新 `docs/release-notes/v<version>.md`。
+3. 已发布版本必须有对应的 `docs/release-notes/v<version>.md`（`check:release` 强制当前版本 note 存在）；只有仅存在于 dev、尚未发布的批次才可以不建。
 4. 运行：
    ```bash
    npm run check:style
@@ -169,8 +169,8 @@ git merge --no-ff main -m "merge: hotfix v<version> back to dev"
 
 ## 6. 当前基线
 
-- 最新已发布版本：`0.3.0-beta.76`（`v0.3.0-beta.76` 已发布）
-- 当前开发候选版本：以 `package.json` 的 `version` 为准；`0.4.0` 系列身份重置后仍处于本地 beta 候选，尚未发布
-- 当前测试：529/529 + 15 UI runtime cases + 1 browser runtime spec，coverage 约 92.3/82.9/89.1；真实运行时证据以 `docs/TEST-MATRIX.md` 为准（完整 A+ 仅英文；日文有 onboarding 语言包 fixture；19 种语言有全语言 header/dialog/group-menu/settings smoke；阿拉伯语 RTL 有菜单/弹窗 bounds + 设置面板 dir smoke）
+- 最新已发布版本：`0.4.0-beta.60`（GitHub Release `v0.4.0-beta.60`，2026-11-10，2 assets；已上架 dshmarket）
+- 当前 dev：与 `0.4.0-beta.60` 发布基线一致（`package.json` 为 `0.4.0-beta.60`）；后续批次从 `dev` 开新 feature 分支并消费下一个 beta 号
+- 当前测试：699/699 + 39 UI runtime cases（1 module-load + 38 component tests，17 components / 21 client modules）+ 1 browser runtime spec，331 locale keys，coverage 约 93.09/83.86/90.46（`.59` 发布时为 529/529 + 15 UI runtime cases）；真实运行时证据以 `docs/TEST-MATRIX.md` 为准（完整 A+ 仅英文；日文有 onboarding 语言包 fixture；19 种语言有全语言 header/dialog/group-menu/settings smoke；阿拉伯语 RTL 有菜单/弹窗 bounds + 设置面板 dir smoke；community A+ profile 2026-11-09 PASS，official A+ O profile 2026-11-10 PASS（`.60` tarball，官方 DeepSeek Harness desktop 0.2.1.0 / DSH 0.2.1-rc.5 隔离宿主，`test:isolated` + `test:ui-browser`），user desktop acceptance 2026-11-10）
 - main / dev：以 `git log --oneline -1` 为准，允许分叉
 - 下一次开发从 `dev` 开新 feature 分支，不从 main 拉功能分支

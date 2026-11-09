@@ -182,6 +182,8 @@ const addSessionToGroup = async (groupId) => {
 }
 
 const readTestDoc = () => JSON.parse(readFileSync(resolve(testHome, 'storages', 'dsh-session-grove.json'), 'utf8'))
+const readTestRegistry = () =>
+  JSON.parse(readFileSync(resolve(testHome, 'storages', 'dsh-session-grove.profiles.json'), 'utf8'))
 
 const groupSessionIds = (groupId) => {
   const doc = readTestDoc()
@@ -667,6 +669,378 @@ try {
   await externalRename(`${rapidBase}-2`)
   await page.waitForFunction((name) => document.body.innerText.includes(name), `${rapidBase}-2`, { timeout: 6000 })
 
+  // ---------------------------------------------------------------------------
+  // Group profiles (SPEC §9/§11.3): save-as, same-content direct switch, diff
+  // preview + cancel/confirm, undo, rename/archive, dual-window active +
+  // profile-changed 409, per-profile collapsed state and the 20-profile limit.
+  // ---------------------------------------------------------------------------
+  const profileTrigger = (targetPage = page) => targetPage.locator('[data-testid="session-groups-profile-trigger"]')
+  if ((await profileTrigger().count()) === 0) {
+    throw new Error('profile chevron missing; the installed bundle does not expose the profile surface')
+  }
+  const profilePopover = (targetPage = page) => targetPage.locator('[data-testid="session-groups-profile-popover"]')
+  const profileItem = (id, targetPage = page) =>
+    targetPage.locator(`[data-testid="session-groups-profile-item"][data-profile-id="${id}"]`)
+  const readProfiles = (targetPage = page) =>
+    targetPage.evaluate(() => fetch('/dsh-session-grove/profiles').then((response) => response.json()))
+  const waitActive = (targetPage, id) =>
+    targetPage.waitForFunction(
+      async (expected) => {
+        const body = await fetch('/dsh-session-grove/profiles').then((response) => response.json())
+        return body.activeId === expected
+      },
+      id,
+      { timeout: 10000 }
+    )
+  const openProfileMenu = async (targetPage = page) => {
+    await targetPage.evaluate(() => document.querySelector('[data-testid="session-groups-profile-trigger"]')?.click())
+    await profilePopover(targetPage).waitFor({ state: 'visible' })
+  }
+  const switchToProfile = async (id, { preview = false, targetPage = page } = {}) => {
+    await openProfileMenu(targetPage)
+    await profileItem(id, targetPage).click()
+    if (!preview) return null
+    const body = targetPage.locator('[data-testid="session-groups-profile-preview"]')
+    await body.waitFor({ state: 'visible' })
+    await targetPage.locator('[data-testid="session-groups-profile-preview-summary"]').waitFor({ state: 'visible' })
+    return body
+  }
+  const confirmPreview = async (targetPage = page) => {
+    await targetPage.locator('[data-testid="session-groups-profile-preview-confirm"]').click()
+    await targetPage.locator('[data-testid="session-groups-profile-preview"]').waitFor({ state: 'hidden' })
+  }
+  const cancelPreview = async (targetPage = page) => {
+    await targetPage.locator('[data-testid="session-groups-profile-preview-cancel"]').click()
+    await targetPage.locator('[data-testid="session-groups-profile-preview"]').waitFor({ state: 'hidden' })
+  }
+
+  const initialProfiles = await readProfiles()
+  if (initialProfiles.activeId !== 'default') {
+    throw new Error(`fresh isolated home should start on the default profile, got ${initialProfiles.activeId}`)
+  }
+  await openProfileMenu()
+  if ((await profileItem('default').getAttribute('aria-checked')) !== 'true') {
+    throw new Error('default profile row is not marked current')
+  }
+  const popoverText = await profilePopover().innerText()
+  if (!/\d+\s*(groups?|sessions?)\s*·\s*\d+\s*(groups?|sessions?)/i.test(popoverText)) {
+    throw new Error(`profile popover does not show group/session counts: ${popoverText}`)
+  }
+  await page.keyboard.press('Escape')
+  await profilePopover().waitFor({ state: 'hidden' })
+
+  // Save-as copies the active document, creates its directory and activates it
+  // without rewriting the default document.
+  const defaultDocBefore = readTestDoc()
+  const workName = `Work ${suffix}`
+  await openProfileMenu()
+  await page.locator('[data-testid="session-groups-profile-save-as"]').click()
+  const saveAsDialog = page.locator('[data-testid="session-groups-profile-save-as-dialog"]')
+  await saveAsDialog.waitFor({ state: 'visible' })
+  await page.locator('[data-testid="session-groups-profile-save-as-name"]').fill(workName)
+  await page.locator('[data-testid="session-groups-profile-save-as-confirm"]').click()
+  await saveAsDialog.waitFor({ state: 'hidden' })
+  await page.waitForFunction(
+    async (name) => {
+      const body = await fetch('/dsh-session-grove/profiles').then((response) => response.json())
+      const profile = body.profiles.find((entry) => entry.name === name)
+      return profile !== undefined && body.activeId === profile.id
+    },
+    workName,
+    { timeout: 10000 }
+  )
+  const afterCreate = await readProfiles()
+  const workProfile = afterCreate.profiles.find((profile) => profile.name === workName)
+  if (!workProfile) throw new Error(`save-as did not create ${workName}`)
+  if (readTestDoc().revision !== defaultDocBefore.revision) {
+    throw new Error('save-as rewrote the default profile document')
+  }
+  if (!existsSync(resolve(testHome, 'storages', 'profiles', workProfile.id, 'dsh-session-grove.json'))) {
+    throw new Error(`save-as did not create the profile document for ${workProfile.id}`)
+  }
+  const registryOnDisk = readTestRegistry()
+  if (registryOnDisk.activeId !== workProfile.id || registryOnDisk.profiles.length !== 2) {
+    throw new Error(`registry on disk does not reflect save-as: ${JSON.stringify(registryOnDisk)}`)
+  }
+  const workDoc = JSON.parse(
+    readFileSync(resolve(testHome, 'storages', 'profiles', workProfile.id, 'dsh-session-grove.json'), 'utf8')
+  )
+  const workGroupName = workDoc.groups[0]?.name ?? ''
+
+  // Same content: switching back to default activates directly, no preview.
+  await switchToProfile('default')
+  await waitActive(page, 'default')
+  if ((await page.locator('[data-testid="session-groups-profile-preview"]').count()) !== 0) {
+    throw new Error('identical profiles opened a switch preview')
+  }
+
+  // Create a structural difference on default, then preview, cancel and confirm.
+  const profileDiffName = `Profile diff ${Date.now()}`
+  await externalRename(profileDiffName)
+  await page.waitForFunction((name) => document.body.innerText.includes(name), profileDiffName, { timeout: 6000 })
+  await switchToProfile(workProfile.id, { preview: true })
+  const summaryText = await page.locator('[data-testid="session-groups-profile-preview-summary"]').innerText()
+  if (!/\d/.test(summaryText)) throw new Error(`profile preview summary has no counts: ${summaryText}`)
+  if (await page.locator('[data-testid="session-groups-profile-preview-confirm"]').isDisabled()) {
+    throw new Error('profile preview confirm is disabled on a fresh preview')
+  }
+  await cancelPreview()
+  if ((await readProfiles()).activeId !== 'default') {
+    throw new Error('cancelling the preview changed the active profile')
+  }
+  await switchToProfile(workProfile.id, { preview: true })
+  await confirmPreview()
+  await waitActive(page, workProfile.id)
+  await page.waitForFunction((name) => document.body.innerText.includes(name), workGroupName, { timeout: 6000 })
+
+  // The switch toast carries a 5s undo; use it to restore default.
+  const toastAction = page.locator('[data-testid="session-groups-toast-action"]')
+  await toastAction.waitFor({ state: 'visible', timeout: 4000 })
+  await toastAction.click()
+  await waitActive(page, 'default')
+  await page.waitForFunction((name) => document.body.innerText.includes(name), profileDiffName, { timeout: 6000 })
+
+  // Rename, then archive the named profile from Manage; the file stays.
+  await openProfileMenu()
+  await page.locator('[data-testid="session-groups-profile-manage"]').click()
+  const manageDialog = page.locator('[data-testid="session-groups-profile-manage-dialog"]')
+  await manageDialog.waitFor({ state: 'visible' })
+  const workRow = page.locator(
+    `[data-testid="session-groups-profile-manage-row"][data-profile-id="${workProfile.id}"]`
+  )
+  await workRow.locator('[data-testid="session-groups-profile-rename"]').click()
+  const renameDialog = page.locator('[data-testid="session-groups-profile-rename-dialog"]')
+  await renameDialog.waitFor({ state: 'visible' })
+  const renamedWork = `${workName} renamed`
+  await page.locator('[data-testid="session-groups-profile-rename-name"]').fill(renamedWork)
+  await page.locator('[data-testid="session-groups-profile-rename-confirm"]').click()
+  await renameDialog.waitFor({ state: 'hidden' })
+  await manageDialog.waitFor({ state: 'visible' })
+  await page.waitForFunction(
+    ({ id, name }) => {
+      const row = document.querySelector(
+        `[data-testid="session-groups-profile-manage-row"][data-profile-id="${id}"]`
+      )
+      return row?.textContent?.includes(name) === true
+    },
+    { id: workProfile.id, name: renamedWork },
+    { timeout: 8000 }
+  )
+  const renamedRow = page.locator(
+    `[data-testid="session-groups-profile-manage-row"][data-profile-id="${workProfile.id}"]`
+  )
+  await renamedRow.locator('[data-testid="session-groups-profile-archive"]').click()
+  const archiveDialog = page.locator('[data-testid="session-groups-profile-archive-dialog"]')
+  await archiveDialog.waitFor({ state: 'visible' })
+  await page.locator('[data-testid="session-groups-profile-archive-confirm"]').click()
+  await archiveDialog.waitFor({ state: 'hidden' })
+  await manageDialog.waitFor({ state: 'visible' })
+  await page.waitForFunction(
+    (id) => {
+      const row = document.querySelector(
+        `[data-testid="session-groups-profile-manage-row"][data-profile-id="${id}"]`
+      )
+      return row?.getAttribute('data-archived') === 'true'
+    },
+    workProfile.id,
+    { timeout: 8000 }
+  )
+  if (!existsSync(resolve(testHome, 'storages', 'profiles', workProfile.id, 'dsh-session-grove.json'))) {
+    throw new Error('archiving deleted the profile document')
+  }
+  await page.locator('[data-testid="session-groups-profile-manage-close"]').click()
+  await manageDialog.waitFor({ state: 'hidden' })
+  await openProfileMenu()
+  await page.waitForFunction(
+    (id) =>
+      document.querySelector(`[data-testid="session-groups-profile-item"][data-profile-id="${id}"]`) === null,
+    workProfile.id,
+    { timeout: 8000 }
+  )
+  await page.keyboard.press('Escape')
+  await profilePopover().waitFor({ state: 'hidden' })
+
+  // Multi-window: a global active switch converges the other window, and a
+  // commit prepared against the old profile returns profile-changed.
+  const windowName = `Window ${suffix}`
+  await page.evaluate(async (name) => {
+    const list = await fetch('/dsh-session-grove/profiles').then((response) => response.json())
+    const response = await fetch('/dsh-session-grove/profiles/create', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ baseRevision: list.registryRevision, name }),
+    })
+    if (!response.ok) throw new Error(`create failed: ${response.status} ${JSON.stringify(await response.json())}`)
+  }, windowName)
+  await page.waitForFunction(
+    async (name) => {
+      const body = await fetch('/dsh-session-grove/profiles').then((response) => response.json())
+      const profile = body.profiles.find((entry) => entry.name === name)
+      return profile !== undefined && body.activeId === profile.id
+    },
+    windowName,
+    { timeout: 10000 }
+  )
+  const windowProfile = (await readProfiles()).profiles.find((profile) => profile.name === windowName)
+  if (!windowProfile) throw new Error('window profile was not created')
+
+  const profileWindowPage = await context.newPage()
+  try {
+    await profileWindowPage.goto(process.env.DSH_TEST_URL, { waitUntil: 'domcontentloaded' })
+    await profileWindowPage.waitForTimeout(1800)
+    await profileWindowPage.locator('[data-testid="session-groups-view"]').waitFor({ state: 'visible', timeout: 8000 })
+    await profileWindowPage
+      .locator('[data-testid="session-groups-profile-trigger"]')
+      .waitFor({ state: 'visible', timeout: 8000 })
+
+    // Make the window profile structurally different so both documents are
+    // identifiable after the cross-window switch.
+    const windowDiffName = `Window diff ${Date.now()}`
+    await externalRename(windowDiffName)
+    await page.waitForFunction((name) => document.body.innerText.includes(name), windowDiffName, { timeout: 6000 })
+
+    await switchToProfile('default', { preview: true })
+    await confirmPreview()
+    await waitActive(page, 'default')
+    await profileWindowPage.waitForFunction((name) => document.body.innerText.includes(name), profileDiffName, {
+      timeout: 10000,
+    })
+
+    const prepared = await profileWindowPage.evaluate(async () => {
+      const loaded = await fetch('/dsh-session-grove/load').then((response) => response.json())
+      return { profileId: loaded.profileId, baseRevision: loaded.revision, doc: loaded.doc }
+    })
+    await switchToProfile(windowProfile.id, { preview: true })
+    await confirmPreview()
+    await waitActive(page, windowProfile.id)
+    const conflict = await profileWindowPage.evaluate(async (payload) => {
+      const response = await fetch('/dsh-session-grove/commit', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      return { status: response.status, body: await response.json() }
+    }, { profileId: prepared.profileId, baseRevision: prepared.baseRevision, doc: prepared.doc })
+    if (conflict.status !== 409 || conflict.body.code !== 'profile-changed') {
+      throw new Error(`expected 409 profile-changed, got ${JSON.stringify(conflict)}`)
+    }
+    await profileWindowPage.waitForFunction((name) => document.body.innerText.includes(name), windowDiffName, {
+      timeout: 10000,
+    })
+  } finally {
+    await profileWindowPage.close().catch(() => {})
+  }
+
+  // Collapsed state is scoped per profile and survives switching.
+  await switchToProfile('default', { preview: true })
+  await confirmPreview()
+  await waitActive(page, 'default')
+  // `sourceId` may be nested under the target group that this check collapses,
+  // so use another independent root group for the "not collapsed here" check.
+  const otherRootId = await page.evaluate(async (excluded) => {
+    const loaded = await fetch('/dsh-session-grove/load').then((response) => response.json())
+    const root = (loaded.doc.groups ?? []).find((group) => !group.parentId && group.id !== excluded)
+    return root?.id ?? null
+  }, targetId)
+  if (!otherRootId) throw new Error('no second root group for the profile collapse check')
+  const defaultCollapseTarget = groupRowById(targetId)
+  await defaultCollapseTarget.click({ force: true })
+  await page.waitForTimeout(300)
+  if ((await defaultCollapseTarget.getAttribute('aria-expanded')) !== 'false') {
+    throw new Error('default profile group did not collapse')
+  }
+  const collapsedAfterDefault = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('dsh-session-grove.collapsed.v1') ?? '{}')
+  )
+  if (collapsedAfterDefault.default?.[targetId] !== true) {
+    throw new Error(`default collapsed map missing ${targetId}: ${JSON.stringify(collapsedAfterDefault)}`)
+  }
+
+  await switchToProfile(windowProfile.id, { preview: true })
+  await confirmPreview()
+  await waitActive(page, windowProfile.id)
+  if ((await groupRowById(targetId).getAttribute('aria-expanded')) !== 'true') {
+    throw new Error('collapsed state leaked across profiles')
+  }
+  await groupRowById(otherRootId).click({ force: true })
+  await page.waitForTimeout(300)
+  const collapsedBoth = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('dsh-session-grove.collapsed.v1') ?? '{}')
+  )
+  if (collapsedBoth.default?.[targetId] !== true || collapsedBoth[windowProfile.id]?.[otherRootId] !== true) {
+    throw new Error(`per-profile collapsed maps missing: ${JSON.stringify(collapsedBoth)}`)
+  }
+
+  await switchToProfile('default', { preview: true })
+  await confirmPreview()
+  await waitActive(page, 'default')
+  if ((await groupRowById(targetId).getAttribute('aria-expanded')) !== 'false') {
+    throw new Error('default profile lost its collapsed group after switching back')
+  }
+  if ((await groupRowById(otherRootId).getAttribute('aria-expanded')) !== 'true') {
+    throw new Error('window profile collapsed state leaked into default')
+  }
+  await groupRowById(targetId).click({ force: true })
+  await page.waitForTimeout(300)
+
+  // Limit: exactly 20 unarchived profiles; save-as disables and the host
+  // rejects a 21st create with profile-limit.
+  await page.evaluate(async () => {
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      const list = await fetch('/dsh-session-grove/profiles').then((response) => response.json())
+      if (list.profiles.filter((profile) => profile.archived !== true).length >= 20) return
+      const response = await fetch('/dsh-session-grove/profiles/create', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ baseRevision: list.registryRevision, name: `Limit ${attempt} ${Date.now()}` }),
+      })
+      if (!response.ok) {
+        throw new Error(`limit fill create failed: ${response.status} ${JSON.stringify(await response.json())}`)
+      }
+    }
+  })
+  await page.waitForFunction(
+    async () => {
+      const body = await fetch('/dsh-session-grove/profiles').then((response) => response.json())
+      return body.profiles.filter((profile) => profile.archived !== true).length === 20
+    },
+    null,
+    { timeout: 15000 }
+  )
+  await openProfileMenu()
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-testid="session-groups-profile-item"]').length === 20,
+    null,
+    { timeout: 10000 }
+  )
+  if (!(await page.locator('[data-testid="session-groups-profile-save-as"]').isDisabled())) {
+    throw new Error('save-as stayed enabled at the 20-profile limit')
+  }
+  await page.locator('[data-testid="session-groups-profile-manage"]').click()
+  await manageDialog.waitFor({ state: 'visible' })
+  const manageCount = (await page.locator('[data-testid="session-groups-profile-manage-count"]').innerText()).trim()
+  if (manageCount !== '20/20') throw new Error(`manage count ${manageCount} != 20/20`)
+  await page.locator('[data-testid="session-groups-profile-manage-close"]').click()
+  await manageDialog.waitFor({ state: 'hidden' })
+  await page.keyboard.press('Escape')
+  await profilePopover().waitFor({ state: 'hidden' })
+  const limitResponse = await page.evaluate(async () => {
+    const list = await fetch('/dsh-session-grove/profiles').then((response) => response.json())
+    const response = await fetch('/dsh-session-grove/profiles/create', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ baseRevision: list.registryRevision, name: 'Over limit' }),
+    })
+    return { status: response.status, body: await response.json() }
+  })
+  if (limitResponse.status !== 409 || limitResponse.body.code !== 'profile-limit') {
+    throw new Error(`expected 409 profile-limit, got ${JSON.stringify(limitResponse)}`)
+  }
+
+  // Leave the default profile active for the remaining checks.
+  await switchToProfile('default')
+  await waitActive(page, 'default')
+
   // Session actions must preserve the official core set: no no-op pin item,
   // plus fork/copy ID and a hover archive control.
   const sessionRow = page.locator('[data-testid="session-groups-session"]').first()
@@ -812,7 +1186,7 @@ try {
     await reconnectPage.close().catch(() => {})
   }
 
-  console.log('PASS: isolated onboarding, search, archive filter, drag auto-expand, group edges, dialog geometry, status buttons, head insertion, collapse/expand, 264px, dark, host rail, external SSE refresh, workspace round-trip refresh, rapid revision convergence, multi-window SSE, concurrent CAS, forced reconnect, session actions, clipboard copy, search, first-layer settings, localized title, option details, live diagnostics HUD, switch interaction and destructive confirmation')
+  console.log('PASS: isolated onboarding, search, archive filter, drag auto-expand, group edges, dialog geometry, status buttons, head insertion, collapse/expand, 264px, dark, host rail, external SSE refresh, workspace round-trip refresh, rapid revision convergence, multi-window SSE, concurrent CAS, forced reconnect, profiles (save-as, preview, undo, rename/archive, dual-window active/409, scoped collapse, limit 20), session actions, clipboard copy, search, first-layer settings, localized title, option details, live diagnostics HUD, switch interaction and destructive confirmation')
 } catch (error) {
   await screenshot()
   console.error(`FAIL: ${error instanceof Error ? error.message : String(error)}`)

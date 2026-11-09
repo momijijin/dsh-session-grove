@@ -25,7 +25,7 @@ DSH 的 plugin client 是 **单个客户端 bundle**，没有为插件准备 `#i
 主支持：@deepseek-ai/dsh 0.2.1-rc.2 / 0.2.1-rc.5
 插件 engines.dsh: >=0.2.0-rc.2 <0.3.0
 
-已验证（最新一轮 community A+：0.4.0-beta.53；official 也为 0.4.0-beta.59）：
+已验证（最新一轮 community A+：0.4.0-beta.59；official A+ O：0.4.0-beta.60，profile 全量 PASS）：
   community DSH Desktop Stable 2.0.18 (anywhere-labs) / DSH 0.2.1-rc.2
   official DeepSeek Harness desktop 0.2.1.0 / DSH 0.2.1-rc.5
     （官方 bundle DSH host/core 隔离 A+ + 维护者桌面窗口验收）
@@ -48,7 +48,7 @@ DSH 的 plugin client 是 **单个客户端 bundle**，没有为插件准备 `#i
 | community DSH Desktop Beta (`DSH Desktop Beta`, `.dsh-beta`) | **不支持；不承诺兼容** | 可能不同 | 否 |
 | community DSH NEXT (`DSH NEXT`, `-next`) | **不支持；不承诺兼容** | 可能不同 | 否 |
 
-官方 rc.5 验证覆盖官方 bundle 的 DSH host/core 隔离 A+，并在已安装桌面 profile 完成维护者验收；不代表官方桌面 profile 内所有第三方插件组合都已认证。rc.5 启动时可能记录一次 client `sessions service` 能力警告，但会话创建、分组与 A+ 全量路径均已通过；插件优先使用 `sessions.create`，并保留 rc.2 的 `startSession`/快照差分/`connectWorkspace` fallback。
+官方 rc.5 验证覆盖官方 bundle 的 DSH host/core 隔离 A+（`0.4.0-beta.60`：`test:isolated` + `test:ui-browser` 的 profile 全量路径 PASS，2026-11-10），并在已安装桌面 profile 完成维护者验收；不代表官方桌面 profile 内所有第三方插件组合都已认证。rc.5 启动时可能记录一次 client `sessions service` 能力警告，但会话创建、分组与 A+ 全量路径均已通过；插件优先使用 `sessions.create`，并保留 rc.2 的 `startSession`/快照差分/`connectWorkspace` fallback。A+ 与 all-locales 都是手工本地证据：all-locales / locale-pack 最新仍为 `0.4.0-beta.59` 的 23/23（331 locale keys），`.60` 未复跑。
 
 Beta 和 NEXT 是社区自己的实验通道。即使插件在某个 Beta/NEXT 构建里能加载，也不构成兼容承诺，不能替代 Stable 或官方桌面版的回归。
 
@@ -125,7 +125,7 @@ dsh-0.2  >=0.2.0-rc.2 <0.3.0
 
 ## 为什么优先能力检测
 
-- 目前 community Stable 与 official 两个桌面族都已有隔离实例证据（最新一轮 community A+ 为 `0.4.0-beta.53`（official 也为 `0.4.0-beta.59`））；仍不为“壳名”写死版本分支，写死分支等于发布未测试代码。
+- 目前 community Stable 与 official 两个桌面族都已有隔离实例证据（最新一轮 community A+ 为 `0.4.0-beta.59`，official A+ O 为 `0.4.0-beta.60`）；仍不为“壳名”写死版本分支，写死分支等于发布未测试代码。
 - DSH 的扩展点本身是 service/slot 组合，能力检测比版本判断更精确。
 - 插件管理器已经承担版本范围拒绝；插件内部重复版本判断会制造双重真相源。
 
@@ -156,7 +156,7 @@ dsh-0.2  >=0.2.0-rc.2 <0.3.0
 ```text
 npm ci
 语法检查
-529 项单元/契约测试
+699 项单元/契约测试（v0.4.0-beta.60 发布基线；v0.4.0-beta.59 发布时为 529）
 客户端构建
 coverage gate
 UI runtime smoke
@@ -169,13 +169,13 @@ npm pack --dry-run
 
 ## 分发与更新
 
-当前 beta 通过本地 tarball 分发；dshmarket 目录条目尚未发布。
+`dsh-session-grove` 已上架 **dshmarket**（`awesome-dsh-plugin` 目录）；GitHub Release 附件与本地 tarball 仅维护者/调试路径。
 
 更新责任属于 **dshmarket / 插件管理器**，不属于插件设置页：
 
 - 插件不实现自更新，也不内置下一版本下载地址；
 - dshmarket 从 `awesome-dsh-plugin` 精选目录获取条目；
-- 目录条目发布后，用户通过 dshmarket 安装和更新；
+- 用户通过 dshmarket 安装和更新（目录条目已上架）；
 - 不要混用本地 tarball 安装与市场更新：先通过市场重装一次，让安装来源绑定到市场。
 
 提交目录条目的位置是 `awesome-dsh-plugin/awesome-dsh-plugin`，不是 `dshmarket` 应用仓库。

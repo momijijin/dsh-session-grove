@@ -1,6 +1,36 @@
 # Changelog
 
-## 0.4.0-beta.59 (new-session cleanup)
+## 0.4.0-beta.60 (multiple profiles, 2026-11-10)
+
+### Multiple group profiles
+
+- Added named group configurations: a header chevron opens a profile popover with the active profile, per-profile counts, save-as and manage entries.
+- Switching profiles first shows a read-only difference preview (groups added/removed/renamed/moved/reordered; sessions moved/newly grouped/ungrouped/stale); identical configurations switch directly without a dialog.
+- Added save-as, rename, archive and manage dialogs, a 20-unarchived-profile limit and a 5-second undo action on the switch toast.
+- The active profile is global: every window follows the same profile through SSE `active` events, and committing to a profile that is no longer active returns 409 `profile-changed`.
+- Added profile-scoped collapsed state and an epoch-based reset of the document, revision, optimistic queue and view interactions on every switch.
+- Storage: `dsh-session-grove.profiles.json` registry plus one directory per named profile (`storages/profiles/<id>/`), each with its own `.bak`/`.lock`/quarantine family. The default record stays at `storages/dsh-session-grove.json`, `DOC_VERSION` stays 1, and no data is migrated.
+- Archiving writes only `archivedAt`; the document, backups and sessions are kept. Restoring an archived profile from the UI is not implemented yet.
+- AI control: `profileId` is optional for `state`/`resolve` (defaults to active) and required for `plan`/`apply` when several profiles exist; `planHash` is bound to the profile; HTTP idempotency keys are scoped as `${profileId}:${idempotencyKey}`; there is no activate/switch action; `doctor` reports the registry and per-profile health.
+- i18n: added 45 `profiles.*` keys to all 19 dictionaries (331 keys total).
+- Tests: 699 unit/contract tests, 39 UI runtime cases, and new profile flows in the manual isolated/all-locales/ui-runtime e2e specs. Community A+ profile evidence passed on 2026-11-09 against `.59` on an isolated host (`test:isolated`, `test:ui-browser`, `test:locale-pack`, `test:all-locales` 23/23); official A+ O profile evidence passed on 2026-11-10 against the `.60` tarball on the official isolated host (official DeepSeek Harness desktop 0.2.1.0 / DSH 0.2.1-rc.5; `test:isolated` plus a fresh-host `test:ui-browser` run at executedRatio 1; all-locales/LP were not re-run on `.60`, so `.59` 23/23 remains the latest); user desktop acceptance 2026-11-10.
+
+### Profile switch preview layout
+
+- Two-level hierarchy (group title plus indented `from → to` lines), `+`/`−`/`~` group markers and section/block/list dividers; the preview body scrolls internally (min 320 / max 560, width 560) so long diffs no longer break the dialog.
+
+### Release
+
+- Released 2026-11-10 as GitHub Release `v0.4.0-beta.60` with two assets (`dsh-session-grove-0.4.0-beta.60.tgz` + `SHA256SUMS`) and listed in dshmarket. The `.59` release evidence (529/529 unit/contract tests + 15 UI runtime cases) stays historical and is not mixed into this entry.
+
+## 0.4.0-beta.59 (new-session follow)
+
+- A blank created from a group head stays in that group across repeated workspace switches before the first prompt; the host's reused blank is moved immediately and the abandoned placeholder is removed.
+- Follow intent clears on first prompt, manual group move, target-group deletion or persistence failure; same-workspace navigation does not steal blanks.
+- The first switch uses a layout-triggered optimistic move to avoid showing the old group for a frame.
+- Tests: 529 unit/contract + 15 UI runtime cases.
+
+## 0.4.0-beta.58 (new-session cleanup)
 
 - Removed the non-released new-session dialog and workspace-picker compatibility work.
 - Group plus/context menu now creates/reuses a session in the inferred workspace; the host owns workspace switching and creation.

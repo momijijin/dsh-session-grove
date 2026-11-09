@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import {
   CONTROL_APPLY_PATH,
   CONTROL_CATALOG_PATH,
@@ -7,10 +9,27 @@ import {
   CONTROL_PLAN_PATH,
   CONTROL_RESOLVE_PATH,
   CONTROL_STATE_PATH,
+  DEFAULT_PROFILE_ID,
   LOAD_PATH,
   MAX_CONTROL_BODY_BYTES,
+  PROFILES_DIR_NAME,
+  RECORD_FILE_NAME,
 } from '../../src/host/constants.js'
-import { mountRoutes, sampleDoc, makeRequest } from './helpers.js'
+import { controlPlanHash } from '../../src/host/route-contract.js'
+import {
+  FIXED_TIMESTAMP,
+  PROFILE_ID,
+  createTestProfileManager,
+  makeRequest,
+  makeTempProfileHome,
+  mountRoutes,
+  sampleDefaultProfile,
+  sampleDoc,
+  sampleNamedProfile,
+  sampleRegistry,
+  writeJsonFile,
+  writeProfileDoc,
+} from './helpers.js'
 
 const connection = () => ({
   requestRejection(request) {
@@ -23,6 +42,40 @@ const connection = () => ({
 
 const headers = { cookie: 'token=ok', 'content-type': 'application/json' }
 const post = (body) => makeRequest({ method: 'POST', headers, body: JSON.stringify(body) })
+
+const namedGroups = () => sampleDoc().groups.map((group) => ({ ...group, name: `${group.name}-工作` }))
+
+/** Mount the control routes over a real profile manager (two profiles by default). */
+const mountProfileControl = async (t, options = {}) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  await writeJsonFile(
+    home.registryFilePath,
+    sampleRegistry({
+      revision: options.registryRevision ?? 2,
+      activeId: options.activeId ?? DEFAULT_PROFILE_ID,
+      profiles: options.profiles ?? [sampleDefaultProfile(), sampleNamedProfile()],
+    }),
+  )
+  await writeProfileDoc(home, DEFAULT_PROFILE_ID, { revision: options.defaultRevision ?? 2 })
+  if (options.writeNamed !== false) {
+    await writeProfileDoc(home, PROFILE_ID, {
+      revision: options.namedRevision ?? 2,
+      groups: options.namedGroups ?? namedGroups(),
+    })
+  }
+  const manager = createTestProfileManager(home)
+  const mounted = await mountRoutes({
+    profileManager: manager,
+    connection: connection(),
+    controlApiEnabled: true,
+    doctorReport: options.doctorReport,
+    changeHub: options.changeHub,
+  })
+  t.after(mounted.cleanup)
+  return { home, manager, mounted }
+}
+
 
 test('control routes stay behind the API switch without changing their paths', async (t) => {
   const off = await mountRoutes({ connection: connection() })
@@ -363,4 +416,347 @@ test('control doctor is a read-only GET available while controlApi is closed', a
   const unavailable = await missing.call(CONTROL_DOCTOR_PATH, makeRequest({ headers }))
   assert.equal(unavailable.res.statusCode, 503)
   assert.equal(unavailable.json.code, 'doctor-unavailable')
+})
+
+test('control state and resolve default to the active profile and echo profileId/activeProfile', async (t) => {
+  const { mounted } = await mountProfileControl(t)
+
+  const active = await mounted.call(CONTROL_STATE_PATH, makeRequest({ headers }))
+  assert.equal(active.res.statusCode, 200)
+  assert.equal(active.json.profileId, DEFAULT_PROFILE_ID)
+  assert.deepEqual(active.json.activeProfile, { id: DEFAULT_PROFILE_ID, name: null })
+  assert.equal(active.json.revision, 2)
+  assert.equal(active.json.groups[0].name, '施工中')
+
+  const named = await mounted.call(
+    CONTROL_STATE_PATH,
+    makeRequest({ headers, url: `${CONTROL_STATE_PATH}?profileId=${PROFILE_ID}` }),
+  )
+  assert.equal(named.res.statusCode, 200)
+  assert.equal(named.json.profileId, PROFILE_ID)
+  assert.deepEqual(named.json.activeProfile, { id: DEFAULT_PROFILE_ID, name: null })
+  assert.equal(named.json.revision, 2)
+  assert.equal(named.json.groups[0].name, '施工中-工作')
+
+  const resolvedNamed = await mounted.call(
+    CONTROL_RESOLVE_PATH,
+    post({ profileId: PROFILE_ID, path: ['施工中-工作', '子组-工作'] }),
+  )
+  assert.equal(resolvedNamed.res.statusCode, 200)
+  assert.equal(resolvedNamed.json.profileId, PROFILE_ID)
+  assert.deepEqual(resolvedNamed.json.activeProfile, { id: DEFAULT_PROFILE_ID, name: null })
+  assert.equal(resolvedNamed.json.groupId, named.json.groups[1].id)
+
+  const resolvedActive = await mounted.call(CONTROL_RESOLVE_PATH, post({ path: ['施工中'] }))
+  assert.equal(resolvedActive.res.statusCode, 200)
+  assert.equal(resolvedActive.json.profileId, DEFAULT_PROFILE_ID)
+  assert.equal(resolvedActive.json.groupId, active.json.groups[0].id)
+})
+
+test('control plan/apply require profileId with multiple profiles and bind planHash to the profile', async (t) => {
+  const changeCalls = []
+  const changeHub = {
+    publish: (...args) => changeCalls.push(args),
+    publishActive: () => {},
+    subscribe: () => () => {},
+  }
+  const { mounted } = await mountProfileControl(t, { changeHub })
+  const operations = [{ op: 'group.create', name: 'AI', parentId: null, index: 0 }]
+
+  const missingPlan = await mounted.call(CONTROL_PLAN_PATH, post({ baseRevision: 2, operations }))
+  assert.equal(missingPlan.res.statusCode, 422)
+  assert.equal(missingPlan.json.code, 'profile-required')
+  assert.equal(missingPlan.json.field, 'profileId')
+
+  const missingApply = await mounted.call(
+    CONTROL_APPLY_PATH,
+    post({ baseRevision: 2, operations, planHash: 'x'.repeat(64) }),
+  )
+  assert.equal(missingApply.res.statusCode, 422)
+  assert.equal(missingApply.json.code, 'profile-required')
+
+  const defaultPlan = await mounted.call(
+    CONTROL_PLAN_PATH,
+    post({ baseRevision: 2, operations, profileId: DEFAULT_PROFILE_ID }),
+  )
+  const namedPlan = await mounted.call(CONTROL_PLAN_PATH, post({ baseRevision: 2, operations, profileId: PROFILE_ID }))
+  assert.equal(defaultPlan.res.statusCode, 200)
+  assert.equal(namedPlan.res.statusCode, 200)
+  assert.equal(defaultPlan.json.profileId, DEFAULT_PROFILE_ID)
+  assert.equal(namedPlan.json.profileId, PROFILE_ID)
+  assert.equal(defaultPlan.json.planHash, controlPlanHash(DEFAULT_PROFILE_ID, 2, operations))
+  assert.equal(namedPlan.json.planHash, controlPlanHash(PROFILE_ID, 2, operations))
+  assert.notEqual(defaultPlan.json.planHash, namedPlan.json.planHash)
+
+  const crossProfile = await mounted.call(
+    CONTROL_APPLY_PATH,
+    post({ baseRevision: 2, operations, profileId: PROFILE_ID, planHash: defaultPlan.json.planHash }),
+  )
+  assert.equal(crossProfile.res.statusCode, 409)
+  assert.equal(crossProfile.json.code, 'stale-plan')
+
+  // The named profile is not active; an explicit write to it is still allowed.
+  const applied = await mounted.call(
+    CONTROL_APPLY_PATH,
+    post({ baseRevision: 2, operations, profileId: PROFILE_ID, planHash: namedPlan.json.planHash }),
+  )
+  assert.equal(applied.res.statusCode, 200)
+  assert.equal(applied.json.profileId, PROFILE_ID)
+  assert.equal(applied.json.revision, 3)
+  assert.equal(typeof applied.json.doc, 'object')
+  assert.deepEqual(changeCalls, [[3, 'control-apply', PROFILE_ID]])
+
+  const namedState = await mounted.call(
+    CONTROL_STATE_PATH,
+    makeRequest({ headers, url: `${CONTROL_STATE_PATH}?profileId=${PROFILE_ID}` }),
+  )
+  assert.equal(namedState.json.revision, 3)
+  const activeState = await mounted.call(CONTROL_STATE_PATH, makeRequest({ headers }))
+  assert.equal(activeState.json.revision, 2, 'writing a named profile must not touch the active document')
+})
+
+test('control keeps profileId optional when only the default profile exists', async (t) => {
+  const { mounted } = await mountProfileControl(t, {
+    profiles: [sampleDefaultProfile()],
+    registryRevision: 1,
+    defaultRevision: 1,
+    writeNamed: false,
+  })
+  const operations = [{ op: 'group.create', name: 'Solo', parentId: null, index: 0 }]
+  const plan = await mounted.call(CONTROL_PLAN_PATH, post({ baseRevision: 1, operations }))
+  assert.equal(plan.res.statusCode, 200)
+  assert.equal(plan.json.profileId, DEFAULT_PROFILE_ID)
+  assert.equal(plan.json.planHash, controlPlanHash(DEFAULT_PROFILE_ID, 1, operations))
+
+  const applied = await mounted.call(
+    CONTROL_APPLY_PATH,
+    post({ baseRevision: 1, operations, planHash: plan.json.planHash }),
+  )
+  assert.equal(applied.res.statusCode, 200)
+  assert.equal(applied.json.profileId, DEFAULT_PROFILE_ID)
+  assert.equal(applied.json.revision, 2)
+})
+
+test('control rejects invalid, missing and archived profile targets', async (t) => {
+  const { mounted } = await mountProfileControl(t, {
+    profiles: [sampleDefaultProfile(), sampleNamedProfile({ archivedAt: FIXED_TIMESTAMP })],
+  })
+
+  const invalid = await mounted.call(
+    CONTROL_STATE_PATH,
+    makeRequest({ headers, url: `${CONTROL_STATE_PATH}?profileId=Bad_ID` }),
+  )
+  assert.equal(invalid.res.statusCode, 422)
+  assert.equal(invalid.json.code, 'invalid-profile-id')
+
+  const missing = await mounted.call(
+    CONTROL_STATE_PATH,
+    makeRequest({ headers, url: `${CONTROL_STATE_PATH}?profileId=p-unknown-123` }),
+  )
+  assert.equal(missing.res.statusCode, 409)
+  assert.equal(missing.json.code, 'profile-missing')
+  assert.equal(missing.json.profileId, 'p-unknown-123')
+
+  const archived = await mounted.call(
+    CONTROL_PLAN_PATH,
+    post({ baseRevision: 2, operations: [{ op: 'group.create', name: 'X', parentId: null }], profileId: PROFILE_ID }),
+  )
+  assert.equal(archived.res.statusCode, 409)
+  assert.equal(archived.json.code, 'profile-archived')
+  assert.equal(archived.json.profileId, PROFILE_ID)
+})
+
+test('control reports missing and unhealthy named profile documents', async (t) => {
+  const missingHome = await makeTempProfileHome()
+  t.after(missingHome.cleanup)
+  const missingId = 'p-missing-0001'
+  await writeJsonFile(
+    missingHome.registryFilePath,
+    sampleRegistry({
+      revision: 1,
+      profiles: [sampleDefaultProfile(), sampleNamedProfile({ id: missingId })],
+    }),
+  )
+  await writeProfileDoc(missingHome, DEFAULT_PROFILE_ID, { revision: 1 })
+  const missingManager = createTestProfileManager(missingHome)
+  const missingMounted = await mountRoutes({
+    profileManager: missingManager,
+    connection: connection(),
+    controlApiEnabled: true,
+  })
+  t.after(missingMounted.cleanup)
+  const missing = await missingMounted.call(
+    CONTROL_STATE_PATH,
+    makeRequest({ headers, url: `${CONTROL_STATE_PATH}?profileId=${missingId}` }),
+  )
+  assert.equal(missing.res.statusCode, 409)
+  assert.equal(missing.json.code, 'profile-missing')
+
+  const { home, mounted } = await mountProfileControl(t)
+  await writeJsonFile(join(home.storageDir, PROFILES_DIR_NAME, PROFILE_ID, RECORD_FILE_NAME), {
+    version: 1,
+    revision: 2,
+    groups: 'not-an-array',
+    ungrouped: [],
+  })
+  const unhealthy = await mounted.call(
+    CONTROL_STATE_PATH,
+    makeRequest({ headers, url: `${CONTROL_STATE_PATH}?profileId=${PROFILE_ID}` }),
+  )
+  assert.equal(unhealthy.res.statusCode, 409)
+  assert.equal(unhealthy.json.code, 'profile-unhealthy')
+  assert.equal(unhealthy.json.profileId, PROFILE_ID)
+  assert.equal(unhealthy.json.health.kind, 'invalid')
+})
+
+test('control refuses profile actions on a degraded registry while catalog and doctor stay read-only', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  await writeProfileDoc(home, DEFAULT_PROFILE_ID, { revision: 1 })
+  await writeFile(home.registryFilePath, '{ not-a-registry', 'utf8')
+  const manager = createTestProfileManager(home)
+  const report = { ok: true, protocol: 1, storage: { health: { status: 'ok' } } }
+  const mounted = await mountRoutes({
+    profileManager: manager,
+    connection: connection(),
+    controlApiEnabled: true,
+    doctorReport: async () => report,
+  })
+  t.after(mounted.cleanup)
+
+  const state = await mounted.call(CONTROL_STATE_PATH, makeRequest({ headers }))
+  assert.equal(state.res.statusCode, 409)
+  assert.equal(state.json.code, 'registry-unhealthy')
+
+  const catalog = await mounted.call(CONTROL_CATALOG_PATH, makeRequest({ headers }))
+  assert.equal(catalog.res.statusCode, 200)
+  assert.equal(catalog.json.ok, true)
+
+  const doctor = await mounted.call(CONTROL_DOCTOR_PATH, makeRequest({ headers }))
+  assert.equal(doctor.res.statusCode, 200)
+  assert.deepEqual(doctor.json.storage.health, { status: 'ok' })
+  assert.equal(doctor.json.storage.profiles.length, 1)
+  assert.equal(doctor.json.storage.profiles[0].id, DEFAULT_PROFILE_ID)
+  assert.equal(typeof doctor.json.storage.registry.status, 'string')
+})
+
+test('control doctor adds registry and per-profile storage rows', async (t) => {
+  const { home, mounted } = await mountProfileControl(t, {
+    doctorReport: async () => ({ ok: true, protocol: 1, storage: { health: { status: 'ok' }, filePath: 'x' } }),
+  })
+  const profileDir = join(home.storageDir, PROFILES_DIR_NAME, PROFILE_ID)
+  await writeJsonFile(join(profileDir, `${RECORD_FILE_NAME.slice(0, -5)}.corrupt-2026-01-01.json`), { old: true })
+  await writeJsonFile(join(profileDir, RECORD_FILE_NAME), {
+    version: 1,
+    revision: 2,
+    groups: 'not-an-array',
+    ungrouped: [],
+  })
+
+  const doctor = await mounted.call(CONTROL_DOCTOR_PATH, makeRequest({ headers }))
+  assert.equal(doctor.res.statusCode, 200)
+  assert.equal(doctor.json.storage.filePath, 'x')
+  assert.equal(doctor.json.storage.registry.status, 'ok')
+  assert.equal(doctor.json.storage.registry.revision, 2)
+  assert.equal(doctor.json.storage.registry.activeId, DEFAULT_PROFILE_ID)
+  assert.equal(doctor.json.storage.registry.profileCount, 2)
+  assert.equal(doctor.json.storage.registry.degraded, false)
+
+  assert.equal(doctor.json.storage.profiles.length, 2)
+  const byId = new Map(doctor.json.storage.profiles.map((profile) => [profile.id, profile]))
+  const defaultRow = byId.get(DEFAULT_PROFILE_ID)
+  assert.deepEqual(
+    {
+      id: defaultRow.id,
+      name: defaultRow.name,
+      archived: defaultRow.archived,
+      healthy: defaultRow.healthy,
+      revision: defaultRow.revision,
+      backupStatus: defaultRow.backupStatus,
+      quarantinedTo: defaultRow.quarantinedTo,
+    },
+    {
+      id: DEFAULT_PROFILE_ID,
+      name: null,
+      archived: false,
+      healthy: true,
+      revision: 2,
+      backupStatus: 'missing',
+      quarantinedTo: null,
+    },
+  )
+  const namedRow = byId.get(PROFILE_ID)
+  assert.equal(namedRow.name, '工作项目')
+  assert.equal(namedRow.archived, false)
+  assert.equal(namedRow.healthy, false)
+  assert.equal(namedRow.status, 'invalid')
+  assert.equal(namedRow.quarantined, 1)
+  assert.match(namedRow.quarantinedTo, /dsh-session-grove\.corrupt-\*\.json$/)
+  assert.match(namedRow.quarantineNote, /1 quarantined document/)
+})
+
+test('control apply idempotency is scoped per profile', async (t) => {
+  const { mounted } = await mountProfileControl(t)
+  const operations = [{ op: 'group.create', name: 'Idem', parentId: null, index: 0 }]
+  const defaultPlan = await mounted.call(
+    CONTROL_PLAN_PATH,
+    post({ baseRevision: 2, operations, profileId: DEFAULT_PROFILE_ID }),
+  )
+  const namedPlan = await mounted.call(CONTROL_PLAN_PATH, post({ baseRevision: 2, operations, profileId: PROFILE_ID }))
+  const applyBody = (profileId, planHash) => ({
+    baseRevision: 2,
+    operations,
+    profileId,
+    planHash,
+    idempotencyKey: 'shared-key',
+  })
+
+  const defaultApply = await mounted.call(CONTROL_APPLY_PATH, post(applyBody(DEFAULT_PROFILE_ID, defaultPlan.json.planHash)))
+  assert.equal(defaultApply.res.statusCode, 200)
+  assert.equal(defaultApply.json.revision, 3)
+
+  // Same key on another profile must not replay the default response.
+  const namedApply = await mounted.call(CONTROL_APPLY_PATH, post(applyBody(PROFILE_ID, namedPlan.json.planHash)))
+  assert.equal(namedApply.res.statusCode, 200)
+  assert.equal(namedApply.json.profileId, PROFILE_ID)
+  assert.equal(namedApply.json.revision, 3)
+
+  const replay = await mounted.call(CONTROL_APPLY_PATH, post(applyBody(DEFAULT_PROFILE_ID, defaultPlan.json.planHash)))
+  assert.equal(replay.res.statusCode, 200)
+  assert.equal(replay.json.profileId, DEFAULT_PROFILE_ID)
+  assert.equal(replay.json.revision, 3)
+
+  const other = [{ op: 'group.create', name: 'Other', parentId: null, index: 0 }]
+  const conflict = await mounted.call(
+    CONTROL_APPLY_PATH,
+    post({
+      baseRevision: 3,
+      operations: other,
+      profileId: DEFAULT_PROFILE_ID,
+      planHash: controlPlanHash(DEFAULT_PROFILE_ID, 3, other),
+      idempotencyKey: 'shared-key',
+    }),
+  )
+  assert.equal(conflict.res.statusCode, 409)
+  assert.equal(conflict.json.code, 'idempotency-conflict')
+
+  // No key means no replay: the second attempt sees the moved revision.
+  const noKeyOperations = [{ op: 'group.create', name: 'NoKey', parentId: null, index: 0 }]
+  const noKeyPlan = await mounted.call(
+    CONTROL_PLAN_PATH,
+    post({ baseRevision: 3, operations: noKeyOperations, profileId: DEFAULT_PROFILE_ID }),
+  )
+  assert.equal(noKeyPlan.res.statusCode, 200)
+  const noKeyBody = {
+    baseRevision: 3,
+    operations: noKeyOperations,
+    profileId: DEFAULT_PROFILE_ID,
+    planHash: noKeyPlan.json.planHash,
+  }
+  const noKeyFirst = await mounted.call(CONTROL_APPLY_PATH, post(noKeyBody))
+  assert.equal(noKeyFirst.res.statusCode, 200)
+  assert.equal(noKeyFirst.json.revision, 4)
+  const noKeySecond = await mounted.call(CONTROL_APPLY_PATH, post(noKeyBody))
+  assert.equal(noKeySecond.res.statusCode, 409)
+  assert.equal(noKeySecond.json.code, 'conflict')
 })

@@ -1,10 +1,10 @@
 # 架构：纯函数核心 + DSH 适配器
 
-当前实现：**0.4.0-beta.59**  
+当前实现：**0.4.0-beta.60**  
 支持宿主：`@deepseek-ai/dsh` 0.2.1-rc.2 / 0.2.1-rc.5  
 已验证壳：社区版 DSH Desktop **Stable** 2.0.18（rc.2）；官方 DeepSeek Harness 桌面版 0.2.1.0（rc.5，隔离 A+ + 桌面窗口验收）  
 明确不支持：社区版 DSH Desktop Beta、社区版 DSH NEXT（`-next`）  
-分发状态：dshmarket 目录条目发布前，使用本地 beta tarball。
+分发状态：已上架 dshmarket；GitHub Release 附件与本地 beta tarball 仅维护者/调试路径。`.60` 发布包含 profiles 与切换预览布局修复。
 
 插件按洋葱圈分层，宿主升级时只改外圈。
 
@@ -40,6 +40,44 @@ src/index.js     Cordis host 入口
   - `src/index.js` 是 composition root，可依赖 `host` / `core` / `shared` / `adapters`；`adapters` 只承载 DSH 版本相关能力检测，不向上依赖 client/host。
 - `npm run check:core` 独立加载全部核心模块，不启动 DSH。
 
+## 多配置（profiles）
+
+配置（profile）是分组文档的命名作用域：官方工作区与会话数据不分叉，切换只决定当前显示哪份 GroupDoc。元数据在独立 registry 中，不塞进 GroupDoc，因此 `DOC_VERSION` 保持 1。
+
+- `src/host/profile-registry.js`
+  - registry schema（`version/revision/activeId/profiles[]`）与不变量校验；
+  - 原子写（临时文件 → fsync → `.bak` → rename → 目录 fsync）、跨进程 `.lock`、同进程 promise tail；
+  - 除 `activate` 外的写操作走 CAS（`baseRevision`）；损坏时优先 `.bak`，否则 quarantine 并进入 degraded；
+  - 未归档上限 20、名字校验（trim 后 1–40、无控制字符、大小写不敏感唯一）、归档只写 `archivedAt`。
+- `src/host/profile-manager.js`
+  - 固定 `storageDir`，解析 default 与 `profiles/<id>/` 路径；拒绝逃出 `storages` 的 id；
+  - 按绝对路径缓存 `createStore` 实例，保证同一 profile 的 store 身份稳定（客户端 store 订阅依赖身份）；
+  - `activeId/activeStore/storeFor/peekFor/peekRegistry/newProfileId/entryFor/orphans`；registry degraded 时 active 回落 default；
+  - 创建采用 doc-first：先写新文档，再 CAS registry 加条目并设 active；registry 失败保留孤儿目录，由 doctor 报告，不自动删除。
+- `src/host/profile-routes.js`
+  - 6 条精确 path 路由：list/preview/create/rename/archive/activate（预览用 `?id=`，不引入路径匹配器）；
+  - preview 全程只读：`peekRegistry` + `peekFor`，不 quarantine、不写 registry、不改 active；
+  - `previewToken = sha256({activeId, activeRevision, targetId, targetRevision, registryRevision})`，activate 时重算，防止 TOCTOU；
+  - active 不健康时 `activeRevision=null`，仍允许预览健康目标并切到它（default 优先）。
+- `src/host/store.js` 的 additive `peek()`
+  - 读文件 → 解析 → 归一化颜色 → `validateDoc`，返回 `{kind, doc, revision, exists}` 或 `{kind:'missing'|'corrupt'|'invalid'|'unsupported-version', detail}`；
+  - 不加锁、不写文件、不 quarantine；`load()` 语义不变（可隔离/恢复）。
+- `src/index.js`
+  - composition root 创建 manager 并传给 `registerRoutes`/`createControlTool`/storage-health；每个请求解析 active store，不在 apply 时快照单一 store；
+  - diagnostics/debug/control-token/skill dshHome 固定到 `storageDir`，不从 per-profile `filePath` 回推。
+- SSE（`src/host/change-hub.js`）
+  - `revision` 事件带 `profileId`；新增 `active` 事件（`activeId, registryRevision`），在 create/activate 后广播；
+  - 客户端只接受缺失 `profileId`（旧 host）或等于本地 active 的 revision；`active` 事件触发 epoch++、清队列、`/load` + `/profiles`。
+- 客户端
+  - `src/client/components-profiles.js`：header chevron、popover、切换/撤销编排、preview 主体与 recovery；
+  - `src/client/components-profile-dialogs.js`：save-as/rename/archive/manage 弹窗主体；
+  - `src/client/state.js`：`profiles`/`profilePreview`/`profileEpoch`/`profileSwitching`；切换成功或收到 active 事件时递增 epoch、清零 `latestSeenRevision`、清空 optimistic/doc 状态；
+  - 折叠状态键不变，值变为 `{[profileId]: {[groupId]: true}}`；旧扁平值按 default 读取，下一次写入升级；
+  - 旧 host（`/profiles` 404）→ `profiles.available=false`，不渲染 chevron。
+- `src/core/profile-diff.js`
+  - 纯函数 `normalizeDocForCompare/sameDocs/diffDocs`；忽略 `version/revision`，按 id-first + 唯一 path-fallback 匹配分组；
+  - 返回完整数组，`truncated` 恒为 false；100/300 行截断只在 UI 层（`components-profiles.js`）。
+
 ## 客户端 i18n 分层
 
 `src/client/locale.js` 只是兼容 facade。运行时 i18n 拆为六个模块，另有 1 个 build-only chunk 加载器：
@@ -61,6 +99,8 @@ src/index.js     Cordis host 入口
 - `scripts/build-client.mjs`：主 bundle + `lib/client.locale-*.js` 懒加载 chunk 生成
 - `src/client/groups-view-menu-handlers.js`：菜单锚点/上下文菜单/导航命令
 - `src/client/groups-view-dialog-handlers.js`：新建/重命名/移动/删除/归档/fork 等 dialog 命令
+- `src/client/components-profiles.js`：配置 chevron/popover、切换预览与切换/撤销编排
+- `src/client/components-profile-dialogs.js`：另存为、重命名、归档与管理列表弹窗
 - `src/client/plugin-locale.js`：locale service 注册/订阅、translator/direction/time 运行时
 - `src/client/plugin-settings.js`：`plugins.bundle.config` slot 注册与 config form
 - `src/client/plugin-workspace-chrome.js`：workspace overlay toggle + width retry 生命周期
@@ -110,6 +150,9 @@ src/index.js     Cordis host 入口
   - `group.create` 的 plan 不返回随机 ID；apply 后通过 state 读取
 - `src/core/color.js`
   - `groupColorCss` 自定义 hex 优先、palette token 回退
+- `src/core/profile-diff.js`
+  - 配置切换的纯差异核心：`sameDocs` 判断结构相同（忽略 `version/revision`）、`diffDocs` 输出分组/会话变化与计数
+  - 不依赖 locale/Intl/存储；不做展示截断，由 UI 按 100/300 行截断
 
 ## 当前适配器
 
@@ -129,6 +172,10 @@ src/index.js     Cordis host 入口
   - DOM、testid、CSS 类与 props 契约不变
 - `src/host/storage-health.js`
   - doctor 的只读存储健康检查；不使用 store.load，不触发 quarantine 或写入
+  - 多配置后同时检查 registry、每个 profile 文档、`.bak` 与 quarantine 家族，报告 `storage.registry` 与 `storage.profiles[]`
+- `src/host/profile-registry.js` + `profile-manager.js` + `profile-routes.js`
+  - registry 原子性/CAS/degraded 在 `profile-registry.js`；路径解析、per-profile store 缓存与只读 peek 在 `profile-manager.js`
+  - `/profiles*` 六条路由与 previewToken 在 `profile-routes.js`；`/load`/`/commit` 只按 active 解析，不信任请求里的 profileId
 - `src/host/tool.js`
   - 原生 `session_grove_control`；Host 进程内执行，不经过 HTTP fence
   - action 门禁：`controlApi` / `controlSessions` / `controlDestructive`；`doctor` 只读且不受 write gates 阻挡

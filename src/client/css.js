@@ -88,10 +88,12 @@ export const CSS = `
 .dsg-header-title {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex: 1;
   min-width: 0;
-  overflow: hidden;
+  /* The profile popover is anchored inside this row: no clipping of the
+   * absolutely positioned menu; the label itself ellipsizes. */
+  overflow: visible;
   font-size: var(--dsg-font-14, 14px);
   line-height: 20px;
   /* Match the shipped workspace section label: neutral, no plugin accent. */
@@ -99,7 +101,7 @@ export const CSS = `
   color: var(--dsw-alias-label-secondary, CanvasText);
   white-space: nowrap;
 }
-.dsg-header-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsg-header-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsg-header-actions { display: inline-flex; align-items: center; gap: 4px; flex: none; }
 /* Status counters sit left of the view controls, with one empty 28px button of
  * separation to prevent accidental view switches. */
@@ -131,6 +133,7 @@ export const CSS = `
 /* 264px sidebar: remove the intentional blank separator and compact the
  * counters so the title and all view controls fit without horizontal scroll. */
 .dsg-root[data-narrow="true"] .dsg-header-actions { gap: 2px; }
+.dsg-root[data-narrow="true"] .dsg-header-title { gap: 2px; }
 .dsg-root[data-narrow="true"] .dsg-status-actions { margin-right: 0; gap: 1px; }
 .dsg-root[data-narrow="true"] .dsg-status-action { min-width: 26px; padding: 0 2px; gap: 1px; }
 .dsg-root[data-narrow="true"] .dsg-status-action[data-count="0"] .dsg-status-action-count { display: none; }
@@ -515,6 +518,177 @@ export const CSS = `
 .dsg-view-options-about { display: flex; flex-direction: column; gap: 1px; padding: 5px 8px 2px; font-size: var(--dsg-font-11, 11px); line-height: 16px; color: var(--dsw-alias-label-tertiary, CanvasText); }
 .dsg-view-options-version { color: var(--dsw-alias-label-secondary, CanvasText); font-variant-numeric: tabular-nums; }
 .dsg-view-options-scope { overflow-wrap: anywhere; }
+
+/* ---------------------------------------------------------------------------
+ * Profile switcher (SPEC §9.1/§9.2): 24px chevron hit area after the title and
+ * a left-aligned popover that reuses the view-options surface.
+ * ------------------------------------------------------------------------- */
+.dsg-profile-menu { position: relative; display: inline-flex; flex: none; }
+.dsg-profile-trigger {
+  appearance: none;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, CanvasText);
+  cursor: pointer;
+}
+.dsg-profile-trigger:hover { background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, CanvasText 10%, transparent)); color: var(--dsw-alias-label-primary, CanvasText); }
+.dsg-profile-trigger:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, CanvasText); outline-offset: -2px; }
+.dsg-profile-popover {
+  left: 0;
+  right: auto;
+  min-width: 220px;
+  max-width: min(300px, calc(100vw - 24px));
+  max-height: 60vh;
+  overflow-y: auto;
+  /* The header title is nowrap; the inherited value must not stop the degraded
+   * warning from wrapping inside the popover (S6 review carry #2). */
+  white-space: normal;
+}
+.dsg-profile-item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, CanvasText);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.dsg-profile-item:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, CanvasText 12%, transparent)); }
+.dsg-profile-item:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, CanvasText); outline-offset: -2px; }
+.dsg-profile-item[data-active="true"] { font-weight: 600; }
+.dsg-profile-item:disabled { opacity: .45; cursor: default; }
+.dsg-profile-item-text { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 1px; }
+.dsg-profile-item-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--dsg-font-13, 13px); line-height: 18px; }
+.dsg-profile-item-counts { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--dsg-font-11, 11px); line-height: 16px; font-weight: 400; color: var(--dsw-alias-label-secondary, CanvasText); }
+.dsg-profile-item-check { display: inline-flex; flex: none; width: 16px; height: 16px; align-items: center; justify-content: center; color: var(--dsw-alias-state-business-primary, CanvasText); }
+.dsg-profile-warning { padding: 5px 8px; font-size: var(--dsg-font-11, 11px); line-height: 16px; color: var(--dsw-alias-state-warning, CanvasText); overflow-wrap: anywhere; }
+.dsg-profile-error { padding: 5px 8px; font-size: var(--dsg-font-11, 11px); line-height: 16px; color: var(--dsw-alias-state-danger, CanvasText); }
+.dsg-profile-empty { display: flex; align-items: center; gap: 6px; padding: 8px; font-size: var(--dsg-font-12, 12px); color: var(--dsw-alias-label-secondary, CanvasText); }
+.dsg-profile-retry { padding: 2px 2px 0; }
+/* SPEC §9.2 footer (S7): divider + save-as/manage rows. */
+.dsg-profile-footer { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; padding-top: 4px; border-top: 0.5px solid var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 16%, transparent)); }
+.dsg-profile-footer-button {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, CanvasText);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--dsg-font-13, 13px);
+  line-height: 18px;
+}
+.dsg-profile-footer-button:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, CanvasText 12%, transparent)); }
+.dsg-profile-footer-button:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, CanvasText); outline-offset: -2px; }
+.dsg-profile-footer-button:disabled { opacity: .45; cursor: default; }
+
+/* ---------------------------------------------------------------------------
+ * Save-as / manage dialogs (SPEC §9.4/§9.5)
+ * ------------------------------------------------------------------------- */
+.dsg-profile-dialog { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.dsg-profile-dialog-label { font-size: var(--dsg-font-12, 12px); line-height: 17px; font-weight: 600; color: var(--dsw-alias-label-primary, CanvasText); }
+.dsg-profile-dialog-target { font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-label-secondary, CanvasText); overflow-wrap: anywhere; }
+.dsg-profile-dialog-preview { font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-label-secondary, CanvasText); overflow-wrap: anywhere; }
+.dsg-profile-manage { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.dsg-profile-manage-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.dsg-profile-manage-count { font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-label-secondary, CanvasText); font-variant-numeric: tabular-nums; }
+.dsg-profile-manage-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dsg-profile-manage-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 0.5px solid var(--dsw-alias-border-l3, color-mix(in srgb, CanvasText 20%, transparent));
+  background: var(--dsw-alias-bg-layer-1, Canvas);
+}
+.dsg-profile-manage-row[data-active="true"] { border-color: var(--dsw-alias-state-business-primary, CanvasText); }
+.dsg-profile-manage-row[data-archived="true"] { opacity: .7; }
+.dsg-profile-manage-main { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.dsg-profile-manage-name { font-size: var(--dsg-font-13, 13px); line-height: 18px; font-weight: 600; color: var(--dsw-alias-label-primary, CanvasText); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsg-profile-manage-badge { align-self: flex-start; padding: 0 5px; border-radius: 999px; font-size: var(--dsg-font-10, 10px); line-height: 14px; color: var(--dsw-alias-label-secondary, CanvasText); background: color-mix(in srgb, CanvasText 10%, transparent); }
+.dsg-profile-manage-counts { font-size: var(--dsg-font-11, 11px); line-height: 16px; color: var(--dsw-alias-label-secondary, CanvasText); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsg-profile-manage-updated { font-size: var(--dsg-font-10, 10px); line-height: 14px; color: var(--dsw-alias-label-tertiary, CanvasText); }
+.dsg-profile-manage-actions { display: flex; flex: none; align-items: center; gap: 4px; }
+.dsg-profile-manage-actions .dsg-text-button { height: 26px; padding: 0 7px; font-size: var(--dsg-font-12, 12px); }
+.dsg-profile-manage-actions .dsg-text-button:disabled { opacity: .45; cursor: default; }
+.dsg-profile-manage-reset { display: inline-flex; align-items: center; gap: 6px; font-size: var(--dsg-font-12, 12px); line-height: 18px; color: var(--dsw-alias-label-secondary, CanvasText); cursor: pointer; }
+.dsg-profile-manage-reset input { flex: none; margin: 0; }
+
+/* ---------------------------------------------------------------------------
+ * Switch preview dialog (SPEC §9.3)
+ * ------------------------------------------------------------------------- */
+.dsg-profile-preview { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.dsg-profile-preview-subtitle { font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-label-secondary, CanvasText); overflow-wrap: anywhere; }
+.dsg-profile-preview-loading { display: flex; align-items: center; gap: 6px; font-size: var(--dsg-font-12, 12px); color: var(--dsw-alias-label-secondary, CanvasText); }
+/* Inline stats: one wrapping line instead of three stacked rows (preview only). */
+.dsg-profile-preview-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 6px 8px; border-radius: 6px; background: var(--dsw-alias-bg-layer-1, Canvas); border: 0.5px solid var(--dsw-alias-border-l3, color-mix(in srgb, CanvasText 20%, transparent)); }
+.dsg-profile-preview-summary-stat { display: inline-flex; align-items: baseline; gap: 4px; min-width: 0; font-size: var(--dsg-font-12, 12px); line-height: 18px; }
+.dsg-profile-preview-summary-stat + .dsg-profile-preview-summary-stat::before { content: '·'; color: var(--dsw-alias-label-tertiary, CanvasText); }
+.dsg-profile-preview-summary-label { color: var(--dsw-alias-label-secondary, CanvasText); }
+.dsg-profile-preview-summary-value { flex: none; color: var(--dsw-alias-label-primary, CanvasText); font-variant-numeric: tabular-nums; }
+.dsg-profile-preview-warning { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 6px 8px; border-radius: 6px; background: var(--dsw-alias-state-warning-fade, rgba(210,153,34,.14)); color: var(--dsw-alias-label-primary, CanvasText); font-size: var(--dsg-font-11, 11px); line-height: 15px; }
+.dsg-profile-preview-warning-note { color: var(--dsw-alias-label-secondary, CanvasText); }
+.dsg-profile-preview-section { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.dsg-profile-preview-section + .dsg-profile-preview-section { border-top: 1px solid var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 15%, transparent)); padding-top: 8px; }
+.dsg-profile-preview-section-title { font-size: var(--dsg-font-12, 12px); line-height: 17px; font-weight: 600; color: var(--dsw-alias-label-primary, CanvasText); }
+/* Two-level tree: block label, then an indented rule-guided list below it. */
+.dsg-profile-preview-block { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dsg-profile-preview-block + .dsg-profile-preview-block { border-top: 1px solid var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 9%, transparent)); padding-top: 5px; }
+.dsg-profile-preview-block-label { font-size: var(--dsg-font-11, 11px); line-height: 16px; font-weight: 500; color: var(--dsw-alias-label-secondary, CanvasText); }
+.dsg-profile-preview-list { display: flex; flex-direction: column; gap: 0; min-width: 0; margin-inline-start: 10px; padding-inline-start: 8px; border-inline-start: 1px solid var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 15%, transparent)); }
+/* Each change is a title line plus an indented path/marker detail line. Vertical
+   padding plus a hairline between adjacent rows keeps long lists readable; the
+   first row has no divider. */
+.dsg-profile-preview-change { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 8px 0; }
+.dsg-profile-preview-change + .dsg-profile-preview-change { border-top: 1px solid var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 15%, transparent)); }
+.dsg-profile-preview-change-title { min-width: 0; white-space: normal; overflow-wrap: anywhere; font-size: var(--dsg-font-13, 13px); line-height: 19px; color: var(--dsw-alias-label-primary, CanvasText); }
+.dsg-profile-preview-change-detail { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; min-width: 0; margin-inline-start: 12px; white-space: normal; overflow-wrap: anywhere; font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-label-secondary, CanvasText); }
+.dsg-profile-preview-change-marker { display: inline-block; min-width: 10px; margin-inline-end: 4px; font-weight: 600; color: var(--dsw-alias-label-tertiary, CanvasText); }
+.dsg-profile-preview-change[data-kind="added"] .dsg-profile-preview-change-marker,
+.dsg-profile-preview-change[data-kind="added"] .dsg-profile-preview-path-new { color: var(--dsw-alias-state-success, CanvasText); }
+.dsg-profile-preview-change[data-kind="removed"] .dsg-profile-preview-change-marker,
+.dsg-profile-preview-change[data-kind="removed"] .dsg-profile-preview-path-old { color: var(--dsw-alias-state-danger, CanvasText); }
+.dsg-profile-preview-path-old { color: var(--dsw-alias-label-secondary, CanvasText); text-decoration: line-through; text-decoration-thickness: 1px; overflow-wrap: anywhere; }
+.dsg-profile-preview-path-new { color: var(--dsw-alias-label-primary, CanvasText); font-weight: 500; overflow-wrap: anywhere; }
+.dsg-profile-preview-path-muted { color: var(--dsw-alias-label-secondary, CanvasText); }
+.dsg-profile-preview-arrow { flex: none; display: inline-block; color: var(--dsw-alias-label-tertiary, CanvasText); }
+.dsg-profile-preview-change-tag { color: var(--dsw-alias-state-danger, CanvasText); }
+/* Order-only note under the group blocks. */
+.dsg-profile-preview-row { min-width: 0; white-space: normal; overflow-wrap: anywhere; font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-label-secondary, CanvasText); }
+.dsg-profile-preview-truncated { font-size: var(--dsg-font-11, 11px); line-height: 16px; color: var(--dsw-alias-label-tertiary, CanvasText); }
+.dsg-profile-preview-stale { padding: 6px 8px; border-radius: 6px; font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-state-danger, CanvasText); background: var(--dsw-alias-state-danger-fade, rgba(248,81,73,.14)); }
+.dsg-profile-preview-error { font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-state-danger, CanvasText); }
+.dsg-profile-preview-actions { align-items: center; }
+.dsg-profile-preview-auto { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; font-size: var(--dsg-font-12, 12px); line-height: 18px; color: var(--dsw-alias-label-secondary, CanvasText); cursor: pointer; }
+.dsg-profile-preview-auto input { flex: none; margin: 0; }
+/* Recovery strip shown when the active profile cannot be read (SPEC §7.3). */
+.dsg-profile-recovery { margin: 0 2px 8px; padding: 8px 10px; border-radius: 6px; border: 0.5px solid var(--dsw-alias-border-l3, color-mix(in srgb, CanvasText 20%, transparent)); background: var(--dsw-alias-bg-layer-1, Canvas); }
+.dsg-profile-recovery-title { font-size: var(--dsg-font-12, 12px); line-height: 17px; font-weight: 600; color: var(--dsw-alias-label-primary, CanvasText); }
+.dsg-profile-recovery-body { margin-top: 2px; font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-label-secondary, CanvasText); overflow-wrap: anywhere; }
+.dsg-profile-recovery-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
 .dsg-onboarding {
   flex: none;
   margin: 4px 8px 8px;
@@ -598,6 +772,12 @@ export const CSS = `
   overflow: hidden;
 }
 .dsg-dialog[data-kind="icon"] { width: min(420px, calc(100vw - 32px)); }
+/* The switch preview is the widest dialog: diff rows need room to be read. */
+.dsg-dialog[data-kind="profile-preview"] { width: min(560px, calc(100vw - 24px)); padding: 12px; gap: 8px; }
+.dsg-dialog[data-kind="profile-manage"] { width: min(420px, calc(100vw - 32px)); }
+.dsg-dialog[data-kind="profile-save-as"],
+.dsg-dialog[data-kind="profile-rename"],
+.dsg-dialog[data-kind="profile-archive"] { width: min(360px, calc(100vw - 32px)); }
 .dsg-dialog[data-positioned="true"] { transform: none; max-width: none; max-height: none; }
 .dsg-dialog-titlebar { flex: none; display: flex; align-items: center; min-height: 20px; cursor: move; user-select: none; touch-action: none; }
 .dsg-dialog-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--dsg-font-14, 14px); line-height: 20px; font-weight: 600; color: var(--dsw-alias-label-primary, CanvasText); pointer-events: none; }
@@ -751,7 +931,9 @@ export const CSS = `
 .dsg-color-hex { flex: 1; min-width: 0; height: 28px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .02em; }
 .dsg-color-hint { font-size: var(--dsg-font-11, 11px); line-height: 16px; color: var(--dsw-alias-label-tertiary, CanvasText); }
 .dsg-color-hint[data-tone="error"] { color: var(--dsw-alias-state-danger, #f85149); }
-.dsg-toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 90; padding: 6px 14px; border-radius: 999px; font-size: var(--dsg-font-13, 13px); color: var(--dsw-alias-toast-label, var(--dsw-alias-label-inverse, Canvas)); background: var(--dsw-alias-toast-bg, var(--dsw-alias-label-primary, CanvasText)); opacity: .94; box-shadow: 0 4px 16px rgba(0,0,0,.24); }
+.dsg-toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 90; display: inline-flex; align-items: center; gap: 10px; max-width: min(420px, calc(100vw - 24px)); padding: 6px 14px; border-radius: 999px; font-size: var(--dsg-font-13, 13px); color: var(--dsw-alias-toast-label, var(--dsw-alias-label-inverse, Canvas)); background: var(--dsw-alias-toast-bg, var(--dsw-alias-label-primary, CanvasText)); opacity: .94; box-shadow: 0 4px 16px rgba(0,0,0,.24); }
+.dsg-toast-action { appearance: none; flex: none; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
+.dsg-toast-action:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 4px; }
 .dsg-rail { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 0; }
 .dsg-rail-button { width: 36px; height: 36px; border: 0.5px solid var(--dsw-alias-border-l3, rgba(128,128,128,.35)); background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,.08)); color: var(--dsw-alias-label-secondary, CanvasText); border-radius: var(--dsw-radius-md, 8px); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .dsg-rail-label { font-size: var(--dsg-font-11, 11px); color: var(--dsw-alias-label-tertiary, CanvasText); }
@@ -844,6 +1026,15 @@ export const CSS = `
   border-right: 2px solid var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 16%, transparent));
 }
 .dsg-root[dir="rtl"] .dsg-group-caret svg { transform: scaleX(-1); }
+/* Profile switcher keeps the chevron direction (down-arrow is not mirrored) and
+ * mirrors only the popover edge/text alignment (SPEC §9.8). */
+.dsg-root[dir="rtl"] .dsg-profile-popover { left: auto; right: 0; }
+.dsg-root[dir="rtl"] .dsg-profile-item { text-align: right; }
+.dsg-root[dir="rtl"] .dsg-profile-footer-button { text-align: right; }
+.dsg-root[dir="rtl"] .dsg-profile-preview-auto { margin-right: 0; margin-left: auto; }
+/* The flow arrow points along the inline direction, so mirror it for RTL. */
+.dsg-root[dir="rtl"] .dsg-profile-preview-arrow { transform: scaleX(-1); }
+.dsg-root[dir="rtl"] .dsg-profile-trigger svg { transform: none; }
 `
 
 /**

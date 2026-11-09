@@ -27,9 +27,9 @@ const seedDoc = () => {
   return doc
 }
 
-const makeStore = (doc, revision = 3) => {
+const makeStore = (doc, revision = 3, profileId = 'default') => {
   const store = createStore({ storage: fakeStorage() })
-  store.dispatch('load-success', { doc, revision })
+  store.dispatch('load-success', { doc, revision, profileId })
   return store
 }
 
@@ -46,9 +46,9 @@ const deferred = () => {
 /** Commit fake with externally controlled outcomes. */
 const controlledCommit = () => {
   const calls = []
-  const commit = (doc, baseRevision) => {
+  const commit = (doc, baseRevision, profileId) => {
     const gate = deferred()
-    calls.push({ doc, baseRevision, resolve: gate.resolve, reject: gate.reject })
+    calls.push({ doc, baseRevision, profileId, resolve: gate.resolve, reject: gate.reject })
     return gate.promise
   }
   return { calls, commit }
@@ -301,4 +301,104 @@ test('optimistic: dispose rejects a queued write and leaves the confirmed doc in
   queue.dispose()
   await assert.rejects(() => pending, /optimistic-queue-disposed/)
   assert.equal(store.getSnapshot().doc, base)
+})
+
+test('optimistic: every write carries the profileId the doc was loaded for', async () => {
+  const base = seedDoc()
+  const store = makeStore(base, 7, 'work-1')
+  const commit = controlledCommit()
+  const queue = createOptimisticQueue({ store, commit: commit.commit })
+  const next = assignSession(base, 's3', base.groups[0].id, 0)
+  const task = queue.commitOptimistic(next)
+  await waitFor(() => commit.calls.length === 1, 'optimistic request')
+  assert.equal(commit.calls[0].profileId, 'work-1')
+  commit.calls[0].resolve({ ok: true, doc: next, revision: 8 })
+  await task
+  assert.equal(store.getSnapshot().revision, 8)
+})
+
+test('optimistic: 409 profile-changed rolls back and marks the switch without adopting the doc', async () => {
+  const base = seedDoc()
+  const store = makeStore(base, 5, 'default')
+  const commit = controlledCommit()
+  const toasts = []
+  const queue = createOptimisticQueue({
+    store,
+    commit: commit.commit,
+    notify: (toast) => toasts.push(toast),
+    t: (key) => key,
+  })
+  const next = assignSession(base, 's3', base.groups[0].id, 0)
+  const task = queue.commitOptimistic(next)
+  await waitFor(() => commit.calls.length === 1, 'optimistic request')
+
+  commit.calls[0].resolve({ ok: false, code: 'profile-changed', activeId: 'work-1', revision: 12 })
+  await assert.rejects(task, (error) => error.reported === true && error.code === 'profile-changed')
+  const snapshot = store.getSnapshot()
+  assert.equal(snapshot.doc, base, 'the optimistic doc is rolled back')
+  assert.equal(snapshot.revision, 5)
+  assert.equal(snapshot.lastConfirmed, base)
+  assert.equal(snapshot.optimistic, false)
+  assert.equal(snapshot.profileId, 'default')
+  assert.equal(snapshot.banner.code, 'conflict')
+  assert.deepEqual(toasts, [{ kind: 'error', message: 'banner.conflict' }])
+})
+
+test('optimistic: a profile switch during an in-flight write discards the old response', async () => {
+  const base = seedDoc()
+  const store = makeStore(base, 4, 'default')
+  const commit = controlledCommit()
+  const toasts = []
+  const queue = createOptimisticQueue({
+    store,
+    commit: commit.commit,
+    notify: (toast) => toasts.push(toast),
+    t: (key) => key,
+  })
+  const next = assignSession(base, 's3', base.groups[0].id, 0)
+  const task = queue.commitOptimistic(next)
+  await waitFor(() => commit.calls.length === 1, 'optimistic request')
+  assert.equal(commit.calls[0].profileId, 'default')
+
+  const other = seedDoc()
+  store.dispatch('profile-switch-success', { profileId: 'work-1', doc: other, revision: 2, registryRevision: 3 })
+  commit.calls[0].resolve({ ok: true, doc: next, revision: 5 })
+  await task
+
+  const snapshot = store.getSnapshot()
+  assert.equal(snapshot.profileId, 'work-1')
+  assert.equal(snapshot.doc, other, 'the old profile response never overwrites the new doc')
+  assert.equal(snapshot.revision, 2)
+  assert.equal(snapshot.lastConfirmed, other)
+  assert.deepEqual(toasts, [])
+})
+
+test('optimistic: discardPending drops queued work without sending it', async () => {
+  const base = seedDoc()
+  const store = makeStore(base, 1, 'default')
+  const commit = controlledCommit()
+  const queue = createOptimisticQueue({ store, commit: commit.commit })
+  const task = queue.commitOptimistic((doc) => assignSession(doc, 's3', doc.groups[0].id, 0))
+  queue.discardPending()
+  await assert.rejects(task, (error) => error.reported === true && error.code === 'profile-changed')
+  await flushTasks()
+  assert.equal(commit.calls.length, 0)
+  assert.equal(store.getSnapshot().revision, 1, 'the revision is still the confirmed base')
+  assert.equal(queue.isPending(), false)
+})
+
+test('optimistic: strict commit sends the loaded profileId and rejects profile-changed', async () => {
+  const base = seedDoc()
+  const store = makeStore(base, 2, 'work-1')
+  const commit = controlledCommit()
+  const queue = createOptimisticQueue({ store, commit: commit.commit })
+  const strict = queue.commitStrict((latest) => ({ ...latest, groups: [] }))
+  await waitFor(() => commit.calls.length === 1, 'strict request')
+  assert.equal(commit.calls[0].profileId, 'work-1')
+
+  commit.calls[0].resolve({ ok: false, code: 'profile-changed', activeId: 'default', revision: 9 })
+  await assert.rejects(strict, (error) => error.code === 'profile-changed')
+  assert.equal(store.getSnapshot().doc, base)
+  assert.equal(store.getSnapshot().revision, 2)
+  assert.equal(store.getSnapshot().banner.code, 'conflict')
 })

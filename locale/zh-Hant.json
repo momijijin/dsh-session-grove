@@ -311,5 +311,59 @@
   "status.subagentsRunning": {
     "one": "{n} 個子代理執行中",
     "other": "{n} 個子代理執行中"
-  }
+  },
+  "profiles.open": "切換分組配置",
+  "profiles.title": "分組配置",
+  "profiles.defaultName": "預設",
+  "profiles.copySuffix": "副本",
+  "profiles.counts": {
+    "one": "{groups} 組 · {sessions} 會話",
+    "other": "{groups} 組 · {sessions} 會話"
+  },
+  "profiles.saveAs": "另存為新配置…",
+  "profiles.manage": "管理配置…",
+  "profiles.switch": "切換",
+  "profiles.current": "目前",
+  "profiles.empty": "還沒有分組配置",
+  "profiles.degraded": "配置登錄檔已降級，部分配置操作無法使用；可切換到健康的配置繼續。",
+  "profiles.limit": "最多 {max} 份配置",
+  "profiles.nameLabel": "配置名稱",
+  "profiles.namePlaceholder": "配置名稱",
+  "profiles.nameInvalid": "請使用 1–40 個字元。",
+  "profiles.nameDuplicate": "該名稱已被使用。",
+  "profiles.create": "建立",
+  "profiles.createPreview": "將複製目前配置：{groups} 組 · {sessions} 會話",
+  "profiles.rename": "重新命名",
+  "profiles.archive": "封存",
+  "profiles.archiveConfirm": "封存後將從切換清單隱藏，檔案保留，不會刪除任何會話；可手動還原。",
+  "profiles.archived": "已封存",
+  "profiles.previewTitle": "切換到「{name}」",
+  "profiles.previewSubtitle": "目前：{current} · 目標：{target}",
+  "profiles.preview.groups": "分組",
+  "profiles.preview.sessions": "會話",
+  "profiles.preview.added": "新增",
+  "profiles.preview.removed": "移除",
+  "profiles.preview.changed": "變更",
+  "profiles.preview.reordered": "順序變化",
+  "profiles.preview.moved": "換組",
+  "profiles.preview.newlyGrouped": "新歸組",
+  "profiles.preview.ungrouped": "未分組",
+  "profiles.preview.stale": "失效參照",
+  "profiles.preview.ungroupedWarning": {
+    "one": "{n} 個會話將回到未分組。",
+    "other": "{n} 個會話將回到未分組。"
+  },
+  "profiles.preview.noDelete": "不會刪除任何內容；切回即可還原。",
+  "profiles.preview.disable": "以後直接切換",
+  "profiles.preview.confirm": "切換到此配置",
+  "profiles.preview.staleRefresh": "預覽已過期，請關閉後重新選擇目標配置。",
+  "profiles.preview.truncated": {
+    "one": "還有 {n} 條未顯示",
+    "other": "還有 {n} 條未顯示"
+  },
+  "profiles.switched": "已切換到「{name}」",
+  "profiles.switchedElsewhere": "另一視窗已切換到「{name}」",
+  "profiles.undo": "復原",
+  "profiles.switching": "正在切換…",
+  "profiles.saveFailed": "配置操作失敗。"
 }

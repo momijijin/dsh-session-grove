@@ -311,5 +311,59 @@
   "status.subagentsRunning": {
     "one": "サブエージェント {n} 件が実行中",
     "other": "サブエージェント {n} 件が実行中"
-  }
+  },
+  "profiles.open": "グループ分けプロファイルを切り替え",
+  "profiles.title": "グループ分けプロファイル",
+  "profiles.defaultName": "デフォルト",
+  "profiles.copySuffix": "コピー",
+  "profiles.counts": {
+    "one": "{groups} グループ · {sessions} セッション",
+    "other": "{groups} グループ · {sessions} セッション"
+  },
+  "profiles.saveAs": "新しいプロファイルとして保存…",
+  "profiles.manage": "プロファイルを管理…",
+  "profiles.switch": "切り替え",
+  "profiles.current": "現在",
+  "profiles.empty": "プロファイルはまだありません",
+  "profiles.degraded": "プロファイルレジストリが縮退しています。一部の操作は制限されます。正常なプロファイルに切り替えて続行してください。",
+  "profiles.limit": "プロファイルは最大 {max} 件",
+  "profiles.nameLabel": "プロファイル名",
+  "profiles.namePlaceholder": "プロファイル名",
+  "profiles.nameInvalid": "1〜40 文字で入力してください。",
+  "profiles.nameDuplicate": "その名前はすでに使われています。",
+  "profiles.create": "作成",
+  "profiles.createPreview": "現在のプロファイルを複製します：{groups} グループ · {sessions} セッション",
+  "profiles.rename": "名前を変更",
+  "profiles.archive": "アーカイブ",
+  "profiles.archiveConfirm": "アーカイブすると切り替え一覧から隠れますが、ファイルは残り、セッションは削除されません。手動で復元できます。",
+  "profiles.archived": "アーカイブ済み",
+  "profiles.previewTitle": "「{name}」に切り替え",
+  "profiles.previewSubtitle": "現在：{current} · 切り替え先：{target}",
+  "profiles.preview.groups": "グループ",
+  "profiles.preview.sessions": "セッション",
+  "profiles.preview.added": "追加",
+  "profiles.preview.removed": "削除",
+  "profiles.preview.changed": "変更",
+  "profiles.preview.reordered": "順序変更",
+  "profiles.preview.moved": "グループ移動",
+  "profiles.preview.newlyGrouped": "新規グループ化",
+  "profiles.preview.ungrouped": "未グループ",
+  "profiles.preview.stale": "無効な参照",
+  "profiles.preview.ungroupedWarning": {
+    "one": "{n} 件のセッションが未グループに戻ります。",
+    "other": "{n} 件のセッションが未グループに戻ります。"
+  },
+  "profiles.preview.noDelete": "何も削除されません。切り替え直せば元に戻ります。",
+  "profiles.preview.disable": "今後は直接切り替える",
+  "profiles.preview.confirm": "このプロファイルに切り替え",
+  "profiles.preview.staleRefresh": "プレビューが古くなっています。閉じて対象を選び直してください。",
+  "profiles.preview.truncated": {
+    "one": "残り {n} 件は表示されていません",
+    "other": "残り {n} 件は表示されていません"
+  },
+  "profiles.switched": "「{name}」に切り替えました",
+  "profiles.switchedElsewhere": "別のウィンドウが「{name}」に切り替えました",
+  "profiles.undo": "元に戻す",
+  "profiles.switching": "切り替え中…",
+  "profiles.saveFailed": "プロファイルの変更を完了できませんでした。"
 }
