@@ -7,13 +7,35 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { LOAD_PATH, COMMIT_PATH, REPO_ROOT, skipReason } from './helpers.js';
 
 const entryPath = join(REPO_ROOT, 'src', 'index.js');
 const skip = existsSync(entryPath) ? false : skipReason('src/index.js');
+
+/**
+ * Isolate the Cordis entry from the real Harness home.
+ *
+ * `apply()` writes the control token (and later profile data) under the
+ * resolved storage directory. This suite must never touch the user's
+ * `~/.dsh`; a per-test temporary `storageDir` is the narrowest seam that keeps
+ * the production resolution path exercised while pinning every artifact to a
+ * scratch directory.
+ */
+function makeIsolatedHome(t) {
+  const dir = mkdtempSync(join(tmpdir(), 'dsg-host-entry-it-'));
+  t.after(() => {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best-effort scratch cleanup */
+    }
+  });
+  return { dir, storageDir: join(dir, 'storages') };
+}
 
 async function importEntry() {
   return await import(new URL('../../src/index.js', import.meta.url).href);
@@ -56,7 +78,8 @@ test('entry: apply() registers load+commit inside ctx.effect and returns void', 
   assert.equal(typeof apply, 'function', 'src/index.js must export an apply function (default or named)');
 
   const { ctx, routes, effects } = fakeCtx();
-  const result = apply(ctx);
+  const home = makeIsolatedHome(t);
+  const result = apply(ctx, { storageDir: home.storageDir });
   assert.equal(result, undefined, 'apply() must return void (CONTRACTS §6.5: non-void breaks Cordis effects)');
   // apply may be async; wait a microtask for any awaited registration to flush.
   await Promise.resolve();
@@ -66,20 +89,25 @@ test('entry: apply() registers load+commit inside ctx.effect and returns void', 
   t.diagnostic(`registered routes: ${[...routes.keys()].join(', ')}`);
 });
 
-test('entry: disposal removes both routes', { skip }, async () => {
+test('entry: disposal removes both routes', { skip }, async (t) => {
   const module = await importEntry();
   const apply = pickApply(module);
   const { ctx, routes, effects } = fakeCtx();
-  await apply(ctx);
+  const home = makeIsolatedHome(t);
+  await apply(ctx, { storageDir: home.storageDir });
   for (const disposer of effects) {
     if (typeof disposer === 'function') disposer();
   }
   assert.equal(routes.size, 0, 'after effect disposal no group route may remain mounted');
 });
 
-test('entry: missing webServer fails soft (no throw)', { skip }, async () => {
+test('entry: missing webServer fails soft (no throw)', { skip }, async (t) => {
   const module = await importEntry();
   const apply = pickApply(module);
   const { ctx } = fakeCtx({ withWebServer: false });
-  await assert.doesNotReject(async () => { await apply(ctx); }, 'plugin must not throw when webServer is unavailable');
+  const home = makeIsolatedHome(t);
+  await assert.doesNotReject(
+    async () => { await apply(ctx, { storageDir: home.storageDir }); },
+    'plugin must not throw when webServer is unavailable',
+  );
 });
