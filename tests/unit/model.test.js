@@ -8,6 +8,7 @@ import {
   createGroup,
   deleteGroup,
   deleteGroupTo,
+  detachSession,
   emptyDoc,
   findGroup,
   groupColor,
@@ -428,4 +429,16 @@ test('0.2.12 group icon palette is expanded with common glyphs', () => {
   for (const icon of ['briefcase', 'book', 'code', 'database', 'terminal', 'globe', 'heart', 'home', 'layers', 'calendar', 'chart', 'target']) {
     assert.ok(GROUP_ICONS.includes(icon), `missing icon ${icon}`)
   }
+})
+
+test('detachSession removes the abandoned placeholder from groups and ungrouped', () => {
+  let doc = createGroup(emptyDoc(), { name: 'Target' })
+  const target = doc.groups[0].id
+  doc = assignSession(doc, 'stale-blank', target, 0)
+  doc = assignSession(doc, 'keep', null, 0)
+  const next = detachSession(doc, 'stale-blank')
+  assert.deepEqual(findGroup(next, target).sessionIds, [])
+  assert.deepEqual(next.ungrouped, ['keep'])
+  assert.deepEqual(findGroup(doc, target).sessionIds, ['stale-blank'], 'detachSession is pure')
+  assert.throws(() => detachSession(doc, ''), /session-required/)
 })
