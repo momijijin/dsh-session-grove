@@ -631,9 +631,12 @@ const previewBlocks = (blocks, t) =>
  */
 const ProfilePreviewBody = ({ store, t: tProp, byId }) => {
   const t = tProp ?? rt()?.t ?? ((key) => key)
-  const preview = store?.profilePreview ?? {}
+  // Render from the snapshot passed by DialogHost: it is the same state the
+  // dialog was opened with, so a concurrent store publish cannot swap the body
+  // underneath the footer's stale/confirm decision.
+  const snapshot = store ?? {}
+  const preview = snapshot.profilePreview ?? {}
   if (!preview.open) return null
-  const snapshot = snapshotOf(store)
   const currentName = profileNameOf(snapshot, activeProfileIdOf(snapshot))
   const subtitle = t('profiles.previewSubtitle', {
     current: currentName,
@@ -789,7 +792,8 @@ const ProfilePreviewBody = ({ store, t: tProp, byId }) => {
 const ProfilePreviewActions = ({ store, t: tProp }) => {
   const t = tProp ?? rt()?.t ?? ((key) => key)
   const preview = store?.profilePreview ?? {}
-  const disabled = preview.loading === true || preview.stale === true || store?.profileSwitching === true
+  const disabled =
+    preview.open !== true || preview.loading === true || preview.stale === true || store?.profileSwitching === true
   return [
     h(
       'label',
