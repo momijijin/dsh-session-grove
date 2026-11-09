@@ -6,14 +6,14 @@
  * `usePanelInfo`, `…`) plus the slot owner share. Everything host-derived is read
  * from those hooks; the only local state is this plugin's view store.
  */
-import { createElement, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useGroupsSidebarWidth } from './groups-view-width.js'
 import { useGroupsViewState } from './groups-view-state.js'
 import { useGroupsSearchReveal } from './groups-view-search.js'
 import { createMenuHandlers } from './groups-view-menu-handlers.js'
 import { createDialogHandlers } from './groups-view-dialog-handlers.js'
 import { clientRuntime as rt } from '../adapters/client-runtime.js'
-import { findGroup, moveGroup } from '../shared/model.js'
+import { findGroup, moveGroup, workspaceOfSession } from '../shared/model.js'
 import { currentGroupIdOf } from '../core/dialog-selection.js'
 import { MenuPopover, Toast } from './session-menu.js'
 import { DialogHost } from './dialog-host.js'
@@ -192,6 +192,14 @@ export const GroupsView = (props) => {
     const ancestors = expandAncestors(store.collapsed, store.doc, entry.id)
     if (ancestors !== store.collapsed) store.update({ collapsed: ancestors })
   }, [currentId, store?.docState, store?.doc])
+  // The host may replace the current blank when the user switches workspace.
+  // Follow that active switch before paint; the runtime keeps following until
+  // the session becomes nonblank.
+  const currentBlank = currentId ? byId[currentId]?.blank === true : false
+  const currentWorkspaceId = currentId ? workspaceOfSession(workspaceItems, currentId)?.workspaceId ?? null : null
+  useLayoutEffect(() => {
+    if (currentId) rt()?.reconcileNewSessionGroup?.(currentId)
+  }, [currentId, currentBlank, currentWorkspaceId])
   usePerfCommit('groups-view', perfRenderStart)
   if (!wide) return h(Rail, { props })
   if (store === null) return h('div', { class: 'dsg-root', 'data-testid': 'session-groups-view', dir: direction }, t('flat.title'))
