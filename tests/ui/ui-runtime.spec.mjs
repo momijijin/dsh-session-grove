@@ -28,6 +28,7 @@ const expand = (node) => {
 const uiModules = [
   'components.js',
   'components-header.js',
+  'components-profiles.js',
   'components-rows.js',
   'components-primitives.js',
   'components-ungrouped.js',
@@ -48,7 +49,7 @@ const uiModules = [
 ]
 
 test('client UI modules execute under a test React peer', async () => {
-  assert.equal(uiModules.length, 19)
+  assert.equal(uiModules.length, 20)
   for (const file of uiModules) {
     const module = await import(new URL(`../../src/client/${file}`, import.meta.url))
     assert.ok(module && typeof module === 'object', `${file} did not load`)
@@ -318,3 +319,395 @@ test('DialogHost renders a rename-group dialog with a non-null title input', asy
   assert.ok(byTestId(tree, 'session-groups-dialog-input'))
   assert.equal(byTestId(tree, 'session-groups-dialog-cancel').props.children, 'T:dialog.cancel')
 })
+
+// ---------------------------------------------------------------------------
+// Profiles (SPEC §9.1-§9.3, §9.6)
+// ---------------------------------------------------------------------------
+const profileSnapshot = (overrides = {}) => ({
+  doc: { groups: [], ungrouped: [] },
+  profileId: 'default',
+  profiles: {
+    available: true,
+    loading: false,
+    degraded: false,
+    activeId: 'default',
+    list: [
+      { id: 'default', name: 'Default', groupCount: 2, sessionCount: 5, healthy: true },
+      { id: 'work', name: 'Work', groupCount: 1, sessionCount: 0, healthy: true },
+    ],
+    error: null,
+  },
+  profilePreview: { open: false, loading: false, targetId: null, targetName: null, previewToken: null, doc: null, diff: null, stale: false, error: null },
+  profileSwitching: false,
+  ...overrides,
+})
+
+test('ProfileMenu renders the chevron trigger only with the profile surface', async () => {
+  installClientRuntime({ t: (key) => 'T:' + key })
+  const { ProfileMenu } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  assert.equal(ProfileMenu({ store: { profiles: { available: false } }, handlers: {} }), null)
+  assert.equal(ProfileMenu({ store: {}, handlers: {} }), null)
+  const base = profileSnapshot()
+  const trigger = byTestId(ProfileMenu({ store: base, handlers: {}, open: false, onOpenChange: () => {} }), 'session-groups-profile-trigger')
+  assert.ok(trigger)
+  assert.equal(trigger.props['aria-haspopup'], 'menu')
+  assert.equal(trigger.props['aria-expanded'], 'false')
+  assert.equal(trigger.props['aria-label'], 'T:profiles.open')
+  assert.equal(trigger.props.type, 'button')
+  const opened = ProfileMenu({ store: base, handlers: {}, open: true, onOpenChange: () => {} })
+  assert.equal(byTestId(opened, 'session-groups-profile-trigger').props['aria-expanded'], 'true')
+  assert.ok(byTestId(expand(opened), 'session-groups-profile-popover'))
+})
+
+test('Header places the profile chevron after the title label', async () => {
+  installClientRuntime({ t: (key) => 'T:' + key, toggleMode: () => {} })
+  const { Header } = await import(new URL('../../src/client/components-header.js', import.meta.url))
+  const handlers = new Proxy({}, { get: () => () => {} })
+  const tree = expand(
+    Header({
+      store: { ...profileSnapshot(), archiveFilter: 'hidden', viewMode: 'groups' },
+      handlers,
+      sessionsById: {},
+      workspaces: [],
+      archivedSessionIds: [],
+      runningSessions: { count: 0, sections: [] },
+      blockedSessions: { count: 0, sections: [] },
+      unreadSessions: { count: 0, sections: [] },
+    })
+  )
+  const trigger = byTestId(tree, 'session-groups-profile-trigger')
+  assert.ok(trigger)
+  assert.equal(trigger.props['aria-label'], 'T:profiles.open')
+  const title = byTestId(tree, 'session-groups-header').props.children[0]
+  assert.equal(title.props.class, 'dsg-header-row')
+  assert.equal(title.props.children[0].props.class, 'dsg-header-title')
+  assert.equal(title.props.children[0].props.children[0].props.class, 'dsg-header-label')
+})
+
+test('ProfilePopover marks the active row, shows counts and disables items while switching', async () => {
+  installClientRuntime({
+    t: (key, params) =>
+      key === 'profiles.counts' && params ? `${key}:${params.groups}/${params.sessions}` : 'T:' + key,
+  })
+  const { ProfilePopover } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const calls = []
+  const store = profileSnapshot()
+  const tree = ProfilePopover({
+    store,
+    handlers: { switchProfile: (id) => calls.push(id) },
+    onClose: () => calls.push('close'),
+  })
+  const items = flatten(tree).filter((node) => node.props?.['data-testid'] === 'session-groups-profile-item')
+  assert.equal(items.length, 2)
+  assert.equal(items[0].props['aria-checked'], 'true')
+  assert.equal(items[1].props['aria-checked'], 'false')
+  assert.equal(items[0].props['data-active'], 'true')
+  const counts = flatten(tree)
+    .map((node) => node.props?.children)
+    .filter((child) => typeof child === 'string')
+  assert.ok(counts.includes('profiles.counts:2/5'))
+  assert.ok(counts.includes('profiles.counts:1/0'))
+  items[1].props.onClick({ stopPropagation() {} })
+  assert.deepEqual(calls, ['close', 'work'])
+  const switchingTree = ProfilePopover({
+    store: profileSnapshot({ profileSwitching: true }),
+    handlers: { switchProfile: () => calls.push('unexpected') },
+    onClose: () => {},
+  })
+  const switchingItems = flatten(switchingTree).filter(
+    (node) => node.props?.['data-testid'] === 'session-groups-profile-item'
+  )
+  assert.equal(switchingItems[0].props.disabled, true)
+  assert.equal(switchingItems[0].props['data-disabled'], 'true')
+  switchingItems[0].props.onClick({ stopPropagation() {} })
+  assert.deepEqual(calls, ['close', 'work'])
+})
+
+test('ProfilePopover surfaces degraded/error/loading states', async () => {
+  installClientRuntime({ t: (key) => 'T:' + key })
+  const { ProfilePopover } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const degraded = ProfilePopover({
+    store: profileSnapshot({
+      profiles: { ...profileSnapshot().profiles, degraded: true, error: { code: 'io' }, loading: true },
+    }),
+    handlers: {},
+    onClose: () => {},
+  })
+  assert.ok(byTestId(degraded, 'session-groups-profile-degraded'))
+  assert.ok(byTestId(degraded, 'session-groups-profile-error'))
+  const empty = ProfilePopover({
+    store: profileSnapshot({ profiles: { ...profileSnapshot().profiles, list: [], loading: true } }),
+    handlers: {},
+    onClose: () => {},
+  })
+  assert.ok(byTestId(empty, 'session-groups-profile-loading'))
+  assert.equal(byTestId(empty, 'session-groups-profile-loading').props['data-loading'], 'true')
+})
+
+const previewDiff = (overrides = {}) => ({
+  summary: {
+    groups: { current: 2, target: 3, added: 1, removed: 1, changed: 1, reordered: true },
+    grouped: { current: 4, target: 5 },
+    ungrouped: { current: 2, target: 1 },
+    sessions: { moved: 1, newlyGrouped: 1, ungrouped: 2, stale: 1 },
+  },
+  groups: { added: ['New group'], removed: ['Old group'], changed: [{ id: 'g', from: 'A', to: 'B' }], reordered: true },
+  sessions: {
+    moved: [{ sessionId: 's1', from: 'A', to: 'B' }],
+    newlyGrouped: [{ sessionId: 's2', to: 'B' }],
+    ungrouped: [{ sessionId: 's3', from: 'A' }],
+    stale: ['s4'],
+  },
+  truncated: { groups: false, sessions: false },
+  ...overrides,
+})
+
+test('ProfilePreviewBody renders summary, ungrouped warning and change sections', async () => {
+  const t = (key) => 'T:' + key
+  const { ProfilePreviewBody } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const store = profileSnapshot({
+    profilePreview: {
+      open: true,
+      loading: false,
+      targetId: 'work',
+      targetName: 'Work',
+      previewToken: 'token',
+      doc: null,
+      diff: previewDiff(),
+      stale: false,
+      error: null,
+    },
+  })
+  const tree = ProfilePreviewBody({ store, t, byId: { s1: { id: 's1', title: 'Session one' } } })
+  assert.equal(tree.props['data-testid'], 'session-groups-profile-preview')
+  assert.match(JSON.stringify(tree), /T:profiles\.previewSubtitle/)
+  assert.ok(byTestId(tree, 'session-groups-profile-preview-summary'))
+  assert.ok(byTestId(tree, 'session-groups-profile-preview-warning'))
+  const sections = flatten(tree)
+    .filter((node) => node.props?.['data-section'])
+    .map((node) => node.props['data-section'])
+  assert.deepEqual(sections, ['groups', 'sessions', 'stale'])
+  const text = JSON.stringify(tree)
+  assert.match(text, /2 → 3/)
+  assert.match(text, /4 → 5/)
+  assert.match(text, /Session one/)
+  assert.match(text, /T:profiles\.preview\.ungroupedWarning/)
+  assert.match(text, /T:profiles\.preview\.noDelete/)
+})
+
+test('ProfilePreviewBody truncates oversized change lists with the remaining count', async () => {
+  const t = (key) => 'T:' + key
+  const { ProfilePreviewBody } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const added = Array.from({ length: 130 }, (_, index) => `G${index}`)
+  const diff = previewDiff({
+    summary: {
+      groups: { current: 0, target: 130, added: 130, removed: 0, changed: 0, reordered: false },
+      grouped: { current: 0, target: 0 },
+      ungrouped: { current: 0, target: 0 },
+      sessions: { moved: 0, newlyGrouped: 0, ungrouped: 0, stale: 0 },
+    },
+    groups: { added, removed: [], changed: [], reordered: false },
+    sessions: { moved: [], newlyGrouped: [], ungrouped: [], stale: [] },
+  })
+  const store = profileSnapshot({
+    profilePreview: { open: true, loading: false, targetId: 'work', targetName: 'Work', previewToken: 'token', doc: null, diff, stale: false, error: null },
+  })
+  const tree = ProfilePreviewBody({ store, t, byId: {} })
+  const truncated = byTestId(tree, 'session-groups-profile-preview-truncated')
+  assert.ok(truncated)
+  assert.equal(truncated.props.children, 'T:profiles.preview.truncated')
+  const rows = flatten(tree).filter((node) => node.props?.['data-kind'] === 'added')
+  assert.equal(rows.length, 100)
+})
+
+test('DialogHost renders the profile-preview dialog with its dedicated footer', async () => {
+  installClientRuntime({ t: (key) => 'T:' + key, store: { dispatch: () => {} } })
+  const { DialogHost } = await import(new URL('../../src/client/dialog-host.js', import.meta.url))
+  const store = {
+    ...profileSnapshot(),
+    profilePreview: {
+      open: true,
+      loading: false,
+      targetId: 'work',
+      targetName: 'Work',
+      previewToken: 'token',
+      doc: null,
+      diff: previewDiff(),
+      stale: false,
+      error: null,
+    },
+    dialog: { kind: 'profile-preview', targetId: 'work', targetName: 'Work', titleKey: 'profiles.previewTitle' },
+  }
+  const tree = expand(DialogHost({ store, props: {}, sessionsById: {} }))
+  const dialog = byTestId(tree, 'session-groups-dialog')
+  assert.equal(dialog.props['data-kind'], 'profile-preview')
+  assert.equal(dialog.props['aria-modal'], 'true')
+  assert.ok(byTestId(tree, 'session-groups-profile-preview'))
+  assert.ok(byTestId(tree, 'session-groups-profile-preview-confirm'))
+  assert.ok(byTestId(tree, 'session-groups-profile-preview-cancel'))
+  assert.equal(byTestId(tree, 'session-groups-dialog-confirm'), undefined)
+  assert.match(JSON.stringify(tree), /T:profiles\.previewTitle/)
+})
+
+test('ProfileRecovery offers only healthy profiles when the active one is unhealthy', async () => {
+  installClientRuntime({ t: (key) => 'T:' + key, retryLoad: () => {}, refreshProfiles: () => {} })
+  const { ProfileRecovery } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const t = (key) => 'T:' + key
+  assert.equal(ProfileRecovery({ store: { profiles: { available: false }, banner: { code: 'profile-unhealthy' } }, t }), null)
+  assert.equal(
+    ProfileRecovery({ store: { profiles: { available: true, list: [] }, banner: { code: 'load-failed' } }, t }),
+    null
+  )
+  const tree = ProfileRecovery({
+    store: {
+      profiles: {
+        available: true,
+        list: [
+          { id: 'default', name: 'Default', healthy: true },
+          { id: 'broken', name: 'Broken', healthy: false },
+          { id: 'old', name: 'Old', healthy: true, archived: true },
+        ],
+      },
+      banner: { code: 'profile-unhealthy' },
+    },
+    t,
+  })
+  assert.equal(tree.props['data-code'], 'profile-unhealthy')
+  const items = flatten(tree).filter((node) => node.props?.['data-testid'] === 'session-groups-profile-recovery-item')
+  assert.equal(items.length, 1)
+  assert.equal(items[0].props['data-profile-id'], 'default')
+  assert.match(JSON.stringify(tree), /T:error\.title/)
+  assert.match(JSON.stringify(tree), /T:profiles\.degraded/)
+})
+
+test('ProfilePreviewActions disables confirm while stale and cancels through the store', async () => {
+  const dispatched = []
+  installClientRuntime({ t: (key) => 'T:' + key, store: { dispatch: (action, payload) => dispatched.push([action, payload]) } })
+  const { ProfilePreviewActions } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const actions = ProfilePreviewActions({
+    store: profileSnapshot({ profilePreview: { ...profileSnapshot().profilePreview, open: true, stale: true } }),
+    t: (key) => 'T:' + key,
+  })
+  const confirm = actions.find((node) => node.props['data-testid'] === 'session-groups-profile-preview-confirm')
+  assert.equal(confirm.props.disabled, true)
+  assert.equal(confirm.props['data-stale'], 'true')
+  assert.equal(confirm.props.children, 'T:profiles.preview.confirm')
+  const cancel = actions.find((node) => node.props['data-testid'] === 'session-groups-profile-preview-cancel')
+  cancel.props.onClick()
+  assert.deepEqual(dispatched, [
+    ['dialog', { dialog: null }],
+    ['profile-preview-close', undefined],
+  ])
+  const toggle = flatten(actions).find(
+    (node) => node.props?.['data-testid'] === 'session-groups-profile-preview-disable'
+  )
+  assert.equal(typeof toggle.props.onChange, 'function')
+})
+
+test('profile preview preference round-trips through injected storage', async () => {
+  const { readProfilePreviewDisabled, writeProfilePreviewDisabled } = await import(
+    new URL('../../src/client/components-profiles.js', import.meta.url)
+  )
+  const memory = {
+    value: null,
+    getItem() {
+      return this.value
+    },
+    setItem(key, value) {
+      this.value = value
+    },
+    removeItem() {
+      this.value = null
+    },
+  }
+  assert.equal(readProfilePreviewDisabled(memory), false)
+  writeProfilePreviewDisabled(true, memory)
+  assert.equal(memory.value, '0')
+  assert.equal(readProfilePreviewDisabled(memory), true)
+  writeProfilePreviewDisabled(false, memory)
+  assert.equal(memory.value, null)
+  assert.equal(readProfilePreviewDisabled(memory), false)
+})
+
+test('an empty or identical preview activates directly without a dialog', async () => {
+  const { beginProfileSwitch, isPreviewDiffEmpty } = await import(
+    new URL('../../src/client/components-profiles.js', import.meta.url)
+  )
+  assert.equal(isPreviewDiffEmpty(null), true)
+  assert.equal(isPreviewDiffEmpty(previewDiff()), false)
+  assert.equal(
+    isPreviewDiffEmpty({
+      summary: {
+        groups: { current: 1, target: 1, added: 0, removed: 0, changed: 0, reordered: false },
+        grouped: { current: 1, target: 1 },
+        ungrouped: { current: 0, target: 0 },
+        sessions: { moved: 0, newlyGrouped: 0, ungrouped: 0, stale: 0 },
+      },
+    }),
+    true
+  )
+  const dispatched = []
+  const state = profileSnapshot()
+  let activated = null
+  installClientRuntime({
+    t: (key) => 'T:' + key,
+    store: { getSnapshot: () => state, dispatch: (action, payload) => dispatched.push([action, payload]) },
+    isPending: () => false,
+    notify: () => {},
+    previewProfile: async (id) => {
+      state.profilePreview = {
+        ...state.profilePreview,
+        targetId: id,
+        targetName: 'Work',
+        previewToken: 'token',
+        doc: { groups: [], ungrouped: [] },
+        diff: {
+          summary: {
+            groups: { current: 0, target: 0, added: 0, removed: 0, changed: 0, reordered: false },
+            grouped: { current: 0, target: 0 },
+            ungrouped: { current: 0, target: 0 },
+            sessions: { moved: 0, newlyGrouped: 0, ungrouped: 0, stale: 0 },
+          },
+          groups: { added: [], removed: [], changed: [], reordered: false },
+          sessions: { moved: [], newlyGrouped: [], ungrouped: [], stale: [] },
+        },
+      }
+      return { ok: true }
+    },
+    activateProfile: async (args) => {
+      activated = args
+      return { ok: true, activeId: args.id, profile: { id: args.id, name: 'Work' }, doc: { revision: 3 } }
+    },
+  })
+  await beginProfileSwitch({ t: (key) => 'T:' + key }, 'work')
+  assert.deepEqual(activated, { id: 'work', previewToken: 'token' })
+  assert.equal(dispatched.some(([action]) => action === 'profile-preview-open'), false)
+  assert.equal(dispatched.some(([action]) => action === 'dialog'), false)
+})
+
+test('Toast renders and runs a text action, clearing the toast first', async () => {
+  const dispatched = []
+  installClientRuntime({
+    t: (key) => 'T:' + key,
+    store: { dispatch: (action, payload) => dispatched.push([action, payload]) },
+  })
+  const { Toast } = await import(new URL('../../src/client/session-menu.js', import.meta.url))
+  let undone = 0
+  const tree = Toast({
+    store: {
+      toast: {
+        kind: 'success',
+        message: 'Switched to Work',
+        action: { label: 'Undo!', onClick: () => { undone += 1; dispatched.push(['undone']) } },
+      },
+    },
+  })
+  assert.equal(byTestId(tree, 'session-groups-toast').props['data-testid'], 'session-groups-toast')
+  const action = byTestId(tree, 'session-groups-toast-action')
+  assert.equal(action.props.children, 'Undo!')
+  action.props.onClick({ stopPropagation() {} })
+  assert.equal(undone, 1)
+  assert.deepEqual(dispatched[0], ['toast', { toast: null }])
+  assert.deepEqual(dispatched[1], ['undone'])
+})
+

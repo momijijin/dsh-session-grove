@@ -311,5 +311,59 @@
   "status.subagentsRunning": {
     "one": "{n} alt ajan çalışıyor",
     "other": "{n} alt ajan çalışıyor"
-  }
+  },
+  "profiles.open": "Gruplama profilini değiştir",
+  "profiles.title": "Gruplama profilleri",
+  "profiles.defaultName": "Varsayılan",
+  "profiles.copySuffix": "kopya",
+  "profiles.counts": {
+    "one": "{groups} grup · {sessions} oturum",
+    "other": "{groups} grup · {sessions} oturum"
+  },
+  "profiles.saveAs": "Yeni profil olarak kaydet…",
+  "profiles.manage": "Profilleri yönet…",
+  "profiles.switch": "Değiştir",
+  "profiles.current": "Geçerli",
+  "profiles.empty": "Henüz gruplama profili yok",
+  "profiles.degraded": "Profil kaydı bozuldu. Profil değişiklikleri sınırlı; devam etmek için sağlıklı bir profile geçin.",
+  "profiles.limit": "En fazla {max} profil",
+  "profiles.nameLabel": "Profil adı",
+  "profiles.namePlaceholder": "Profil adı",
+  "profiles.nameInvalid": "1–40 karakter kullanın.",
+  "profiles.nameDuplicate": "Bu ad zaten kullanılıyor.",
+  "profiles.create": "Oluştur",
+  "profiles.createPreview": "Geçerli profili kopyalar: {groups} grup · {sessions} oturum",
+  "profiles.rename": "Yeniden adlandır",
+  "profiles.archive": "Arşivle",
+  "profiles.archiveConfirm": "Arşivleme, onu değiştirici listesinden gizler ve dosyasını korur; hiçbir oturum silinmez ve elle geri yükleyebilirsiniz.",
+  "profiles.archived": "Arşivlendi",
+  "profiles.previewTitle": "“{name}” profiline geç",
+  "profiles.previewSubtitle": "Geçerli: {current} · Hedef: {target}",
+  "profiles.preview.groups": "Gruplar",
+  "profiles.preview.sessions": "Gruplardaki oturumlar",
+  "profiles.preview.added": "Eklendi",
+  "profiles.preview.removed": "Kaldırıldı",
+  "profiles.preview.changed": "Değişti",
+  "profiles.preview.reordered": "Sıra değişti",
+  "profiles.preview.moved": "Gruplar arasında taşındı",
+  "profiles.preview.newlyGrouped": "Yeni gruplandı",
+  "profiles.preview.ungrouped": "Grupsuza döndü",
+  "profiles.preview.stale": "Geçersiz başvurular",
+  "profiles.preview.ungroupedWarning": {
+    "one": "{n} oturum grupsuz bölümüne dönecek.",
+    "other": "{n} oturum grupsuz bölümüne dönecek."
+  },
+  "profiles.preview.noDelete": "Hiçbir şey silinmez; geri geçince her şey geri gelir.",
+  "profiles.preview.disable": "Bundan sonra doğrudan geç",
+  "profiles.preview.confirm": "Bu profile geç",
+  "profiles.preview.staleRefresh": "Bu önizleme eskimiş. Kapatıp profili yeniden seçin.",
+  "profiles.preview.truncated": {
+    "one": "{n} öğe daha gösterilmiyor",
+    "other": "{n} öğe daha gösterilmiyor"
+  },
+  "profiles.switched": "“{name}” profiline geçildi",
+  "profiles.switchedElsewhere": "Başka bir pencere “{name}” profiline geçti",
+  "profiles.undo": "Geri al",
+  "profiles.switching": "Geçiliyor…",
+  "profiles.saveFailed": "Profil değişikliği tamamlanamadı."
 }
