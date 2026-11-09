@@ -17,6 +17,18 @@ export const DIAGNOSTICS_PATH = `${BASE_PATH}/diagnostics`
 /** Opt-in dialog style probe (0.2.36; separate from drag diagnostics). */
 export const DEBUG_PATH = `${BASE_PATH}/debug`
 
+/**
+ * Multi-profile management routes (SPEC 5.3-5.8). Exact paths only: the
+ * composition registers exact paths, so preview carries the target id in the
+ * query string instead of introducing a path matcher.
+ */
+export const PROFILES_PATH = `${BASE_PATH}/profiles`
+export const PROFILES_PREVIEW_PATH = `${BASE_PATH}/profiles/preview`
+export const PROFILES_CREATE_PATH = `${BASE_PATH}/profiles/create`
+export const PROFILES_RENAME_PATH = `${BASE_PATH}/profiles/rename`
+export const PROFILES_ARCHIVE_PATH = `${BASE_PATH}/profiles/archive`
+export const PROFILES_ACTIVATE_PATH = `${BASE_PATH}/profiles/activate`
+
 /** Opt-in AI-control API (default off; registered only when enabled). */
 export const CONTROL_STATE_PATH = `${BASE_PATH}/control/state`
 export const CONTROL_CATALOG_PATH = `${BASE_PATH}/control/catalog`

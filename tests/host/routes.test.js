@@ -10,6 +10,12 @@ import {
   MAX_BODY_BYTES,
   MAX_DIAGNOSTICS_BODY_BYTES,
   MAX_DIAGNOSTICS_EVENTS,
+  PROFILES_ACTIVATE_PATH,
+  PROFILES_ARCHIVE_PATH,
+  PROFILES_CREATE_PATH,
+  PROFILES_PATH,
+  PROFILES_PREVIEW_PATH,
+  PROFILES_RENAME_PATH,
   RECORD_FILE_NAME,
   SKILL_REPAIR_PATH,
 } from '../../src/host/constants.js'
@@ -70,6 +76,32 @@ test('route registration mounts the frozen paths and diagnostics by default', as
   assert.equal(mounted.mounted.routes.includes('/dsh-session-grove/control/state'), true)
   assert.equal(mounted.mounted.routes.includes('/dsh-session-grove/control/catalog'), true)
   assert.equal(mounted.mounted.routes.includes('/dsh-session-grove/control/session/inspect'), true)
+  assert.equal(
+    mounted.routes.some((route) => route.path.startsWith('/dsh-session-grove/profiles')),
+    false,
+    'the legacy single-store adapter keeps the pre-profile route set',
+  )
+})
+
+test('a legacy single-store composition with events and skill repair keeps 15 routes', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  const hub = createChangeHub()
+  t.after(() => hub.close())
+  const mounted = await mountRoutes({
+    store: temp.store,
+    dir: temp.dir,
+    filePath: temp.filePath,
+    connection: cookieConnection(),
+    changeHub: hub,
+    skillDshHome: temp.dir,
+  })
+  assert.equal(mounted.routes.length, 15)
+  assert.equal(
+    mounted.routes.some((route) => route.path.startsWith('/dsh-session-grove/profiles')),
+    false,
+    'no profile management surface without a profile manager',
+  )
 })
 
 test('diagnostics and debugProbe flags are live per request', async (t) => {
@@ -221,6 +253,7 @@ test('POST commit: 200 on success, then 409 conflict with the current doc on a s
   )
   assert.equal(first.res.statusCode, 200)
   assert.equal(first.json.ok, true)
+  assert.equal(first.json.profileId, 'default')
   assert.equal(first.json.revision, 1)
   assert.equal(first.json.doc.revision, 1)
 
@@ -493,6 +526,34 @@ const makeProfileRoutes = async (t, { activeId, revision = 3, profiles } = {}) =
   return { home, manager, mounted }
 }
 
+test('a profile-manager composition mounts the six profile routes (19 total)', async (t) => {
+  const { mounted } = await makeProfileRoutes(t, { activeId: 'default' })
+  assert.equal(mounted.routes.length, 19)
+  for (const path of [
+    PROFILES_PATH,
+    PROFILES_PREVIEW_PATH,
+    PROFILES_CREATE_PATH,
+    PROFILES_RENAME_PATH,
+    PROFILES_ARCHIVE_PATH,
+    PROFILES_ACTIVATE_PATH,
+  ]) {
+    assert.equal(mounted.routes.some((route) => route.path === path), true, `${path} must be mounted`)
+    assert.equal(mounted.mounted.routes.includes(path), true, `${path} must be reported by registerRoutes`)
+  }
+  assert.deepEqual(
+    mounted.mounted.routes.slice(-6),
+    [
+      PROFILES_PATH,
+      PROFILES_PREVIEW_PATH,
+      PROFILES_CREATE_PATH,
+      PROFILES_RENAME_PATH,
+      PROFILES_ARCHIVE_PATH,
+      PROFILES_ACTIVATE_PATH,
+    ],
+    'profile routes are appended after the historical host surface',
+  )
+})
+
 test('load serves the named active profile read-only and reports its profileId', async (t) => {
   const { home, mounted } = await makeProfileRoutes(t, { activeId: PROFILE_ID })
   await writeProfileDoc(home, PROFILE_ID, { revision: 2 })
@@ -573,6 +634,7 @@ test('commit to a named active writes that profile, not the default document', a
   )
   assert.equal(commit.res.statusCode, 200)
   assert.equal(commit.json.ok, true)
+  assert.equal(commit.json.profileId, PROFILE_ID)
   assert.equal(commit.json.revision, 3)
   assert.equal(JSON.parse(await readFile(join(home.profilesDir, PROFILE_ID, RECORD_FILE_NAME), 'utf8')).revision, 3)
   assert.equal(await readFile(home.defaultFilePath, 'utf8'), defaultBefore, 'the default document is untouched')
@@ -633,6 +695,9 @@ test('commit to a missing named active is rejected with profile-missing', async 
 test('commit rejects an invalid profileId field with 422 before any write', async (t) => {
   const { home, mounted } = await makeProfileRoutes(t, { activeId: PROFILE_ID })
   await writeProfileDoc(home, PROFILE_ID, { revision: 2 })
+  const docPath = join(home.profilesDir, PROFILE_ID, RECORD_FILE_NAME)
+  const before = await readFile(docPath, 'utf8')
+  const registryBefore = await readFile(home.registryFilePath, 'utf8')
 
   for (const profileId of [null, 42, '', '   ', 'x'.repeat(65)]) {
     const { res, json } = await mounted.call(
@@ -646,6 +711,29 @@ test('commit rejects an invalid profileId field with 422 before any write', asyn
     assert.equal(res.statusCode, 422, `profileId ${String(profileId)}`)
     assert.equal(json.code, 'invalid')
   }
+  assert.equal(await readFile(docPath, 'utf8'), before, 'a rejected profileId performs zero document writes')
+  assert.equal(await readFile(home.registryFilePath, 'utf8'), registryBefore, 'no registry write either')
+  assert.deepEqual(await readdir(join(home.profilesDir, PROFILE_ID)), [RECORD_FILE_NAME], 'no lock/bak leftovers')
+})
+
+test('commit profile-changed reports revision null when the named active is unhealthy', async (t) => {
+  const { home, mounted } = await makeProfileRoutes(t, { activeId: PROFILE_ID })
+  await writeProfileDoc(home, PROFILE_ID)
+  await writeFile(join(home.profilesDir, PROFILE_ID, RECORD_FILE_NAME), '{ not json', 'utf8')
+
+  const { res, json } = await mounted.call(
+    COMMIT_PATH,
+    makeRequest({
+      method: 'POST',
+      headers: allowedHeaders,
+      body: JSON.stringify({ profileId: 'default', baseRevision: 0, doc: sampleDoc() }),
+    }),
+  )
+  assert.equal(res.statusCode, 409)
+  assert.equal(json.ok, false)
+  assert.equal(json.code, 'profile-changed')
+  assert.equal(json.activeId, PROFILE_ID)
+  assert.equal(json.revision, null, 'an unreadable active document has no revision to report')
 })
 
 test('SSE revision events carry the committed profileId; the hub can announce active switches', async (t) => {
