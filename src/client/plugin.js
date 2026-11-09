@@ -101,8 +101,19 @@ export const createPlugin = () => {
   let profilesPromise = null
   /** Separate in-flight slot for the manage dialog's archived opt-in read. */
   let profilesArchivedPromise = null
+  /** Sequence per slot: a forced read must not let its older response win. */
+  let profilesRequestId = 0
+  let profilesArchivedRequestId = 0
   /** Target of the local activate request (suppresses our own SSE `active`). */
   let profileSwitchTarget = null
+  /**
+   * A save-as create activates its copy host-side before the HTTP response
+   * lands (SPEC §5.5/§9.4). While the request runs, its `active` echo is a local
+   * switch, not "another window switched": suppressing it avoids a bogus
+   * `switchedElsewhere` toast and a redundant `/load`; the create response's
+   * own `profile-switch-success` does the read instead.
+   */
+  let createInFlight = false
   /** SPEC §7.3 local resets (search/drag/scroll/selection/…) registered by S6. */
   const profileResetListeners = new Set()
 
@@ -320,14 +331,26 @@ export const createPlugin = () => {
    * `includeArchived` (SPEC §5.3/§9.5) is the manage dialog's opt-in read; it
    * uses its own in-flight slot so it can never be deduped behind a background
    * switcher refresh and silently lose the archived rows.
+   *
+   * `force` starts a new read even when one is in flight and drops that older
+   * response when it lands (`requestId`): after an archive (SPEC §5.7) the
+   * pre-write read would otherwise repopulate the row this write just removed.
    */
-  const refreshProfiles = ({ background = false, includeArchived = false } = {}) => {
-    if (includeArchived ? profilesArchivedPromise !== null : profilesPromise !== null) {
-      return includeArchived ? profilesArchivedPromise : profilesPromise
-    }
+  const refreshProfiles = ({ background = false, includeArchived = false, force = false } = {}) => {
+    const inFlight = includeArchived ? profilesArchivedPromise : profilesPromise
+    if (!force && inFlight !== null) return inFlight
+    if (includeArchived) profilesArchivedRequestId += 1
+    else profilesRequestId += 1
+    const requestId = includeArchived ? profilesArchivedRequestId : profilesRequestId
     if (!background) store.dispatch('profiles-loading')
     const promise = (async () => {
       const result = await api.listProfiles({ includeArchived })
+      // A forced read superseded this one; its rows are older than the write
+      // that triggered the force, so publishing them would resurrect stale rows.
+      if (requestId !== (includeArchived ? profilesArchivedRequestId : profilesRequestId)) {
+        diagTrace('profiles.list.stale', { includeArchived, requestId })
+        return result
+      }
       if (result.ok === true) {
         store.dispatch('profiles-success', {
           registryRevision: result.registryRevision,
@@ -344,8 +367,11 @@ export const createPlugin = () => {
       }
       return result
     })().finally(() => {
-      if (includeArchived) profilesArchivedPromise = null
-      else profilesPromise = null
+      if (includeArchived) {
+        if (profilesArchivedPromise === promise) profilesArchivedPromise = null
+      } else if (profilesPromise === promise) {
+        profilesPromise = null
+      }
     })
     if (includeArchived) profilesArchivedPromise = promise
     else profilesPromise = promise
@@ -504,10 +530,15 @@ export const createPlugin = () => {
     if (guard !== null) return guard
     const snapshot = store.getSnapshot()
     let result
+    createInFlight = true
     try {
       result = await api.createProfile({ name: text, baseRevision: snapshot.profiles.registryRevision })
     } catch (error) {
       result = { ok: false, code: 'network', message: String(error?.message ?? error) }
+    } finally {
+      // Clear on both paths: a failed create must not keep suppressing later
+      // `active` events from other windows (SPEC §7.5).
+      createInFlight = false
     }
     if (result?.ok !== true) {
       // A registry CAS loss leaves the local revision stale: refresh so the next
@@ -523,7 +554,10 @@ export const createPlugin = () => {
       revision: result.doc?.revision,
       registryRevision: result.registryRevision,
     })
-    refreshProfiles({ background: true })
+    // The create response is the only owner of the local switch now that the
+    // SSE echo was suppressed: force the list so a read started before the
+    // write cannot hide the brand-new profile row.
+    refreshProfiles({ background: true, force: true })
     notify({ kind: 'success', message: t('profiles.switched', { name: profileName }) })
     return result
   }
@@ -572,8 +606,12 @@ export const createPlugin = () => {
       failDialog(profileDialogError(result?.code), profileDialogErrorParams(result?.code))
       return result
     }
-    refreshProfiles({ background: true })
-    refreshProfiles({ background: true, includeArchived: true })
+    // SPEC §5.7: the archive just changed the registry. A read that started
+    // before the write must not win the race and re-show the archived row in
+    // the manage list, so both slots are forced; the archived read also moves
+    // the row into the read-only section immediately.
+    refreshProfiles({ background: true, force: true })
+    refreshProfiles({ background: true, includeArchived: true, force: true })
     reopenProfileManage()
     notify({ kind: 'success', message: t('toast.saved') })
     return result
@@ -1064,6 +1102,9 @@ export const createPlugin = () => {
       store,
       requestRefresh,
       onActiveChange: (activeId, info) => {
+        // Local echo (activate target or save-as create): the response path owns
+        // the document read and the toast, so a passive-switch reload/toast here
+        // would duplicate it (SPEC §7.5).
         if (info.local) return
         const snapshot = store.getSnapshot()
         // Our own successful switch echo (or a registry-only bump) when the
@@ -1089,7 +1130,8 @@ export const createPlugin = () => {
           refreshProfiles({ background: true })
         }
       },
-      isLocalSwitch: (activeId) => profileSwitchTarget !== null && profileSwitchTarget === activeId,
+      isLocalSwitch: (activeId) =>
+        createInFlight || (profileSwitchTarget !== null && profileSwitchTarget === activeId),
       trace: (type, detail) => diagTrace(type, detail),
     })
     lastProfileEpoch = store.getSnapshot().profileEpoch
@@ -1230,6 +1272,7 @@ export const createPlugin = () => {
         changeRouter = null
         profileResetListeners.clear()
         profileSwitchTarget = null
+        createInFlight = false
         profilesPromise = null
         profilesArchivedPromise = null
         refreshPending = false

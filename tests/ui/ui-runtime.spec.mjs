@@ -802,6 +802,119 @@ test('profile dialog handlers build the copy name and request archived rows', as
   // Default profile has no stored name: the localized default name is the base.
   store.profiles = { ...store.profiles, activeId: 'default', list: [{ id: 'default', name: null, groupCount: 0, sessionCount: 0 }] }
   assert.equal(openSaveAs({ t }), 'Default copy')
+
+  // A taken default name is numbered instead of seeded as a duplicate.
+  store.profiles = {
+    ...store.profiles,
+    activeId: 'work',
+    list: [
+      { id: 'work', name: 'Work', groupCount: 1, sessionCount: 0 },
+      { id: 'copy-1', name: 'Work copy', groupCount: 0, sessionCount: 0 },
+      { id: 'copy-2', name: 'Work copy 2', groupCount: 0, sessionCount: 0 },
+    ],
+  }
+  assert.equal(openSaveAs({ t }), 'Work copy 3')
+
+  // An over-long active name is shortened so the whole default stays inside
+  // the host's 40-character cap and remains submittable.
+  const longName = 'W'.repeat(40)
+  store.profiles = {
+    ...store.profiles,
+    activeId: 'long',
+    list: [{ id: 'long', name: longName, groupCount: 0, sessionCount: 0 }],
+  }
+  const trimmed = openSaveAs({ t })
+  assert.equal(trimmed.length, 40)
+  assert.match(trimmed, / copy$/)
+  assert.equal(trimmed.startsWith('W'.repeat(35)), true, 'the stem is cut, not the suffix')
+  assert.equal(store.profiles.list.some((profile) => profile.name === trimmed), false)
+
+  // The same cut name collides too: the next ordinal keeps the same cap.
+  store.profiles = {
+    ...store.profiles,
+    list: [
+      { id: 'long', name: longName, groupCount: 0, sessionCount: 0 },
+      { id: 'long-copy', name: trimmed, groupCount: 0, sessionCount: 0 },
+    ],
+  }
+  const numbered = openSaveAs({ t })
+  assert.equal(numbered.length, 40)
+  assert.match(numbered, / copy 2$/)
+  assert.equal(numbered, `${'W'.repeat(33)} copy 2`)
+})
+
+test('save-as opens on a submittable default even when the copy name is taken', async () => {
+  installClientRuntime({ t: (key) => 'T:' + key, store: { dispatch: () => {} } })
+  const { DialogHost } = await import(new URL('../../src/client/dialog-host.js', import.meta.url))
+  const { cloneName } = await import(new URL('../../src/client/components-profile-dialogs.js', import.meta.url))
+  const t = (key) => ({ 'profiles.copySuffix': 'copy', 'profiles.defaultName': 'Default' })[key] ?? 'T:' + key
+  const store = profileSnapshot({
+    profiles: {
+      ...profileSnapshot().profiles,
+      activeId: 'work',
+      list: [
+        { id: 'work', name: 'Work', groupCount: 1, sessionCount: 0, healthy: true },
+        { id: 'copy-1', name: 'Work copy', groupCount: 0, sessionCount: 0, healthy: true },
+      ],
+    },
+  })
+  const value = cloneName(store, t)
+  assert.equal(value, 'Work copy 2')
+  const tree = expand(
+    DialogHost({
+      store: { ...store, dialog: { kind: 'profile-save-as', titleKey: 'profiles.saveAs', value } },
+      props: {},
+      sessionsById: {},
+    })
+  )
+  assert.equal(byTestId(tree, 'session-groups-profile-save-as-name').props.value, 'Work copy 2')
+  // The dialog validates its live value, so a deduped default must not open on
+  // an error or with Create disabled before the user typed anything.
+  assert.equal(byTestId(tree, 'session-groups-profile-dialog-error'), undefined)
+  assert.equal(byTestId(tree, 'session-groups-profile-save-as-confirm').props.disabled, undefined)
+
+  // Submit-time validation remains: typing the taken name still blocks Create.
+  const duplicate = expand(
+    DialogHost({
+      store: { ...store, dialog: { kind: 'profile-save-as', titleKey: 'profiles.saveAs', value: 'Work' } },
+      props: {},
+      sessionsById: {},
+    })
+  )
+  assert.equal(byTestId(duplicate, 'session-groups-profile-save-as-confirm').props.disabled, true)
+  assert.equal(byTestId(duplicate, 'session-groups-profile-dialog-error').props.children, 'T:profiles.nameDuplicate')
+})
+
+test('manage list disables the last archive row without the "Up to 1 profiles" copy', async () => {
+  installClientRuntime({
+    t: (key, params) => (params ? `${key}:${params.max}` : 'T:' + key),
+    store: { dispatch: () => {} },
+  })
+  const { DialogHost } = await import(new URL('../../src/client/dialog-host.js', import.meta.url))
+  // The active profile is missing from the list (e.g. it is temporarily
+  // unhealthy), so the single row reaches the last-profile branch rather than
+  // the active/default branches.
+  const store = {
+    ...profileSnapshot({
+      profiles: {
+        ...profileSnapshot().profiles,
+        activeId: 'work',
+        list: [{ id: 'side', name: 'Side', groupCount: 0, sessionCount: 0, healthy: true }],
+        limits: { max: 20 },
+      },
+    }),
+    dialog: { kind: 'profile-manage', titleKey: 'profiles.title' },
+  }
+  const tree = expand(DialogHost({ store, props: {}, sessionsById: {} }))
+  assert.equal(byTestId(tree, 'session-groups-profile-manage-count').props.children, '1/20')
+  const row = flatten(tree).find((node) => node.props?.['data-testid'] === 'session-groups-profile-manage-row')
+  const archive = byTestId(row, 'session-groups-profile-archive')
+  assert.equal(archive.props.disabled, true)
+  assert.equal(archive.props['data-disabled'], 'true')
+  // The tooltip reports the real registry cap instead of the remaining row
+  // count (which would read "Up to 1 profiles" beside a disabled button).
+  assert.equal(archive.props.title, 'profiles.limit:20')
+  assert.doesNotMatch(archive.props.title, /1 profile/)
 })
 
 test('DialogHost renders the save-as dialog with its copy preview and inline validation', async () => {

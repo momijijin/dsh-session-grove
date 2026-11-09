@@ -66,11 +66,30 @@ const validateProfileName = (name, { list = [], exceptId = null } = {}) => {
   return duplicate ? 'profiles.nameDuplicate' : null
 }
 
-/** Default save-as name: `<active name> <copy suffix>` (SPEC §9.4). */
+/**
+ * Default save-as name: `<active name> <copy suffix>` (SPEC §9.4). DialogHost
+ * validates the live value on every render, so the seeded default must itself
+ * be submittable — otherwise the dialog opens on nameInvalid/nameDuplicate and
+ * a disabled Create button. When the plain name is too long or already taken,
+ * shorten the stem to the 40-character cap and number the suffix (`copy 2`,
+ * `copy 3`, …). Returning `''` sends the rare unresolvable case to submit-time
+ * validation instead of a pre-filled wrong/unsubmittable name.
+ */
 const cloneName = (snapshot, t) => {
   const active = activeProfileOf(snapshot)
   const base = active ? profileDisplayName(active, t) : t('profiles.defaultName')
-  return `${base} ${t('profiles.copySuffix')}`
+  const suffix = t('profiles.copySuffix')
+  const list = unarchivedProfiles(snapshot?.profiles)
+  // At most `list.length` distinct candidates can collide with existing names,
+  // so one more ordinal than there are rows is enough to find a free name.
+  for (let ordinal = 1; ordinal <= list.length + 1; ordinal += 1) {
+    const tail = ordinal === 1 ? suffix : `${suffix} ${ordinal}`
+    const room = PROFILE_NAME_MAX - tail.length - 1
+    if (room < 1) return ''
+    const candidate = `${base.slice(0, room).trim()} ${tail}`
+    if (validateProfileName(candidate, { list }) === null) return candidate
+  }
+  return ''
 }
 
 const countGroups = (nodes) =>
@@ -297,12 +316,15 @@ const ProfileManageBody = ({ store, t, storage }) => {
     const id = typeof profile?.id === 'string' ? profile.id : ''
     const active = id !== '' && id === activeId
     const archiveBlocked = isArchived ? false : !canArchiveAnother || id === DEFAULT_PROFILE_ID || active
+    // The last unarchived profile cannot be archived. Use the real cap, not
+    // `list.length` (which would render "Up to 1 profiles" next to the disabled
+    // button); no new locale key is introduced.
     const archiveTitle = active
       ? t('profiles.current')
       : id === DEFAULT_PROFILE_ID
         ? t('profiles.defaultName')
         : !canArchiveAnother
-          ? t('profiles.limit', { max: list.length })
+          ? t('profiles.limit', { max })
           : t('profiles.archiveConfirm')
     const updated = rt()?.formatAbsoluteTime?.(profile?.updatedAt) ?? profile?.updatedAt ?? null
     rows.push(
