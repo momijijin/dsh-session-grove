@@ -1005,3 +1005,31 @@ test('0.4.0 profiles: save-as/manage footer and dialogs reuse the dialog chrome'
   // S6 review carry #4: undo/recover preview calls are guarded.
   assert.match(componentProfiles, /catch \{\s*preview = \{ ok: false, code: 'network' \}/)
 })
+
+test('0.4.0 profiles: save-as echo is local and archive refresh is forced', () => {
+  // A save-as create activates its copy host-side before the HTTP response
+  // lands: the SSE `active` echo must be treated as local while the request is
+  // in flight, and the flag must be cleared on both success and failure so a
+  // later switch from another window is still announced.
+  assert.match(plugin, /let createInFlight = false/)
+  assert.match(plugin, /createInFlight = true/)
+  assert.match(plugin, /createInFlight = false/)
+  assert.match(plugin, /isLocalSwitch: \(activeId\) =>\s*createInFlight \|\|/)
+  assert.match(plugin, /if \(info\.local\) return/)
+  // Forced list reads bypass the in-flight slot and drop the older response,
+  // so the manage list cannot be repopulated by a read started before archive.
+  assert.match(
+    plugin,
+    /const refreshProfiles = \(\{ background = false, includeArchived = false, force = false \}/
+  )
+  assert.match(plugin, /if \(!force && inFlight !== null\) return inFlight/)
+  assert.match(plugin, /profiles\.list\.stale/)
+  assert.match(plugin, /refreshProfiles\(\{ background: true, force: true \}\)/)
+  assert.match(plugin, /refreshProfiles\(\{ background: true, includeArchived: true, force: true \}\)/)
+  // The last-profile tooltip uses the registry cap, never the remaining rows.
+  assert.match(componentProfileDialogs, /!canArchiveAnother\s*\?\s*t\('profiles\.limit', \{ max \}\)/s)
+  assert.doesNotMatch(componentProfileDialogs, /max: list\.length/)
+  // The default copy name is shortened/numbered before the dialog renders so a
+  // taken default never opens as nameDuplicate with Create disabled.
+  assert.match(componentProfileDialogs, /PROFILE_NAME_MAX - tail\.length - 1/)
+})

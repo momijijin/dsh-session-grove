@@ -293,6 +293,37 @@ test('profiles keep the host limit and split archived rows into their own list',
   assert.deepEqual(store.getSnapshot().profiles.archivedList, [])
 })
 
+test('an archive-triggered includeArchived read moves the row out of the active list', () => {
+  const store = createStore({ storage: fakeStorage() })
+  store.dispatch('profiles-success', {
+    registryRevision: 4,
+    activeId: 'work-1',
+    list: [
+      { id: 'default', name: null },
+      { id: 'work-1', name: 'Work' },
+      { id: 'side', name: 'Side' },
+    ],
+    limits: { max: 20 },
+  })
+  // The forced manage read after archiving `side` is authoritative: the row is
+  // no longer in the switcher list and shows up as read-only archive data.
+  store.dispatch('profiles-success', {
+    registryRevision: 5,
+    activeId: 'work-1',
+    list: [
+      { id: 'default', name: null },
+      { id: 'work-1', name: 'Work' },
+      { id: 'side', name: 'Side', archived: true },
+    ],
+    limits: { max: 20 },
+    includeArchived: true,
+  })
+  const profiles = store.getSnapshot().profiles
+  assert.equal(profiles.registryRevision, 5)
+  assert.deepEqual(profiles.list.map((profile) => profile.id), ['default', 'work-1'])
+  assert.deepEqual(profiles.archivedList.map((profile) => profile.id), ['side'])
+})
+
 test('profile preview state opens, turns stale and clears on confirmation', () => {
   const store = createStore({ storage: fakeStorage() })
   const targetDoc = { version: 1, revision: 2, groups: [], ungrouped: [] }
