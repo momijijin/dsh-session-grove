@@ -24,9 +24,9 @@ import z from '@deepseek-ai/schemastery'
 import { probeConnection } from './host/fence.js'
 import { resolveRecordPath } from './host/home.js'
 import { logInfo, logWarn } from './host/log.js'
-import { CONTROL_TOKEN_FILE_NAME, DEBUG_FILE_NAME, DIAGNOSTICS_FILE_NAME } from './host/constants.js'
+import { CONTROL_TOKEN_FILE_NAME, DEBUG_FILE_NAME, DEFAULT_PROFILE_ID, DIAGNOSTICS_FILE_NAME } from './host/constants.js'
 import { registerRoutes } from './host/routes.js'
-import { createStore } from './host/store.js'
+import { createProfileManager } from './host/profile-manager.js'
 import { createChangeHub } from './host/change-hub.js'
 import { removeManagedSkill, repairManagedSkill } from './host/skill-install.js'
 import { createControlTool } from './host/tool.js'
@@ -93,7 +93,13 @@ export const apply = (ctx, config = {}) => {
     return value === true
   }
   const record = resolveRecordPath(ctx, config)
-  const store = createStore({ filePath: record.filePath })
+  // One manager owns every profile store; the default store comes from it so
+  // the store identity stays unique (the client store and routes share it).
+  const profileManager = createProfileManager({
+    storageDir: record.storageDir,
+    defaultRecordPath: record.filePath,
+  })
+  const store = profileManager.storeFor(DEFAULT_PROFILE_ID)
   const changeHub = createChangeHub()
   ctx.effect(
     () => () => changeHub.close(),
@@ -102,10 +108,11 @@ export const apply = (ctx, config = {}) => {
   const diagnosticsFilePath =
     typeof config.diagnosticsFilePath === 'string' && config.diagnosticsFilePath.length > 0
       ? config.diagnosticsFilePath
-      : // Co-located with the record file: in production that is
-        // `dshHomePath('storages')`, and a test seam that overrides `filePath`
-        // can never point diagnostics at the real home.
-        join(dirname(record.filePath), DIAGNOSTICS_FILE_NAME)
+      : // Global artifacts are anchored to the storages directory, never to a
+        // per-profile document directory (SPEC 4.6). A test seam that overrides
+        // `storageDir`/`filePath` can never point diagnostics at the real home.
+        join(record.storageDir, DIAGNOSTICS_FILE_NAME)
+  const debugFilePath = join(record.storageDir, DEBUG_FILE_NAME)
   let controlToken = null
   let controlTokenPath = null
   const dshHome = dirname(record.storageDir)
@@ -129,7 +136,7 @@ export const apply = (ctx, config = {}) => {
   }
   {
     controlToken = randomBytes(32).toString('hex')
-    controlTokenPath = join(dirname(record.filePath), CONTROL_TOKEN_FILE_NAME)
+    controlTokenPath = join(record.storageDir, CONTROL_TOKEN_FILE_NAME)
     try {
       mkdirSync(dirname(controlTokenPath), { recursive: true })
       writeFileSync(controlTokenPath, controlToken, { encoding: 'utf8', mode: 0o600 })
@@ -149,9 +156,10 @@ export const apply = (ctx, config = {}) => {
     }
   }
   let doctorReport = null
-  const mounted = registerRoutes(ctx, store, {
+  const mounted = registerRoutes(ctx, profileManager, {
+    profileManager,
     diagnosticsFilePath,
-    debugFilePath: join(dirname(record.filePath), DEBUG_FILE_NAME),
+    debugFilePath,
     diagnosticsEnabled: () => readFlag('diagnostics'),
     debugProbeEnabled: () => readFlag('debugProbe'),
     controlApiEnabled: () => readFlag('controlApi'),
@@ -267,11 +275,12 @@ export const apply = (ctx, config = {}) => {
   if (typeof config.onReady === 'function') {
     config.onReady({
       store,
+      profileManager,
       filePath: record.filePath,
       storageDir: record.storageDir,
       storageSource: record.storageSource,
       diagnosticsFilePath,
-      debugFilePath: join(dirname(record.filePath), DEBUG_FILE_NAME),
+      debugFilePath,
       mounted,
     })
   }

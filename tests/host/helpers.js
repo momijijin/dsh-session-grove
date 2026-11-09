@@ -15,6 +15,7 @@ import {
   RECORD_FILE_NAME,
   REGISTRY_FILE_NAME,
 } from '../../src/host/constants.js'
+import { createProfileManager } from '../../src/host/profile-manager.js'
 import { registerRoutes } from '../../src/host/routes.js'
 import { createStore } from '../../src/host/store.js'
 
@@ -109,6 +110,10 @@ export const makeTempProfileHome = async () => {
     cleanup: () => rm(dir, { recursive: true, force: true }),
   }
 }
+
+/** Create the production profile manager over a temp profile home. */
+export const createTestProfileManager = (home, options = {}) =>
+  createProfileManager({ storageDir: home.storageDir, ...options })
 
 /** Write pretty JSON, creating parent directories when needed. */
 export const writeJsonFile = async (filePath, value) => {
@@ -209,12 +214,21 @@ export const makeContext = (options = {}) => {
   }
 }
 
-/** Mount both routes over a temporary store (or a provided one). */
+/** Mount both routes over a temporary store (or a provided one/manager). */
 export const mountRoutes = async (options = {}) => {
   let temp
-  if (options.store !== undefined) {
+  if (options.profileManager !== undefined) {
+    temp = {
+      dir: dirname(options.profileManager.storageDir),
+      storages: options.profileManager.storageDir,
+      filePath: options.profileManager.defaultFilePath,
+      store: options.profileManager.storeFor(DEFAULT_PROFILE_ID),
+      cleanup: () => Promise.resolve(),
+    }
+  } else if (options.store !== undefined) {
     temp = {
       dir: options.dir,
+      storages: options.filePath === undefined ? undefined : dirname(options.filePath),
       filePath: options.filePath,
       store: options.store,
       cleanup: () => Promise.resolve(),
@@ -225,11 +239,12 @@ export const mountRoutes = async (options = {}) => {
   const context = makeContext(options)
   const diagnosticsFilePath =
     options.diagnosticsFilePath ??
-    (temp.dir === undefined ? null : join(temp.dir, 'storages', DIAGNOSTICS_FILE_NAME))
-  const mounted = registerRoutes(context.ctx, temp.store, {
+    (temp.storages === undefined ? null : join(temp.storages, DIAGNOSTICS_FILE_NAME))
+  const mounted = registerRoutes(context.ctx, options.profileManager ?? temp.store, {
+    profileManager: options.profileManager,
     diagnosticsFilePath,
     debugFilePath:
-      options.debugFilePath ?? (temp.dir === undefined ? null : join(temp.dir, 'storages', DEBUG_FILE_NAME)),
+      options.debugFilePath ?? (temp.storages === undefined ? null : join(temp.storages, DEBUG_FILE_NAME)),
     diagnosticsEnabled: options.diagnosticsEnabled,
     debugProbeEnabled: options.debugProbeEnabled,
     controlApiEnabled: options.controlApiEnabled,
@@ -237,6 +252,7 @@ export const mountRoutes = async (options = {}) => {
     controlSessionsEnabled: options.controlSessionsEnabled,
     controlToken: options.controlToken,
     skillDshHome: options.skillDshHome,
+    changeHub: options.changeHub,
     doctorReport: options.doctorReport,
   })
   return {
