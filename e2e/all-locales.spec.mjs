@@ -179,6 +179,20 @@ try {
     return created.profile.id
   }, profileName)
 
+  // The raw activate above went through HTTP, so the browser learns about the
+  // new active profile only from the SSE `active` event and then reloads the
+  // document. Let that round trip settle before the locale sweep starts
+  // clicking profile rows; otherwise the first locale can race the reload and
+  // find the previous profile still marked current.
+  await page.locator('[data-testid="session-groups-profile-trigger"]').click()
+  const restoredPopover = page.locator('[data-testid="session-groups-profile-popover"]')
+  await restoredPopover.waitFor({ state: 'visible' })
+  await page
+    .locator('[data-testid="session-groups-profile-item"][data-profile-id="default"][aria-checked="true"]')
+    .waitFor({ state: 'visible' })
+  await page.keyboard.press('Escape')
+  await restoredPopover.waitFor({ state: 'hidden' })
+
   for (const [localeId, dictionaryId] of cases) {
     await page.evaluate((id) => globalThis.__DSH_E2E_SET_LOCALE__(id), localeId)
     await page.waitForFunction((id) => globalThis.__DSH_E2E_GET_LOCALE__?.().active === id, localeId)
