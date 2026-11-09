@@ -174,27 +174,40 @@ export const DialogHost = ({ store, props, sessionsById }) => {
     const titlebar = element.querySelector('.dsg-dialog-titlebar')
     const content = element.querySelector('.dsg-dialog-content')
     const actions = element.querySelector('.dsg-dialog-actions')
-    // The dialog is a column flex with gap:12px and 16px vertical padding, so
-    // include the two gaps + padding + the 0.5px top/bottom border (which
-    // becomes fractional at non-1 DPR) or the content bottom is clipped.
+    // The dialog is a column flex with gap/padding chrome; the 0.5px top/bottom
+    // border becomes fractional at non-1 DPR, so read it instead of assuming
+    // 1px. Every dialog uses 16px padding + 12px gaps (57px); the switch
+    // preview tightens to 12px padding + 8px gaps (41px).
     const borderHeight =
       (Number.parseFloat(globalThis.getComputedStyle(element).borderTopWidth) || 0) +
       (Number.parseFloat(globalThis.getComputedStyle(element).borderBottomWidth) || 0)
+    const dialogChrome = isProfilePreview ? 41 : 57
     const laidOutHeight = Math.ceil(
       (titlebar?.offsetHeight ?? 0) +
         Math.ceil(content?.scrollHeight ?? 0) +
         (actions?.offsetHeight ?? 0) +
-        57 +
+        dialogChrome +
         borderHeight
     )
     const naturalHeight = laidOutHeight || Math.ceil(box.height) || 320
-    // SPEC §9.3/§9.5: the switch preview and the manage list are wider (420)
-    // than the standard 360; save-as/rename/archive stay at 360.
+    // SPEC §9.3/§9.5: the switch preview and the manage list are wider (560/420)
+    // than the standard 360; save-as/rename/archive stay at 360. The preview
+    // opens while its diff is still loading, so the measured natural height is
+    // only the spinner row: keep a compact 320px floor (viewport-clamped) so a
+    // short diff does not leave a half-empty dialog. The height is also capped
+    // at 560px (viewport-clamped as well) so a long diff scrolls inside the
+    // body instead of stretching the modal past the screen.
     const wideKind = dialog.kind === 'icon' || dialog.kind === 'profile-preview' || dialog.kind === 'profile-manage'
+    const initialHeight = isProfilePreview
+      ? Math.min(
+          Math.max(naturalHeight, Math.min(Math.max(0, globalThis.innerHeight - 24), 320)),
+          Math.min(560, Math.max(0, globalThis.innerHeight - 24))
+        )
+      : naturalHeight
     setDialogRect(
       centeredDialogRect(
-        box.width || (wideKind ? 420 : 360),
-        naturalHeight || 320,
+        box.width || (isProfilePreview ? 560 : wideKind ? 420 : 360),
+        initialHeight || 320,
         globalThis.innerWidth,
         globalThis.innerHeight
       )
