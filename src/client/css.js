@@ -548,6 +548,9 @@ export const CSS = `
   max-width: min(300px, calc(100vw - 24px));
   max-height: 60vh;
   overflow-y: auto;
+  /* The header title is nowrap; the inherited value must not stop the degraded
+   * warning from wrapping inside the popover (S6 review carry #2). */
+  white-space: normal;
 }
 .dsg-profile-item {
   appearance: none;
@@ -577,8 +580,62 @@ export const CSS = `
 .dsg-profile-error { padding: 5px 8px; font-size: var(--dsg-font-11, 11px); line-height: 16px; color: var(--dsw-alias-state-danger, CanvasText); }
 .dsg-profile-empty { display: flex; align-items: center; gap: 6px; padding: 8px; font-size: var(--dsg-font-12, 12px); color: var(--dsw-alias-label-secondary, CanvasText); }
 .dsg-profile-retry { padding: 2px 2px 0; }
-/* Footer slot reserved for S7 (save-as/manage); the divider keeps the row rhythm. */
+/* SPEC §9.2 footer (S7): divider + save-as/manage rows. */
 .dsg-profile-footer { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; padding-top: 4px; border-top: 0.5px solid var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 16%, transparent)); }
+.dsg-profile-footer-button {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, CanvasText);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--dsg-font-13, 13px);
+  line-height: 18px;
+}
+.dsg-profile-footer-button:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, CanvasText 12%, transparent)); }
+.dsg-profile-footer-button:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, CanvasText); outline-offset: -2px; }
+.dsg-profile-footer-button:disabled { opacity: .45; cursor: default; }
+
+/* ---------------------------------------------------------------------------
+ * Save-as / manage dialogs (SPEC §9.4/§9.5)
+ * ------------------------------------------------------------------------- */
+.dsg-profile-dialog { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.dsg-profile-dialog-label { font-size: var(--dsg-font-12, 12px); line-height: 17px; font-weight: 600; color: var(--dsw-alias-label-primary, CanvasText); }
+.dsg-profile-dialog-target { font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-label-secondary, CanvasText); overflow-wrap: anywhere; }
+.dsg-profile-dialog-preview { font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-label-secondary, CanvasText); overflow-wrap: anywhere; }
+.dsg-profile-manage { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.dsg-profile-manage-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.dsg-profile-manage-count { font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-label-secondary, CanvasText); font-variant-numeric: tabular-nums; }
+.dsg-profile-manage-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dsg-profile-manage-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 0.5px solid var(--dsw-alias-border-l3, color-mix(in srgb, CanvasText 20%, transparent));
+  background: var(--dsw-alias-bg-layer-1, Canvas);
+}
+.dsg-profile-manage-row[data-active="true"] { border-color: var(--dsw-alias-state-business-primary, CanvasText); }
+.dsg-profile-manage-row[data-archived="true"] { opacity: .7; }
+.dsg-profile-manage-main { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.dsg-profile-manage-name { font-size: var(--dsg-font-13, 13px); line-height: 18px; font-weight: 600; color: var(--dsw-alias-label-primary, CanvasText); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsg-profile-manage-badge { align-self: flex-start; padding: 0 5px; border-radius: 999px; font-size: var(--dsg-font-10, 10px); line-height: 14px; color: var(--dsw-alias-label-secondary, CanvasText); background: color-mix(in srgb, CanvasText 10%, transparent); }
+.dsg-profile-manage-counts { font-size: var(--dsg-font-11, 11px); line-height: 16px; color: var(--dsw-alias-label-secondary, CanvasText); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsg-profile-manage-updated { font-size: var(--dsg-font-10, 10px); line-height: 14px; color: var(--dsw-alias-label-tertiary, CanvasText); }
+.dsg-profile-manage-actions { display: flex; flex: none; align-items: center; gap: 4px; }
+.dsg-profile-manage-actions .dsg-text-button { height: 26px; padding: 0 7px; font-size: var(--dsg-font-12, 12px); }
+.dsg-profile-manage-actions .dsg-text-button:disabled { opacity: .45; cursor: default; }
+.dsg-profile-manage-reset { display: inline-flex; align-items: center; gap: 6px; font-size: var(--dsg-font-12, 12px); line-height: 18px; color: var(--dsw-alias-label-secondary, CanvasText); cursor: pointer; }
+.dsg-profile-manage-reset input { flex: none; margin: 0; }
 
 /* ---------------------------------------------------------------------------
  * Switch preview dialog (SPEC §9.3)
@@ -695,6 +752,10 @@ export const CSS = `
 }
 .dsg-dialog[data-kind="icon"] { width: min(420px, calc(100vw - 32px)); }
 .dsg-dialog[data-kind="profile-preview"] { width: min(420px, calc(100vw - 32px)); }
+.dsg-dialog[data-kind="profile-manage"] { width: min(420px, calc(100vw - 32px)); }
+.dsg-dialog[data-kind="profile-save-as"],
+.dsg-dialog[data-kind="profile-rename"],
+.dsg-dialog[data-kind="profile-archive"] { width: min(360px, calc(100vw - 32px)); }
 .dsg-dialog[data-positioned="true"] { transform: none; max-width: none; max-height: none; }
 .dsg-dialog-titlebar { flex: none; display: flex; align-items: center; min-height: 20px; cursor: move; user-select: none; touch-action: none; }
 .dsg-dialog-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--dsg-font-14, 14px); line-height: 20px; font-weight: 600; color: var(--dsw-alias-label-primary, CanvasText); pointer-events: none; }
@@ -947,6 +1008,7 @@ export const CSS = `
  * mirrors only the popover edge/text alignment (SPEC §9.8). */
 .dsg-root[dir="rtl"] .dsg-profile-popover { left: auto; right: 0; }
 .dsg-root[dir="rtl"] .dsg-profile-item { text-align: right; }
+.dsg-root[dir="rtl"] .dsg-profile-footer-button { text-align: right; }
 .dsg-root[dir="rtl"] .dsg-profile-preview-auto { margin-right: 0; margin-left: auto; }
 .dsg-root[dir="rtl"] .dsg-profile-trigger svg { transform: none; }
 `

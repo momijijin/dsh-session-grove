@@ -259,6 +259,40 @@ test('an older profile list response cannot move activeId back', () => {
   assert.deepEqual(profiles.list, [{ id: 'default', name: null }], 'rows still refresh')
 })
 
+test('profiles keep the host limit and split archived rows into their own list', () => {
+  const store = createStore({ storage: fakeStorage() })
+  const initial = store.getSnapshot().profiles
+  assert.deepEqual(initial.limits, { max: 20 })
+  assert.deepEqual(initial.archivedList, [])
+
+  store.dispatch('profiles-success', {
+    registryRevision: 2,
+    activeId: 'work-1',
+    list: [{ id: 'work-1', name: 'Work' }, { id: 'old', name: 'Old', archived: true }],
+    limits: { max: 5 },
+    includeArchived: true,
+  })
+  const loaded = store.getSnapshot().profiles
+  assert.deepEqual(loaded.limits, { max: 5 })
+  assert.deepEqual(loaded.list.map((profile) => profile.id), ['work-1'])
+  assert.deepEqual(loaded.archivedList.map((profile) => profile.id), ['old'])
+
+  // A plain switcher refresh replaces the unarchived rows but must not drop the
+  // archived rows the manage dialog is showing (SPEC §9.5).
+  store.dispatch('profiles-success', {
+    registryRevision: 3,
+    activeId: 'work-1',
+    list: [{ id: 'work-1', name: 'Work' }],
+  })
+  const refreshed = store.getSnapshot().profiles
+  assert.deepEqual(refreshed.list.map((profile) => profile.id), ['work-1'])
+  assert.deepEqual(refreshed.archivedList.map((profile) => profile.id), ['old'])
+  assert.deepEqual(refreshed.limits, { max: 5 }, 'a host without limits keeps the last known cap')
+
+  store.dispatch('profiles-unavailable')
+  assert.deepEqual(store.getSnapshot().profiles.archivedList, [])
+})
+
 test('profile preview state opens, turns stale and clears on confirmation', () => {
   const store = createStore({ storage: fakeStorage() })
   const targetDoc = { version: 1, revision: 2, groups: [], ungrouped: [] }

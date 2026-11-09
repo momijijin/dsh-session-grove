@@ -99,6 +99,8 @@ export const createPlugin = () => {
   let profileEpochDisposer = null
   let lastProfileEpoch = 0
   let profilesPromise = null
+  /** Separate in-flight slot for the manage dialog's archived opt-in read. */
+  let profilesArchivedPromise = null
   /** Target of the local activate request (suppresses our own SSE `active`). */
   let profileSwitchTarget = null
   /** SPEC §7.3 local resets (search/drag/scroll/selection/…) registered by S6. */
@@ -314,18 +316,26 @@ export const createPlugin = () => {
    * Load the registry-backed profile list. A non-JSON 404 means the host has no
    * profile surface at all (SPEC §7.7): flip `profiles.available` and keep the
    * single-profile behaviour without touching the main view.
+   *
+   * `includeArchived` (SPEC §5.3/§9.5) is the manage dialog's opt-in read; it
+   * uses its own in-flight slot so it can never be deduped behind a background
+   * switcher refresh and silently lose the archived rows.
    */
-  const refreshProfiles = ({ background = false } = {}) => {
-    if (profilesPromise !== null) return profilesPromise
+  const refreshProfiles = ({ background = false, includeArchived = false } = {}) => {
+    if (includeArchived ? profilesArchivedPromise !== null : profilesPromise !== null) {
+      return includeArchived ? profilesArchivedPromise : profilesPromise
+    }
     if (!background) store.dispatch('profiles-loading')
-    profilesPromise = (async () => {
-      const result = await api.listProfiles()
+    const promise = (async () => {
+      const result = await api.listProfiles({ includeArchived })
       if (result.ok === true) {
         store.dispatch('profiles-success', {
           registryRevision: result.registryRevision,
           activeId: result.activeId,
           degraded: result.degraded === true,
           list: result.profiles,
+          limits: result.limits,
+          includeArchived,
         })
       } else if (result.profilesAvailable === false) {
         store.dispatch('profiles-unavailable')
@@ -334,9 +344,12 @@ export const createPlugin = () => {
       }
       return result
     })().finally(() => {
-      profilesPromise = null
+      if (includeArchived) profilesArchivedPromise = null
+      else profilesPromise = null
     })
-    return profilesPromise
+    if (includeArchived) profilesArchivedPromise = promise
+    else profilesPromise = promise
+    return promise
   }
 
   /**
@@ -436,6 +449,133 @@ export const createPlugin = () => {
       return result
     }
     store.dispatch('profile-switch-failure', { code: result?.code, message: result?.message })
+    return result
+  }
+
+  /**
+   * SPEC §9.4/§9.5: profile-write errors become inline dialog copy. Codes the
+   * host emits for these routes map onto the existing translated keys; there is
+   * no dedicated locale string for `profile-in-use`/`conflict`/io, so they fall
+   * back to the generic "could not complete" copy.
+   */
+  const profileDialogError = (code) => {
+    if (code === 'profile-name-invalid') return 'profiles.nameInvalid'
+    if (code === 'profile-name-duplicate') return 'profiles.nameDuplicate'
+    if (code === 'profile-limit') return 'profiles.limit'
+    if (code === 'registry-unhealthy' || code === 'profile-unhealthy') return 'profiles.degraded'
+    return 'profiles.saveFailed'
+  }
+
+  const profileDialogErrorParams = (code) =>
+    code === 'profile-limit' ? { max: store.getSnapshot().profiles.limits?.max ?? 20 } : null
+
+  /** Close the rename/archive dialog but keep the manage list (SPEC §9.5). */
+  const reopenProfileManage = () => {
+    store.dispatch('dialog', { dialog: { kind: 'profile-manage', titleKey: 'profiles.title' } })
+  }
+
+  /**
+   * SPEC §7.4 step 9/10 + §9.2: profile writes are refused while a switch runs
+   * or a document write is unsettled. Returns a result instead of throwing so
+   * the dialog can keep its inline error surface.
+   */
+  const profileWriteGuard = () => {
+    const snapshot = store.getSnapshot()
+    if (snapshot.profileSwitching === true) return { ok: false, code: 'profile-switching' }
+    if (queue?.isPending() === true) {
+      notify({ kind: 'info', message: t('profiles.switching') })
+      return { ok: false, code: 'pending' }
+    }
+    return null
+  }
+
+  /**
+   * SPEC §5.5/§9.4: save-as clones the active document and activates the copy.
+   * Success reuses the switch reset (`profile-switch-success`) because the new
+   * profile becomes active; failure keeps the dialog open for inline copy.
+   */
+  const createProfile = async ({ name } = {}) => {
+    const text = typeof name === 'string' ? name.trim() : ''
+    if (text === '') {
+      failDialog('profiles.nameInvalid')
+      return { ok: false, code: 'profile-name-invalid' }
+    }
+    const guard = profileWriteGuard()
+    if (guard !== null) return guard
+    const snapshot = store.getSnapshot()
+    let result
+    try {
+      result = await api.createProfile({ name: text, baseRevision: snapshot.profiles.registryRevision })
+    } catch (error) {
+      result = { ok: false, code: 'network', message: String(error?.message ?? error) }
+    }
+    if (result?.ok !== true) {
+      // A registry CAS loss leaves the local revision stale: refresh so the next
+      // confirm attempt uses the current base (SPEC §5.5/§10).
+      if (result?.code === 'conflict') refreshProfiles({ background: true })
+      failDialog(profileDialogError(result?.code), profileDialogErrorParams(result?.code))
+      return result
+    }
+    const profileName = result.profile?.name ?? text
+    store.dispatch('profile-switch-success', {
+      profileId: result.activeId ?? result.profile?.id ?? null,
+      doc: result.doc,
+      revision: result.doc?.revision,
+      registryRevision: result.registryRevision,
+    })
+    refreshProfiles({ background: true })
+    notify({ kind: 'success', message: t('profiles.switched', { name: profileName }) })
+    return result
+  }
+
+  /** SPEC §5.6/§9.5: rename keeps the manage dialog in view afterwards. */
+  const renameProfile = async ({ id, name } = {}) => {
+    const text = typeof name === 'string' ? name.trim() : ''
+    if (text === '') {
+      failDialog('profiles.nameInvalid')
+      return { ok: false, code: 'profile-name-invalid' }
+    }
+    const guard = profileWriteGuard()
+    if (guard !== null) return guard
+    const snapshot = store.getSnapshot()
+    let result
+    try {
+      result = await api.renameProfile({ id, name: text, baseRevision: snapshot.profiles.registryRevision })
+    } catch (error) {
+      result = { ok: false, code: 'network', message: String(error?.message ?? error) }
+    }
+    if (result?.ok !== true) {
+      if (result?.code === 'conflict') refreshProfiles({ background: true })
+      failDialog(profileDialogError(result?.code), profileDialogErrorParams(result?.code))
+      return result
+    }
+    refreshProfiles({ background: true })
+    refreshProfiles({ background: true, includeArchived: true })
+    reopenProfileManage()
+    notify({ kind: 'success', message: t('toast.saved') })
+    return result
+  }
+
+  /** SPEC §5.7/§9.5: archive only hides the profile; its file and sessions stay. */
+  const archiveProfile = async ({ id } = {}) => {
+    const guard = profileWriteGuard()
+    if (guard !== null) return guard
+    const snapshot = store.getSnapshot()
+    let result
+    try {
+      result = await api.archiveProfile({ id, baseRevision: snapshot.profiles.registryRevision })
+    } catch (error) {
+      result = { ok: false, code: 'network', message: String(error?.message ?? error) }
+    }
+    if (result?.ok !== true) {
+      if (result?.code === 'conflict') refreshProfiles({ background: true })
+      failDialog(profileDialogError(result?.code), profileDialogErrorParams(result?.code))
+      return result
+    }
+    refreshProfiles({ background: true })
+    refreshProfiles({ background: true, includeArchived: true })
+    reopenProfileManage()
+    notify({ kind: 'success', message: t('toast.saved') })
     return result
   }
 
@@ -766,9 +906,9 @@ export const createPlugin = () => {
 
   const closeDialog = () => store.dispatch('dialog', { dialog: null })
 
-  const failDialog = (messageKey) => {
+  const failDialog = (messageKey, params = null) => {
     const dialog = store.getSnapshot().dialog
-    if (dialog) store.dispatch('dialog', { dialog: { ...dialog, error: messageKey } })
+    if (dialog) store.dispatch('dialog', { dialog: { ...dialog, error: messageKey, errorParams: params } })
   }
 
   const commitDocFromAction = async (nextDoc, successKey = 'toast.saved') => {
@@ -994,6 +1134,9 @@ export const createPlugin = () => {
       refreshProfiles,
       previewProfile,
       activateProfile,
+      createProfile,
+      renameProfile,
+      archiveProfile,
       onProfileSwitchReset,
       setMode,
       toggleMode,
@@ -1087,6 +1230,8 @@ export const createPlugin = () => {
         changeRouter = null
         profileResetListeners.clear()
         profileSwitchTarget = null
+        profilesPromise = null
+        profilesArchivedPromise = null
         refreshPending = false
         refreshForced = false
         if (typeof perfDisposer === 'function') perfDisposer()

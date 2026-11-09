@@ -31,6 +31,7 @@ import { UngroupedSection } from './components-ungrouped.js'
 import { ResizeHandle } from './components-resize-handle.js'
 import { OnboardingCard, Header, Banner, Rail, FlatFallback, ErrorBoundary } from './components-header.js'
 import { createProfileHandlers } from './components-profiles.js'
+import { createProfileDialogHandlers } from './components-profile-dialogs.js'
 const h = createElement
 // ---------------------------------------------------------------------------
 // Runtime bridge is installed by plugin.js through the DSH client adapter.
@@ -411,6 +412,9 @@ export const GroupsView = (props) => {
     // SPEC §9.2/§9.3: profile switch entries join the shared handler facade so
     // memoized header/rows always call the latest closure.
     ...createProfileHandlers({ t }),
+    // SPEC §9.4/§9.5: save-as/manage/rename/archive handlers live in the split
+    // dialog module but are exposed through the same facade.
+    ...createProfileDialogHandlers({ t }),
     onDragStart: (sessionId) => {
       const row = byId[sessionId]
       dragRef.current = {

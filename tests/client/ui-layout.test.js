@@ -23,6 +23,7 @@ const componentResize = readFileSync(new URL('../../src/client/components-resize
 const componentSearch = readFileSync(new URL('../../src/client/components-search-box.js', import.meta.url), 'utf8')
 const componentHeader = readFileSync(new URL('../../src/client/components-header.js', import.meta.url), 'utf8')
 const componentProfiles = readFileSync(new URL('../../src/client/components-profiles.js', import.meta.url), 'utf8')
+const componentProfileDialogs = readFileSync(new URL('../../src/client/components-profile-dialogs.js', import.meta.url), 'utf8')
 const dialogHost = readFileSync(new URL('../../src/client/dialog-host.js', import.meta.url), 'utf8')
 const groupsViewWidth = readFileSync(new URL('../../src/client/groups-view-width.js', import.meta.url), 'utf8')
 const groupsViewState = readFileSync(new URL('../../src/client/groups-view-state.js', import.meta.url), 'utf8')
@@ -37,6 +38,7 @@ const components = [
   componentSearch,
   componentHeader,
   componentProfiles,
+  componentProfileDialogs,
   dialogHost,
   groupsViewWidth,
   groupsViewState,
@@ -951,3 +953,55 @@ test('0.4.0 profiles: toast action keeps the old text toast and adds a button', 
   assert.match(plugin, /profiles\.switchedElsewhere/)
 })
 
+test('0.4.0 profiles: save-as/manage footer and dialogs reuse the dialog chrome', () => {
+  // SPEC §9.2 footer: divider + two rows, capped save-as and always-reachable manage.
+  assert.match(componentProfiles, /'data-testid': 'session-groups-profile-footer'/)
+  assert.match(componentProfiles, /'data-testid': 'session-groups-profile-save-as'/)
+  assert.match(componentProfiles, /'data-testid': 'session-groups-profile-manage'/)
+  assert.match(componentProfiles, /t\('profiles\.limit', \{ max: limit \}\)/)
+  assert.match(block('.dsg-profile-footer-button:disabled {'), /opacity:\s*\.45/)
+  // S6 review carry #2: the header's nowrap must not leak into the popover.
+  assert.match(block('.dsg-profile-popover {'), /white-space:\s*normal/)
+  // SPEC §9.4/§9.5 dialog bodies, widths and manage rows.
+  assert.match(CSS, /\.dsg-dialog\[data-kind="profile-manage"\] \{ width:\s*min\(420px/)
+  assert.match(CSS, /\.dsg-dialog\[data-kind="profile-save-as"\]/)
+  assert.match(CSS, /\.dsg-dialog\[data-kind="profile-rename"\]/)
+  assert.match(CSS, /\.dsg-dialog\[data-kind="profile-archive"\]/)
+  assert.match(block('.dsg-profile-manage-row {'), /border-radius:\s*6px/)
+  assert.match(block('.dsg-profile-manage-reset {'), /display:\s*inline-flex/)
+  assert.match(CSS, /\.dsg-root\[dir="rtl"\] \.dsg-profile-footer-button \{ text-align:\s*right; \}/)
+  assert.match(componentProfileDialogs, /'data-testid': 'session-groups-profile-save-as-name'/)
+  assert.match(componentProfileDialogs, /'data-testid': 'session-groups-profile-save-as-preview'/)
+  assert.match(componentProfileDialogs, /'data-testid': 'session-groups-profile-manage-dialog'/)
+  assert.match(componentProfileDialogs, /'data-testid': 'session-groups-profile-manage-row'/)
+  assert.match(componentProfileDialogs, /'data-testid': 'session-groups-profile-rename'/)
+  assert.match(componentProfileDialogs, /'data-testid': 'session-groups-profile-archive'/)
+  assert.match(componentProfileDialogs, /'data-testid': 'session-groups-profile-preview-reset'/)
+  assert.match(componentProfileDialogs, /profiles\.copySuffix/)
+  assert.match(componentProfileDialogs, /profiles\.createPreview/)
+  assert.match(componentProfileDialogs, /readProfilePreviewDisabled/)
+  assert.match(componentProfileDialogs, /writeProfilePreviewDisabled/)
+  // The plugin maps host write codes onto the reused inline copy keys.
+  assert.match(plugin, /const profileDialogError = \(code\)/)
+  assert.match(plugin, /profile-name-duplicate'\) return 'profiles\.nameDuplicate'/)
+  assert.match(plugin, /profile-name-invalid'\) return 'profiles\.nameInvalid'/)
+  // DialogHost owns the new kinds, the wide manage rect and the shared Escape.
+  assert.match(dialogHost, /'profile-save-as'/)
+  assert.match(dialogHost, /'profile-manage'/)
+  assert.match(dialogHost, /'profile-rename'/)
+  assert.match(dialogHost, /'profile-archive'/)
+  assert.match(dialogHost, /ProfileSaveAsBody/)
+  assert.match(dialogHost, /ProfileManageBody/)
+  assert.match(dialogHost, /dialog\.returnTo === 'profile-manage'/)
+  assert.match(dialogHost, /dialog\.kind === 'profile-manage'/)
+  // The shell facade registers every open/confirm entry.
+  assert.match(components, /createProfileDialogHandlers\(\{ t \}\)/)
+  // S6 review carry #3: unique keys for the stale preview section and notice.
+  assert.match(componentProfiles, /key: 'stale-section'/)
+  assert.match(componentProfiles, /key: 'stale-notice'/)
+  // S6 review carry #4: activation rechecks pending/epoch after the preview.
+  assert.match(componentProfiles, /epochAtStart/)
+  assert.match(componentProfiles, /latest\.profileEpoch \?\? 0\) !== epochAtStart/)
+  // S6 review carry #4: undo/recover preview calls are guarded.
+  assert.match(componentProfiles, /catch \{\s*preview = \{ ok: false, code: 'network' \}/)
+})
