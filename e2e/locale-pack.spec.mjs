@@ -29,6 +29,7 @@ try {
   fail(`invalid DSH_TEST_URL: ${urlText}`)
 }
 if (!['127.0.0.1', 'localhost'].includes(url.hostname)) fail(`test URL must be loopback: ${url.origin}`)
+if (url.port === '43120') fail('refusing the real DSH web port 43120')
 if (!existsSync(testHome)) fail(`test home does not exist: ${testHome}`)
 
 const browser = await chromium.launch({

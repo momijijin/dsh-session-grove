@@ -22,6 +22,18 @@ const fail = (message) => {
 if (!urlText) fail('DSH_TEST_URL is required')
 if (!testHome) fail('DSH_TEST_HOME is required')
 if (resolve(testHome).toLowerCase().startsWith(realHome.toLowerCase())) fail(`refusing real DSH home: ${testHome}`)
+if (!existsSync(testHome)) fail(`test home does not exist: ${testHome}`)
+// This spec saves and commits named profiles, so it must never attach to the
+// live DSH host or the real home. Guard before the browser launches and before
+// any profile write below.
+let url
+try {
+  url = new URL(urlText)
+} catch {
+  fail(`invalid DSH_TEST_URL: ${urlText}`)
+}
+if (!['127.0.0.1', 'localhost'].includes(url.hostname)) fail(`test URL must be loopback: ${url.origin}`)
+if (url.port === '43120') fail('refusing the real DSH web port 43120')
 
 const dictionaries = Object.fromEntries(
   ['en', 'zh', 'zh-Hant', 'ja', 'ko', 'de', 'fr', 'es', 'pt', 'it', 'nl', 'pl', 'tr', 'vi', 'th', 'id', 'ru', 'hi', 'ar'].map(
