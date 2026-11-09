@@ -29,6 +29,7 @@ const uiModules = [
   'components.js',
   'components-header.js',
   'components-profiles.js',
+  'components-profile-dialogs.js',
   'components-rows.js',
   'components-primitives.js',
   'components-ungrouped.js',
@@ -49,7 +50,7 @@ const uiModules = [
 ]
 
 test('client UI modules execute under a test React peer', async () => {
-  assert.equal(uiModules.length, 20)
+  assert.equal(uiModules.length, 21)
   for (const file of uiModules) {
     const module = await import(new URL(`../../src/client/${file}`, import.meta.url))
     assert.ok(module && typeof module === 'object', `${file} did not load`)
@@ -335,6 +336,8 @@ const profileSnapshot = (overrides = {}) => ({
       { id: 'default', name: 'Default', groupCount: 2, sessionCount: 5, healthy: true },
       { id: 'work', name: 'Work', groupCount: 1, sessionCount: 0, healthy: true },
     ],
+    archivedList: [],
+    limits: { max: 20 },
     error: null,
   },
   profilePreview: { open: false, loading: false, targetId: null, targetName: null, previewToken: null, doc: null, diff: null, stale: false, error: null },
@@ -711,3 +714,390 @@ test('Toast renders and runs a text action, clearing the toast first', async () 
   assert.deepEqual(dispatched[1], ['undone'])
 })
 
+// ---------------------------------------------------------------------------
+// Save-as + manage (SPEC §9.2/§9.4/§9.5, plan S7)
+// ---------------------------------------------------------------------------
+test('ProfilePopover footer exposes save-as/manage and disables them while degraded or busy', async () => {
+  installClientRuntime({ t: (key) => 'T:' + key })
+  const { ProfilePopover } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const calls = []
+  const handlers = { openSaveAs: () => calls.push('saveAs'), openManage: () => calls.push('manage') }
+  const onClose = (options) => calls.push(['close', options])
+  const tree = ProfilePopover({ store: profileSnapshot(), handlers, onClose })
+  assert.ok(byTestId(tree, 'session-groups-profile-footer'))
+  const saveAs = byTestId(tree, 'session-groups-profile-save-as')
+  const manage = byTestId(tree, 'session-groups-profile-manage')
+  assert.equal(saveAs.props.children, 'T:profiles.saveAs')
+  assert.equal(manage.props.children, 'T:profiles.manage')
+  assert.equal(saveAs.props.disabled, undefined)
+  saveAs.props.onClick({ stopPropagation() {} })
+  manage.props.onClick({ stopPropagation() {} })
+  assert.deepEqual(calls, [
+    ['close', { restoreFocus: true }],
+    'saveAs',
+    ['close', { restoreFocus: true }],
+    'manage',
+  ])
+
+  const degraded = ProfilePopover({
+    store: profileSnapshot({ profiles: { ...profileSnapshot().profiles, degraded: true } }),
+    handlers,
+    onClose: () => {},
+  })
+  assert.equal(byTestId(degraded, 'session-groups-profile-save-as').props.disabled, true)
+  assert.equal(byTestId(degraded, 'session-groups-profile-manage').props.disabled, true)
+
+  const busy = ProfilePopover({ store: profileSnapshot({ profileSwitching: true }), handlers, onClose: () => {} })
+  assert.equal(byTestId(busy, 'session-groups-profile-save-as').props.disabled, true)
+  assert.equal(byTestId(busy, 'session-groups-profile-manage').props.disabled, true)
+})
+
+test('ProfilePopover caps save-as at the profile limit but keeps manage reachable', async () => {
+  installClientRuntime({ t: (key, params) => (params ? `${key}:${params.max}` : 'T:' + key) })
+  const { ProfilePopover } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const list = Array.from({ length: 20 }, (_, index) => ({
+    id: `p${index}`,
+    name: `P${index}`,
+    groupCount: 0,
+    sessionCount: 0,
+    healthy: true,
+  }))
+  const tree = ProfilePopover({
+    store: profileSnapshot({ profiles: { ...profileSnapshot().profiles, activeId: 'p0', list } }),
+    handlers: {},
+    onClose: () => {},
+  })
+  const saveAs = byTestId(tree, 'session-groups-profile-save-as')
+  assert.equal(saveAs.props.disabled, true)
+  assert.equal(saveAs.props['data-limit'], 'true')
+  assert.equal(saveAs.props.title, 'profiles.limit:20')
+  assert.equal(byTestId(tree, 'session-groups-profile-manage').props.disabled, undefined)
+})
+
+test('profile dialog handlers build the copy name and request archived rows', async () => {
+  const dispatched = []
+  const refreshCalls = []
+  const store = profileSnapshot({ profiles: { ...profileSnapshot().profiles, activeId: 'work' } })
+  installClientRuntime({
+    t: (key) => 'T:' + key,
+    store: {
+      getSnapshot: () => store,
+      dispatch: (action, payload) => dispatched.push([action, payload]),
+    },
+    refreshProfiles: (options) => refreshCalls.push(options),
+  })
+  const { openSaveAs, openManage } = await import(
+    new URL('../../src/client/components-profile-dialogs.js', import.meta.url)
+  )
+  const t = (key) => ({ 'profiles.copySuffix': 'copy', 'profiles.defaultName': 'Default' })[key] ?? 'T:' + key
+  assert.equal(openSaveAs({ t }), 'Work copy')
+  assert.equal(dispatched[0][0], 'dialog')
+  assert.equal(dispatched[0][1].dialog.kind, 'profile-save-as')
+  assert.equal(dispatched[0][1].dialog.value, 'Work copy')
+
+  openManage({ t })
+  assert.equal(dispatched[1][1].dialog.kind, 'profile-manage')
+  assert.deepEqual(refreshCalls, [{ includeArchived: true, background: true }])
+
+  // Default profile has no stored name: the localized default name is the base.
+  store.profiles = { ...store.profiles, activeId: 'default', list: [{ id: 'default', name: null, groupCount: 0, sessionCount: 0 }] }
+  assert.equal(openSaveAs({ t }), 'Default copy')
+})
+
+test('DialogHost renders the save-as dialog with its copy preview and inline validation', async () => {
+  installClientRuntime({
+    t: (key, params) => (params ? `${key}:${params.groups}/${params.sessions}` : 'T:' + key),
+    store: { dispatch: () => {} },
+  })
+  const { DialogHost } = await import(new URL('../../src/client/dialog-host.js', import.meta.url))
+  const store = {
+    ...profileSnapshot(),
+    dialog: { kind: 'profile-save-as', titleKey: 'profiles.saveAs', value: 'Work copy' },
+  }
+  const tree = expand(DialogHost({ store, props: {}, sessionsById: {} }))
+  assert.equal(byTestId(tree, 'session-groups-dialog').props['data-kind'], 'profile-save-as')
+  assert.ok(byTestId(tree, 'session-groups-profile-save-as-dialog'))
+  const input = byTestId(tree, 'session-groups-profile-save-as-name')
+  assert.equal(input.props.value, 'Work copy')
+  assert.equal(input.props.maxlength, '40')
+  assert.equal(byTestId(tree, 'session-groups-profile-save-as-preview').props.children, 'profiles.createPreview:2/5')
+  const confirm = byTestId(tree, 'session-groups-profile-save-as-confirm')
+  assert.equal(confirm.props.disabled, undefined)
+  assert.equal(confirm.props.children, 'T:profiles.create')
+  assert.ok(byTestId(tree, 'session-groups-profile-save-as-cancel'))
+  assert.equal(byTestId(tree, 'session-groups-profile-dialog-error'), undefined)
+
+  const duplicate = expand(
+    DialogHost({
+      store: { ...store, dialog: { ...store.dialog, value: 'Work' } },
+      props: {},
+      sessionsById: {},
+    })
+  )
+  assert.equal(byTestId(duplicate, 'session-groups-profile-save-as-confirm').props.disabled, true)
+  assert.equal(
+    byTestId(duplicate, 'session-groups-profile-dialog-error').props.children,
+    'T:profiles.nameDuplicate'
+  )
+
+  const tooLong = expand(
+    DialogHost({
+      store: { ...store, dialog: { ...store.dialog, value: 'x'.repeat(41) } },
+      props: {},
+      sessionsById: {},
+    })
+  )
+  assert.equal(
+    byTestId(tooLong, 'session-groups-profile-dialog-error').props.children,
+    'T:profiles.nameInvalid'
+  )
+  assert.equal(byTestId(tooLong, 'session-groups-profile-save-as-confirm').props.disabled, true)
+
+  // Host-side rejection (e.g. a duplicate the stale list did not know about)
+  // lands in the same inline error slot through `dialog.error`.
+  const serverError = expand(
+    DialogHost({
+      store: {
+        ...store,
+        dialog: { ...store.dialog, value: 'Fresh', error: 'profiles.nameDuplicate', errorParams: null },
+      },
+      props: {},
+      sessionsById: {},
+    })
+  )
+  assert.equal(
+    byTestId(serverError, 'session-groups-profile-dialog-error').props.children,
+    'T:profiles.nameDuplicate'
+  )
+  assert.equal(byTestId(serverError, 'session-groups-profile-save-as-confirm').props.disabled, undefined)
+})
+
+test('save-as confirm calls the bridge createProfile with the trimmed name', async () => {
+  const created = []
+  const dispatched = []
+  const store = {
+    ...profileSnapshot(),
+    dialog: { kind: 'profile-save-as', titleKey: 'profiles.saveAs', value: '  Work copy  ' },
+  }
+  installClientRuntime({
+    t: (key) => 'T:' + key,
+    store: {
+      getSnapshot: () => store,
+      dispatch: (action, payload) => dispatched.push([action, payload]),
+    },
+    createProfile: async (payload) => {
+      created.push(payload)
+      return { ok: true }
+    },
+  })
+  const { DialogHost } = await import(new URL('../../src/client/dialog-host.js', import.meta.url))
+  const tree = expand(DialogHost({ store, props: {}, sessionsById: {} }))
+  byTestId(tree, 'session-groups-profile-save-as-confirm').props.onClick()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(created, [{ name: 'Work copy' }])
+  assert.deepEqual(dispatched, [])
+})
+
+test('DialogHost manage list marks active/archived rows and guards archive', async () => {
+  installClientRuntime({ t: (key) => 'T:' + key, store: { dispatch: () => {} } })
+  const { DialogHost } = await import(new URL('../../src/client/dialog-host.js', import.meta.url))
+  const store = {
+    ...profileSnapshot({
+      profiles: {
+        ...profileSnapshot().profiles,
+        activeId: 'work',
+        list: [
+          { id: 'default', name: 'Default', groupCount: 2, sessionCount: 5, updatedAt: '2026-11-01T00:00:00.000Z' },
+          { id: 'work', name: 'Work', groupCount: 1, sessionCount: 0, updatedAt: '2026-11-02T00:00:00.000Z' },
+          { id: 'side', name: 'Side', groupCount: 0, sessionCount: 3 },
+        ],
+        archivedList: [{ id: 'old', name: 'Old', groupCount: 0, sessionCount: 0, archived: true }],
+        limits: { max: 3 },
+      },
+    }),
+    dialog: { kind: 'profile-manage', titleKey: 'profiles.title' },
+  }
+  const tree = expand(DialogHost({ store, props: {}, sessionsById: {} }))
+  assert.equal(byTestId(tree, 'session-groups-dialog').props['data-kind'], 'profile-manage')
+  assert.ok(byTestId(tree, 'session-groups-profile-manage-dialog'))
+  assert.equal(byTestId(tree, 'session-groups-profile-manage-count').props.children, '3/3')
+  const rows = flatten(tree).filter((node) => node.props?.['data-testid'] === 'session-groups-profile-manage-row')
+  assert.equal(rows.length, 4)
+  assert.equal(rows[1].props['data-active'], 'true')
+  assert.equal(rows[3].props['data-archived'], 'true')
+  assert.ok(byTestId(rows[1], 'session-groups-profile-manage-current'))
+  assert.ok(byTestId(rows[3], 'session-groups-profile-manage-archived'))
+  assert.equal(byTestId(rows[3], 'session-groups-profile-rename'), undefined)
+  const archiveButtons = flatten(rows[1])
+    .concat(flatten(rows[0]))
+    .filter((node) => node.props?.['data-testid'] === 'session-groups-profile-archive')
+  assert.equal(archiveButtons[0].props.disabled, true)
+  assert.equal(archiveButtons[0].props.title, 'T:profiles.current')
+  assert.equal(archiveButtons[1].props.disabled, true)
+  assert.equal(archiveButtons[1].props.title, 'T:profiles.defaultName')
+  const sideRow = rows[2]
+  assert.equal(byTestId(sideRow, 'session-groups-profile-archive').props.disabled, undefined)
+  assert.ok(byTestId(tree, 'session-groups-profile-preview-reset'))
+})
+
+test('manage rows open the rename/archive dialogs and reset the switch preview', async () => {
+  const dispatched = []
+  const store = profileSnapshot({
+    profiles: {
+      ...profileSnapshot().profiles,
+      activeId: 'work',
+      list: [
+        { id: 'default', name: 'Default', groupCount: 2, sessionCount: 5 },
+        { id: 'work', name: 'Work', groupCount: 1, sessionCount: 0 },
+        { id: 'side', name: 'Side', groupCount: 0, sessionCount: 0 },
+      ],
+      archivedList: [{ id: 'old', name: 'Old', groupCount: 0, sessionCount: 0, archived: true }],
+    },
+  })
+  installClientRuntime({
+    t: (key) => 'T:' + key,
+    store: { getSnapshot: () => store, dispatch: (action, payload) => dispatched.push([action, payload]) },
+  })
+  const { ProfileManageBody } = await import(
+    new URL('../../src/client/components-profile-dialogs.js', import.meta.url)
+  )
+  const t = (key) => 'T:' + key
+  const rows = flatten(ProfileManageBody({ store, t })).filter(
+    (node) => node.props?.['data-testid'] === 'session-groups-profile-manage-row'
+  )
+  byTestId(rows[2], 'session-groups-profile-rename').props.onClick({ stopPropagation() {} })
+  assert.equal(dispatched[0][1].dialog.kind, 'profile-rename')
+  assert.equal(dispatched[0][1].dialog.profileId, 'side')
+  assert.equal(dispatched[0][1].dialog.value, 'Side')
+  assert.equal(dispatched[0][1].dialog.returnTo, 'profile-manage')
+  byTestId(rows[2], 'session-groups-profile-archive').props.onClick({ stopPropagation() {} })
+  assert.equal(dispatched[1][1].dialog.kind, 'profile-archive')
+  assert.equal(dispatched[1][1].dialog.profileName, 'Side')
+  assert.equal(dispatched[1][1].dialog.returnTo, 'profile-manage')
+
+  const memory = {
+    value: '0',
+    getItem() {
+      return this.value
+    },
+    setItem(key, value) {
+      this.value = value
+    },
+    removeItem() {
+      this.value = null
+    },
+  }
+  const body = ProfileManageBody({ store, t, storage: memory })
+  const reset = byTestId(body, 'session-groups-profile-preview-reset')
+  assert.equal(reset.props.defaultChecked, true)
+  reset.props.onChange({ target: { checked: false } })
+  assert.equal(memory.value, null)
+})
+
+test('rename and archive confirm dialogs reuse DialogHost chrome and return to manage', async () => {
+  const dispatched = []
+  installClientRuntime({
+    t: (key, params) => (params ? `${key}:${params.max}` : 'T:' + key),
+    store: { dispatch: (action, payload) => dispatched.push([action, payload]) },
+  })
+  const { DialogHost } = await import(new URL('../../src/client/dialog-host.js', import.meta.url))
+  const renameStore = {
+    ...profileSnapshot(),
+    dialog: {
+      kind: 'profile-rename',
+      titleKey: 'profiles.rename',
+      profileId: 'work',
+      profileName: 'Work',
+      value: 'Work',
+      returnTo: 'profile-manage',
+    },
+  }
+  const renameTree = expand(DialogHost({ store: renameStore, props: {}, sessionsById: {} }))
+  assert.equal(byTestId(renameTree, 'session-groups-dialog').props['data-kind'], 'profile-rename')
+  assert.equal(byTestId(renameTree, 'session-groups-profile-rename-name').props.value, 'Work')
+  assert.equal(
+    byTestId(renameTree, 'session-groups-profile-rename-confirm').props.children,
+    'T:profiles.rename'
+  )
+  byTestId(renameTree, 'session-groups-profile-rename-cancel').props.onClick()
+  assert.deepEqual(dispatched[0], ['dialog', { dialog: { kind: 'profile-manage', titleKey: 'profiles.title' } }])
+
+  const archiveStore = {
+    ...profileSnapshot(),
+    dialog: {
+      kind: 'profile-archive',
+      titleKey: 'profiles.archive',
+      profileId: 'side',
+      profileName: 'Side',
+      returnTo: 'profile-manage',
+      error: 'profiles.limit',
+      errorParams: { max: 20 },
+    },
+  }
+  const archiveTree = expand(DialogHost({ store: archiveStore, props: {}, sessionsById: {} }))
+  assert.equal(byTestId(archiveTree, 'session-groups-dialog').props['data-kind'], 'profile-archive')
+  assert.equal(byTestId(archiveTree, 'session-groups-profile-archive-confirm').props.children, 'T:profiles.archive')
+  const error = flatten(archiveTree).find((node) => node.props?.class === 'dsg-dialog-error')
+  assert.equal(error.props.children, 'profiles.limit:20')
+  const ordered = flatten(archiveTree).filter((node) =>
+    ['session-groups-profile-archive-cancel', 'session-groups-profile-archive-confirm'].includes(
+      node.props?.['data-testid']
+    )
+  )
+  assert.deepEqual(
+    ordered.map((node) => node.props['data-testid']),
+    ['session-groups-profile-archive-cancel', 'session-groups-profile-archive-confirm'],
+    'cancel must precede confirm so the confirm button is never the initial focus'
+  )
+})
+
+test('rename and archive confirm call the bridge with the trimmed name / target id', async () => {
+  const calls = []
+  const store = profileSnapshot()
+  installClientRuntime({
+    t: (key) => 'T:' + key,
+    store: { getSnapshot: () => store, dispatch: () => {} },
+    renameProfile: async (payload) => {
+      calls.push(['rename', payload])
+      return { ok: true }
+    },
+    archiveProfile: async (payload) => {
+      calls.push(['archive', payload])
+      return { ok: true }
+    },
+  })
+  const { DialogHost } = await import(new URL('../../src/client/dialog-host.js', import.meta.url))
+  const renameTree = expand(
+    DialogHost({
+      store: {
+        ...store,
+        dialog: {
+          kind: 'profile-rename',
+          titleKey: 'profiles.rename',
+          profileId: 'work',
+          value: '  Work renamed  ',
+          returnTo: 'profile-manage',
+        },
+      },
+      props: {},
+      sessionsById: {},
+    })
+  )
+  byTestId(renameTree, 'session-groups-profile-rename-confirm').props.onClick()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(calls[0], ['rename', { id: 'work', name: 'Work renamed' }])
+
+  const archiveTree = expand(
+    DialogHost({
+      store: {
+        ...store,
+        dialog: { kind: 'profile-archive', titleKey: 'profiles.archive', profileId: 'side', profileName: 'Side' },
+      },
+      props: {},
+      sessionsById: {},
+    })
+  )
+  byTestId(archiveTree, 'session-groups-profile-archive-confirm').props.onClick()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(calls[1], ['archive', { id: 'side' }])
+})

@@ -194,12 +194,14 @@ test('listProfiles gets the registry summary and forwards archived opt-in', asyn
   assert.equal(plain.activeId, 'default')
   assert.equal(plain.degraded, true)
   assert.equal(plain.profiles[0].groupCount, 2)
+  assert.deepEqual(plain.limits, { max: 20 })
   assert.equal(fetchImpl.calls[0].url, 'http://x/dsh-session-grove/profiles')
   assert.match(fetchImpl.calls[0].url, new RegExp(PROFILES_PATH))
 
   const archived = await api.listProfiles({ includeArchived: true })
   assert.equal(archived.ok, true)
   assert.equal(archived.profiles[0].archived, true)
+  assert.deepEqual(archived.limits, { max: 20 })
   assert.equal(fetchImpl.calls[1].url, 'http://x/dsh-session-grove/profiles?includeArchived=1')
 })
 

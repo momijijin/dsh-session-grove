@@ -180,7 +180,12 @@ const undoProfileSwitch = async ({ store, t }, previousId, previousName) => {
     notify({ kind: 'info', message: t('profiles.switching') })
     return
   }
-  const preview = await rt()?.previewProfile?.(previousId)
+  let preview
+  try {
+    preview = await rt()?.previewProfile?.(previousId)
+  } catch {
+    preview = { ok: false, code: 'network' }
+  }
   if (preview?.ok !== true) {
     notify({ kind: 'error', message: profileFailureMessage(t, preview?.code) })
     return
@@ -202,7 +207,12 @@ const recoverProfile = async ({ store, t }, targetId) => {
     notify({ kind: 'info', message: t('profiles.switching') })
     return
   }
-  const preview = await rt()?.previewProfile?.(targetId)
+  let preview
+  try {
+    preview = await rt()?.previewProfile?.(targetId)
+  } catch {
+    preview = { ok: false, code: 'network' }
+  }
   if (preview?.ok !== true) {
     notify({ kind: 'error', message: profileFailureMessage(t, preview?.code) })
     return
@@ -228,6 +238,7 @@ const beginProfileSwitch = async ({ store, t }, targetId) => {
     notify({ kind: 'info', message: t('profiles.switching') })
     return
   }
+  const epochAtStart = snapshot.profileEpoch ?? 0
   let result
   try {
     result = await rt()?.previewProfile?.(targetId)
@@ -238,7 +249,18 @@ const beginProfileSwitch = async ({ store, t }, targetId) => {
     notify({ kind: 'error', message: profileFailureMessage(t, result?.code) })
     return
   }
+  // S6 review carry #4: the preview window is user think-time. Re-check that no
+  // active-profile change (epoch) and no document write landed meanwhile; a
+  // stale activation would otherwise fire without any prompt.
   const latest = snapshotOf(store)
+  if ((latest.profileEpoch ?? 0) !== epochAtStart || latest.profileSwitching === true) {
+    notify({ kind: 'error', message: t('profiles.preview.staleRefresh') })
+    return
+  }
+  if (rt()?.isPending?.() === true) {
+    notify({ kind: 'info', message: t('profiles.switching') })
+    return
+  }
   const preview = latest.profilePreview ?? {}
   const sameContent = preview.doc ? sameDocs(latest.doc, preview.doc) : false
   // §7.6 `profilePreview.v1 === '0'` means "switch directly from now on": the
@@ -391,7 +413,11 @@ const profileItemCheck = (active, switchingHere) => {
 const ProfilePopover = ({ store, handlers, onClose }) => {
   const t = rt()?.t ?? ((key) => key)
   const profiles = store?.profiles ?? {}
-  const list = Array.isArray(profiles.list) ? profiles.list : []
+  // SPEC §5.3: the manage dialog's `includeArchived` read may fill the store, but
+  // the switcher menu only ever lists unarchived profiles.
+  const list = (Array.isArray(profiles.list) ? profiles.list : []).filter(
+    (profile) => profile?.archived !== true
+  )
   const activeId = profiles.activeId ?? store?.profileId ?? null
   const switching = store?.profileSwitching === true
   const previewLoading = store?.profilePreview?.loading === true
@@ -402,6 +428,12 @@ const ProfilePopover = ({ store, handlers, onClose }) => {
   const degraded = profiles.degraded === true
   const error = profiles.error ?? null
   const loading = profiles.loading === true
+  const limit = Number.isInteger(profiles.limits?.max) ? profiles.limits.max : 20
+  const atLimit = list.length >= limit
+  // A degraded registry or an explicit `registry-unhealthy` error disables every
+  // profile write (SPEC §9.2/§10); reads still render.
+  const registryUnhealthy = degraded || profiles.error?.code === 'registry-unhealthy'
+  const footerDisabled = registryUnhealthy || busy || profiles.available === false
   const children = []
   if (degraded) {
     children.push(
@@ -506,6 +538,51 @@ const ProfilePopover = ({ store, handlers, onClose }) => {
       )
     )
   }
+  // SPEC §9.2 footer (S7): save-as + manage sit below the divider. Both are
+  // disabled for a degraded registry or while a switch/write is in flight; the
+  // 20-profile cap only disables save-as (manage must stay reachable so a slot
+  // can be freed by archiving).
+  children.push(
+    h(
+      'div',
+      { key: 'footer', class: 'dsg-profile-footer', 'data-testid': 'session-groups-profile-footer' },
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'dsg-profile-footer-button',
+          'data-testid': 'session-groups-profile-save-as',
+          'data-limit': atLimit ? 'true' : 'false',
+          title: atLimit ? t('profiles.limit', { max: limit }) : t('profiles.saveAs'),
+          ...(footerDisabled || atLimit ? { disabled: true } : {}),
+          onClick: (event) => {
+            event.stopPropagation()
+            if (footerDisabled || atLimit) return
+            onClose?.({ restoreFocus: true })
+            handlers?.openSaveAs?.()
+          },
+        },
+        t('profiles.saveAs')
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'dsg-profile-footer-button',
+          'data-testid': 'session-groups-profile-manage',
+          title: t('profiles.manage'),
+          ...(footerDisabled ? { disabled: true } : {}),
+          onClick: (event) => {
+            event.stopPropagation()
+            if (footerDisabled) return
+            onClose?.({ restoreFocus: true })
+            handlers?.openManage?.()
+          },
+        },
+        t('profiles.manage')
+      )
+    )
+  )
   return h(
     'div',
     {
@@ -732,7 +809,7 @@ const ProfilePreviewBody = ({ store, t: tProp, byId }) => {
       nodes.push(
         h(
           'section',
-          { key: 'stale', class: 'dsg-profile-preview-section', 'data-section': 'stale' },
+          { key: 'stale-section', class: 'dsg-profile-preview-section', 'data-section': 'stale' },
           h('div', { class: 'dsg-profile-preview-section-title' }, t('profiles.preview.stale')),
           h(
             'div',
@@ -755,7 +832,7 @@ const ProfilePreviewBody = ({ store, t: tProp, byId }) => {
       h(
         'div',
         {
-          key: 'stale',
+          key: 'stale-notice',
           class: 'dsg-profile-preview-stale',
           role: 'status',
           'data-testid': 'session-groups-profile-preview-stale',
@@ -864,7 +941,10 @@ const ProfileRecovery = ({ store, t: tProp }) => {
         TextButton({
           label: profileLabel(profile),
           testId: 'session-groups-profile-recovery-item',
-          data: { 'data-profile-id': profile.id },
+          // React pulls `key` out of the createElement config; TextButton spreads
+          // `data` into that config, so the mapped row is keyed without an extra
+          // DOM wrapper (S6 review carry #3).
+          data: { key: profile.id, 'data-profile-id': profile.id },
           onClick: () => {
             void recoverProfile({ t }, profile.id)
           },

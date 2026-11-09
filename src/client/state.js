@@ -155,7 +155,14 @@ export const writeOnboardingDone = (storage = safeStorage()) => {
   }
 }
 
-/** Empty profile summary (SPEC §7.2); `available` flips only on a 404 probe. */
+/** Fallback profile cap when a legacy host omits `limits` (SPEC §5.3). */
+const DEFAULT_PROFILE_LIMIT = 20
+
+/**
+ * Empty profile summary (SPEC §7.2); `available` flips only on a 404 probe.
+ * `archivedList` is only filled by `includeArchived` reads (manage dialog) so a
+ * plain switcher refresh never drops the archived rows (SPEC §5.3/§9.5).
+ */
 const initialProfiles = () => ({
   available: true,
   loading: false,
@@ -163,6 +170,8 @@ const initialProfiles = () => ({
   registryRevision: 0,
   activeId: null,
   list: [],
+  archivedList: [],
+  limits: { max: DEFAULT_PROFILE_LIMIT },
   error: null,
 })
 
@@ -422,6 +431,11 @@ export const createStore = ({ storage = safeStorage() } = {}) => {
           : typeof payload.activeId === 'string' && payload.activeId !== ''
             ? payload.activeId
             : snapshot.profiles.activeId
+        const rows = Array.isArray(payload.list) ? payload.list : []
+        const includeArchived = payload.includeArchived === true
+        const max = Number.isInteger(payload.limits?.max) && payload.limits.max > 0
+          ? payload.limits.max
+          : snapshot.profiles.limits?.max ?? DEFAULT_PROFILE_LIMIT
         return publish({
           ...snapshot,
           profiles: {
@@ -434,7 +448,14 @@ export const createStore = ({ storage = safeStorage() } = {}) => {
                 ? payload.registryRevision
                 : snapshot.profiles.registryRevision,
             activeId,
-            list: Array.isArray(payload.list) ? payload.list : [],
+            // Default reads never contain archived rows; the manage dialog's
+            // opt-in read splits them into their own list so a later switcher
+            // refresh cannot wipe the rows it is showing.
+            list: includeArchived ? rows.filter((profile) => profile?.archived !== true) : rows,
+            archivedList: includeArchived
+              ? rows.filter((profile) => profile?.archived === true)
+              : snapshot.profiles.archivedList,
+            limits: { max },
             error: null,
           },
         })
@@ -459,6 +480,7 @@ export const createStore = ({ storage = safeStorage() } = {}) => {
             loading: false,
             degraded: false,
             list: [],
+            archivedList: [],
             error: null,
           },
         })
