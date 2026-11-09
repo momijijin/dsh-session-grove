@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0-beta.60 (multiple profiles, 2026-11-10)
 
 ### Multiple group profiles
 
@@ -12,10 +12,16 @@
 - Storage: `dsh-session-grove.profiles.json` registry plus one directory per named profile (`storages/profiles/<id>/`), each with its own `.bak`/`.lock`/quarantine family. The default record stays at `storages/dsh-session-grove.json`, `DOC_VERSION` stays 1, and no data is migrated.
 - Archiving writes only `archivedAt`; the document, backups and sessions are kept. Restoring an archived profile from the UI is not implemented yet.
 - AI control: `profileId` is optional for `state`/`resolve` (defaults to active) and required for `plan`/`apply` when several profiles exist; `planHash` is bound to the profile; HTTP idempotency keys are scoped as `${profileId}:${idempotencyKey}`; there is no activate/switch action; `doctor` reports the registry and per-profile health.
-- Profile switch preview layout: two-level hierarchy (group title plus indented `from → to` lines), `+`/`−`/`~` group markers and section/block/list dividers; the preview body scrolls internally (min 320 / max 560, width 560) so long diffs no longer break the dialog.
 - i18n: added 45 `profiles.*` keys to all 19 dictionaries (331 keys total).
-- Tests: 699 unit/contract tests, 39 UI runtime cases, and new profile flows in the manual isolated/all-locales/ui-runtime e2e specs. The manual profile evidence passed on 2026-11-09 on a community isolated host (`test:isolated`, `test:ui-browser`, `test:locale-pack`, `test:all-locales` 23/23); official-host profile evidence is still pending.
-- Not released yet: the version stays `0.4.0-beta.59` and there is no tag or GitHub Release for these profile/preview changes; the next beta is chosen at publish time.
+- Tests: 699 unit/contract tests, 39 UI runtime cases, and new profile flows in the manual isolated/all-locales/ui-runtime e2e specs. Community A+ profile evidence passed on 2026-11-09 against `.59` on an isolated host (`test:isolated`, `test:ui-browser`, `test:locale-pack`, `test:all-locales` 23/23); official A+ O profile evidence passed on 2026-11-10 against the `.60` tarball on the official isolated host (official DeepSeek Harness desktop 0.2.1.0 / DSH 0.2.1-rc.5; `test:isolated` plus a fresh-host `test:ui-browser` run at executedRatio 1; all-locales/LP were not re-run on `.60`, so `.59` 23/23 remains the latest); user desktop acceptance 2026-11-10.
+
+### Profile switch preview layout
+
+- Two-level hierarchy (group title plus indented `from → to` lines), `+`/`−`/`~` group markers and section/block/list dividers; the preview body scrolls internally (min 320 / max 560, width 560) so long diffs no longer break the dialog.
+
+### Release
+
+- Released 2026-11-10 as GitHub Release `v0.4.0-beta.60` with two assets (`dsh-session-grove-0.4.0-beta.60.tgz` + `SHA256SUMS`) and listed in dshmarket. The `.59` release evidence (529/529 unit/contract tests + 15 UI runtime cases) stays historical and is not mixed into this entry.
 
 ## 0.4.0-beta.59 (new-session follow)
 

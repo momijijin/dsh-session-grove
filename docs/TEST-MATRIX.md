@@ -1,6 +1,6 @@
 # Test Matrix
 
-Status: `0.4.0-beta.59`  
+Status: `0.4.0-beta.60`  
 This file is the single source of truth for **what has actually been verified**
 and at which level. Other docs should link here instead of restating counts.
 
@@ -13,18 +13,18 @@ manual local evidence: the release workflow does not start an isolated DSH
 instance or run Playwright, so a release note cannot claim A+ or all-locales as
 an automated CI result.
 
-Counts in this file describe the current `dev` tree unless a line says otherwise.
-The published `v0.4.0-beta.59` release was gated by 529/529 unit/contract tests
-and 15/15 UI runtime cases; the current `dev` tree (profiles + switch-preview
-layout fix, **unreleased**) runs 699 `npm test` tests and 39 `check:ui` cases.
-The dev counts must not be quoted as `.59` release evidence. The status line
-names the published package; dev-only work is marked explicitly.
+Counts in this file describe the published `0.4.0-beta.60` tree unless a line
+says otherwise. `v0.4.0-beta.60` was gated by 699/699 unit/contract tests, 39/39
+UI runtime cases (1 module-load + 38 component tests) and 1 browser runtime
+spec, with 331 locale keys. The previous `v0.4.0-beta.59` release was gated by
+529/529 unit/contract tests and 15/15 UI runtime cases; those `.59` numbers are
+historical and must not be quoted as `.60` evidence.
 
 ## Evidence levels
 
 | Code | Meaning |
 |---|---|
-| `U` | Unit/contract tests: `npm test` (699 tests on the current `dev` tree; 529 at the `.59` release) |
+| `U` | Unit/contract tests: `npm test` (699 tests at the `.60` release; 529 at the `.59` release) |
 | `A+ C` | Isolated Playwright, community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2` |
 | `A+ O` | Isolated Playwright, official DeepSeek Harness desktop 0.2.1.0 / DSH `0.2.1-rc.5` |
 | `LP` | Test-only all-locale pack (`e2e/fixtures/ja-locale-pack`): host catalog injection + active locale switch |
@@ -36,13 +36,31 @@ The default English A+ is `e2e/isolated.spec.mjs`; the language-pack A+ is
 every packaged dictionary and checks the header + new-group dialog + profile
 popover/preview copy and bounds.
 
-A+ C and A+ O cells were re-run on `0.4.0-beta.59`; LP was re-run on `0.4.0-beta.59`
-(community and official isolated hosts). Earlier `.22` and `.30` cells remain historical artifacts.
-The profile rows were re-run on 2026-11-09 on a community isolated host with the
-profile branch bundle: `test:isolated` PASS (save-as, preview, undo,
-rename/archive, dual-window active/`profile-changed` 409, scoped collapse, limit
-20), `test:ui-browser` PASS, `test:locale-pack` PASS and `test:all-locales`
-23/23 PASS. The official A+ O profile pass remains not run.
+The `.60` profile rows below come from two isolated runs plus user acceptance.
+The 2026-11-09 community isolated-host run on the profile candidate bundle
+passed `test:isolated` (save-as, preview, undo, rename/archive, dual-window
+active/`profile-changed` 409, scoped collapse, limit 20), `test:ui-browser`,
+`test:locale-pack` and `test:all-locales` 23/23. The 2026-11-10 official A+ O
+run used the official DeepSeek Harness desktop 0.2.1.0 / DSH `0.2.1-rc.5`
+isolated host and the `.60` tarball (SHA256
+`a27356f899d5b64f5c6134de0480428c4721d7403473f107c56a36b7225c5bc4`):
+`test:isolated` passed (exit 0, port 4419, test home
+`%TEMP%\dsh-sg-e2e-20261110-021019`; onboarding/search/drag/dialog/status/
+264px/dark/host rail/SSE/CAS/reconnect plus the profile flows) and
+`test:ui-browser` passed (exit 0, `executedRatio` 1, `executedBytes` 3091616,
+fresh official host, port 4420, test home
+`%TEMP%\dsh-sg-e2e-20261110-021259`). The first ui-browser attempt reused the
+A+ home and was blocked by the limit-20 profile state (save-as disabled); it was
+re-run on a fresh host, and that fresh-host PASS is the recorded evidence. Both
+isolated web processes were stopped; the test homes were left in place.
+
+The last full all-locales / locale-pack sweep is still the 2026-11-09 `.59` run
+(23/23); `.60` was not re-run through `test:locale-pack` / `test:all-locales`.
+No locale resources changed after that sweep, so it covers the 331-key
+dictionaries shipped in `.60`. The latest community A+ C release sweep is
+`.59`; the `.60` profile rows in the A+ C column come from the separate
+2026-11-09 profile-candidate run, and the latest official A+ O sweep is `.60`.
+Earlier `.22` and `.30` cells remain historical artifacts.
 
 ## Environment matrix
 
@@ -56,10 +74,10 @@ rename/archive, dual-window active/`profile-changed` 409, scoped collapse, limit
 | Third-party language activation (`ja`) | PASS | — | — | PASS | — |
 | All-locale switch: header + new-group dialog + group menu + settings/config + profile popover/preview (19 languages + zh-TW/zh-HK/zh-CN/pt-BR aliases) | PASS | — | — | PASS (23 cases) | — |
 | Arabic RTL smoke: root `dir`, menu/dialog viewport bounds, settings panel direction | PASS | — | — | PASS (23 cases + RTL screenshots) | PASS (visual review .39) |
-| Multiple profiles: create/save-as, switch + diff preview, same-content direct switch, rename/archive, limit 20, default restore | PASS | PASS (2026-11-09) | — | — | — |
-| Profile multi-window: SSE active convergence and `profile-changed` 409 | PASS | PASS (2026-11-09) | — | — | — |
-| Profile-scoped collapsed state, epoch reset and switch/undo/reset actions | PASS | PASS (2026-11-09) | — | — | — |
-| Profile UI: chevron/popover/preview/save-as/manage (39 UI runtime cases) | PASS | PASS (2026-11-09) | — | PASS (23 cases) | — |
+| Multiple profiles: create/save-as, switch + diff preview, same-content direct switch, rename/archive, limit 20, default restore | PASS | PASS (2026-11-09) | PASS (2026-11-10) | — | — |
+| Profile multi-window: SSE active convergence and `profile-changed` 409 | PASS | PASS (2026-11-09) | PASS (2026-11-10) | — | — |
+| Profile-scoped collapsed state, epoch reset and switch/undo/reset actions | PASS | PASS (2026-11-09) | PASS (2026-11-10) | — | — |
+| Profile UI: chevron/popover/preview/save-as/manage (39 UI runtime cases) | PASS | PASS (2026-11-09) | PASS (2026-11-10) | PASS (23 cases) | PASS (user desktop 2026-11-10) |
 | Profile i18n: 45 `profiles.*` keys × 19 dictionaries | PASS | — | — | PASS (23 cases) | — |
 | Full non-English UI surfaces | PASS (resources only) | — | — | LP header/dialog/group menu/settings + ja onboarding/dialog only | — |
 
@@ -133,7 +151,7 @@ plural rules are used for plural selection.
 | Onboarding card | U + English A+ C/O + ja LP | ja LP checks title/dismiss |
 | Settings/config form | U + English A+ C/O + all-locale settings smoke | all 23 cases check title/hint/controlApi/skill-repair copy |
 | Group menu / session menu | U + English A+ C/O | |
-| Profile chevron / popover / switch preview / save-as / manage | U + UI runtime (39 cases) + community A+ (2026-11-09) + LP (23 cases) | 45 keys × 19 dictionaries; the all-locales run checks chevron, popover and preview bounds; official A+ O not run |
+| Profile chevron / popover / switch preview / save-as / manage | U + UI runtime (39 cases) + community A+ (2026-11-09) + official A+ O (2026-11-10) + LP (23 cases) | 45 keys × 19 dictionaries; the all-locales run checks chevron, popover and preview bounds; official A+ O ran the profile save-as/preview/undo/rename/archive/limit flows in `test:isolated` |
 | Dialog titles/body | U + English A+ C/O + ja LP (new-group title) | |
 | Status labels and subagent count | U (including pl one/few/many/other) | UI uses one key + `{n}` |
 | Drag labels | U + English A+ C/O | |
@@ -144,13 +162,14 @@ plural rules are used for plural selection.
 
 ## Not verified
 
-- Profile flows have community A+ C, `test:ui-browser` and LP evidence
-  (2026-11-09) on the **unreleased** `dev` bundle, but **no official A+ O pass
-  for profiles** yet. The published `.59` release did pass official A+ O for the
-  pre-profile surfaces.
-- The profile two-window active/`profile-changed` path has community A+ C
-  coverage (one context, two pages); a cross-desktop or cross-process
-  multi-window run is still not recorded.
+- Profile flows in `.60` have community A+ C (2026-11-09), official A+ O
+  (2026-11-10, `test:isolated` + `test:ui-browser`), LP (2026-11-09) and user
+  desktop acceptance (2026-11-10) evidence. The official A+ O run is not a full
+  all-locales / locale-pack re-run: the latest 23/23 full-locale sweep is the
+  2026-11-09 `.59` run, and `.60` itself was not re-swept.
+- The profile two-window active/`profile-changed` path has community A+ C and
+  official A+ O coverage (one context, two pages); a cross-desktop or
+  cross-process multi-window run is still not recorded.
 - Full A+ remains English-only; Japanese has the onboarding/dialog fixture.
 - All 19 packaged dictionaries have header/dialog/group-menu/settings smoke
   coverage, not full-surface A+.
