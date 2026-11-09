@@ -9,7 +9,7 @@ A free-form grouping layer over the shipped DSH Desktop workspace/session sideba
 - session titles and archive state change only through explicit user actions or the opt-in `controlSessions` API;
 - `workspace.json` is never written.
 
-Current version: **0.4.0-beta.58**  
+Current version: **0.4.0-beta.59**  
 Primary support: **DSH core/API `@deepseek-ai/dsh` 0.2.1-rc.2 and 0.2.1-rc.5** (`engines.dsh: >=0.2.0-rc.2 <0.3.0`)  
 Verified shells: **community DSH Desktop Stable 2.0.18** (rc.2) and **official DeepSeek Harness desktop 0.2.1.0** (rc.5, isolated runtime A+)  
 Not supported or promised: **community DSH Desktop Beta** and **community DSH NEXT (`-next` channel)**
@@ -67,7 +67,7 @@ Beta and NEXT may happen to load the plugin, but their results are not a release
 - collapse and expand;
 - delete an empty leaf directly;
 - choose destinations for child sessions and child groups before deleting a non-empty group;
-- create a session inside a group using the inferred workspace; use the host UI for workspace switching or creating a new workspace.
+- create a session inside a group using the inferred workspace; before its first prompt it follows workspace switches back to that group, while the host still owns workspace switching/creation.
 
 ### Sessions
 
@@ -315,7 +315,7 @@ Only while `diagnostics` is on. It contains drag events, ids and timings, never 
 - writes use an in-process queue plus a short-lived `<record>.lock` file for cross-process serialization; stale locks are reclaimed after the owner PID dies or the lock is 30 seconds old;
 - large-list lazy rendering remains deferred; the current Ungrouped list is virtualized, but a collapsed subtree is still built by `buildRenderTree`;
 - the dshmarket catalog entry is not published yet; local tarball installs are for the beta period;
-- current release validation is **522 unit/contract tests + 15 UI runtime cases + 1 browser runtime spec**; the maintainer desktop pass is historical evidence, not a per-candidate CI artifact; `e2e/groups.spec.mjs` is a historical manual script, while the default scripted A+ is `e2e/isolated.spec.mjs` (run manually against an isolated host, not in CI). `npm run check:release` is the release-workflow-enforced structural release gate (version consistency, tag match, release note, bundle stamp, packaged paths); A+ and all-locales runs are manual local evidence, not CI artifacts.
+- current release validation is **529 unit/contract tests + 15 UI runtime cases + 1 browser runtime spec**; the maintainer desktop pass is historical evidence, not a per-candidate CI artifact; `e2e/groups.spec.mjs` is a historical manual script, while the default scripted A+ is `e2e/isolated.spec.mjs` (run manually against an isolated host, not in CI). `npm run check:release` is the release-workflow-enforced structural release gate (version consistency, tag match, release note, bundle stamp, packaged paths); A+ and all-locales runs are manual local evidence, not CI artifacts.
 
 ## Documentation
 
@@ -343,7 +343,7 @@ npm run check:release
 npm pack
 ```
 
-- `npm test`: 522 unit/contract tests;
+- `npm test`: 529 unit/contract tests;
 - `npm run check:style`: zero-dependency style guard (tabs/trailing whitespace/final newline)
 - `npm run check:lib`: rebuild and verify lib/ is current with src/
 - `npm run test:ui-browser`: real-browser UI runtime coverage (isolated host; manual)
@@ -358,7 +358,7 @@ npm pack
 - `scripts/qa/lifecycle-isolated.ps1`: isolated install → uninstall → reinstall with record hash preservation;
 - `scripts/qa/start-isolated-web.ps1` + `npm run test:isolated`: A+ isolated Playwright smoke, including two-window concurrent CAS (manual local evidence; the release workflow does not run it);
 - build artifact: `lib/client.js`;
-- package: `dsh-session-grove-0.4.0-beta.58.tgz`;
+- package: `dsh-session-grove-0.4.0-beta.59.tgz`;
 - release steps: `docs/RELEASE.md`;
 - historical test snapshot: `docs/TEST-RESULTS.md` (0.4.0-beta.13; current status is `docs/TEST-MATRIX.md`).
 
