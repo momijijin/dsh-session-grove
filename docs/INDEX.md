@@ -2,7 +2,9 @@
 
 ## Current documentation
 
-Use these for the current `0.4.0-beta.59` implementation:
+Use these for the current `0.4.0-beta.59` codebase (published 2026-11-09 as
+`v0.4.0-beta.59`, with two GitHub Release assets, and listed in dshmarket;
+`dev` also carries unreleased profile and switch-preview work):
 
 - [README](../README.md) — English default
 - [README.zh.md](../README.zh.md) — Chinese

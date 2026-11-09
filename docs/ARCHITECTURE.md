@@ -4,7 +4,7 @@
 支持宿主：`@deepseek-ai/dsh` 0.2.1-rc.2 / 0.2.1-rc.5  
 已验证壳：社区版 DSH Desktop **Stable** 2.0.18（rc.2）；官方 DeepSeek Harness 桌面版 0.2.1.0（rc.5，隔离 A+ + 桌面窗口验收）  
 明确不支持：社区版 DSH Desktop Beta、社区版 DSH NEXT（`-next`）  
-分发状态：dshmarket 目录条目发布前，使用本地 beta tarball。
+分发状态：已上架 dshmarket；GitHub Release 附件与本地 beta tarball 仅维护者/调试路径。`dev` 在 `.59` 之后另有未发布的 profiles 与预览布局修复。
 
 插件按洋葱圈分层，宿主升级时只改外圈。
 

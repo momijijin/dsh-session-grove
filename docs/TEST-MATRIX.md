@@ -7,17 +7,24 @@ and at which level. Other docs should link here instead of restating counts.
 Automated gates are `npm run check:style`, `npm run check:lib`, `npm test`,
 `npm run check:coverage` and `npm run check:ui` in CI, plus
 `npm run check:style`, `npm run check:lib`, `npm run check:ui` and
-`npm run check:release` in the release workflow. `check:ui` is 38 UI runtime cases (1 module-load + 37 component tests, covering
+`npm run check:release` in the release workflow. `check:ui` is 39 UI runtime cases (1 module-load + 38 component tests, covering
 17 components across 21 client modules) + 1 browser runtime spec, not full browser UI coverage. The A+ / LP rows below are
 manual local evidence: the release workflow does not start an isolated DSH
 instance or run Playwright, so a release note cannot claim A+ or all-locales as
 an automated CI result.
 
+Counts in this file describe the current `dev` tree unless a line says otherwise.
+The published `v0.4.0-beta.59` release was gated by 529/529 unit/contract tests
+and 15/15 UI runtime cases; the current `dev` tree (profiles + switch-preview
+layout fix, **unreleased**) runs 699 `npm test` tests and 39 `check:ui` cases.
+The dev counts must not be quoted as `.59` release evidence. The status line
+names the published package; dev-only work is marked explicitly.
+
 ## Evidence levels
 
 | Code | Meaning |
 |---|---|
-| `U` | Unit/contract tests: `npm test` (698 tests) |
+| `U` | Unit/contract tests: `npm test` (699 tests on the current `dev` tree; 529 at the `.59` release) |
 | `A+ C` | Isolated Playwright, community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2` |
 | `A+ O` | Isolated Playwright, official DeepSeek Harness desktop 0.2.1.0 / DSH `0.2.1-rc.5` |
 | `LP` | Test-only all-locale pack (`e2e/fixtures/ja-locale-pack`): host catalog injection + active locale switch |
@@ -52,7 +59,7 @@ rename/archive, dual-window active/`profile-changed` 409, scoped collapse, limit
 | Multiple profiles: create/save-as, switch + diff preview, same-content direct switch, rename/archive, limit 20, default restore | PASS | PASS (2026-11-09) | — | — | — |
 | Profile multi-window: SSE active convergence and `profile-changed` 409 | PASS | PASS (2026-11-09) | — | — | — |
 | Profile-scoped collapsed state, epoch reset and switch/undo/reset actions | PASS | PASS (2026-11-09) | — | — | — |
-| Profile UI: chevron/popover/preview/save-as/manage (38 UI runtime cases) | PASS | PASS (2026-11-09) | — | PASS (23 cases) | — |
+| Profile UI: chevron/popover/preview/save-as/manage (39 UI runtime cases) | PASS | PASS (2026-11-09) | — | PASS (23 cases) | — |
 | Profile i18n: 45 `profiles.*` keys × 19 dictionaries | PASS | — | — | PASS (23 cases) | — |
 | Full non-English UI surfaces | PASS (resources only) | — | — | LP header/dialog/group menu/settings + ja onboarding/dialog only | — |
 
@@ -126,7 +133,7 @@ plural rules are used for plural selection.
 | Onboarding card | U + English A+ C/O + ja LP | ja LP checks title/dismiss |
 | Settings/config form | U + English A+ C/O + all-locale settings smoke | all 23 cases check title/hint/controlApi/skill-repair copy |
 | Group menu / session menu | U + English A+ C/O | |
-| Profile chevron / popover / switch preview / save-as / manage | U + UI runtime (38 cases) + community A+ (2026-11-09) + LP (23 cases) | 45 keys × 19 dictionaries; the all-locales run checks chevron, popover and preview bounds; official A+ O not run |
+| Profile chevron / popover / switch preview / save-as / manage | U + UI runtime (39 cases) + community A+ (2026-11-09) + LP (23 cases) | 45 keys × 19 dictionaries; the all-locales run checks chevron, popover and preview bounds; official A+ O not run |
 | Dialog titles/body | U + English A+ C/O + ja LP (new-group title) | |
 | Status labels and subagent count | U (including pl one/few/many/other) | UI uses one key + `{n}` |
 | Drag labels | U + English A+ C/O | |
@@ -138,7 +145,9 @@ plural rules are used for plural selection.
 ## Not verified
 
 - Profile flows have community A+ C, `test:ui-browser` and LP evidence
-  (2026-11-09), but **no official A+ O pass** on this candidate.
+  (2026-11-09) on the **unreleased** `dev` bundle, but **no official A+ O pass
+  for profiles** yet. The published `.59` release did pass official A+ O for the
+  pre-profile surfaces.
 - The profile two-window active/`profile-changed` path has community A+ C
   coverage (one context, two pages); a cross-desktop or cross-process
   multi-window run is still not recorded.
