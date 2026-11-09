@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0-beta.58 (new-session cleanup)
+## 0.4.0-beta.59 (new-session cleanup)
 
 - Removed the non-released new-session dialog and workspace-picker compatibility work.
 - Group plus/context menu now creates/reuses a session in the inferred workspace; the host owns workspace switching and creation.
@@ -35,50 +35,50 @@
 
 - Added a manual real-browser UI runtime spec using the isolated host; it drives the main UI and records Chromium JS coverage for the bundled dsh-session-grove client.
 - Added `npm run test:ui-browser`; intentionally not CI because CI has no isolated DSH host. No A+ claim changed.
-- Tests: 522 unit/contract + 15 component runtime cases + 1 browser runtime spec.
+- Tests: 529 unit/contract + 15 component runtime cases + 1 browser runtime spec.
 
 ## 0.4.0-beta.52 (U2 closeout)
 
 - Added session MenuPopover and rename-group DialogHost runtime cases; U2 now covers 15 UI runtime cases (1 module-load + 14 component tests, 11 components).
 - No new production bug in this slice; existing 3 missing-import bugs remain covered.
-- Tests: 522 unit/contract + 15 UI runtime cases.
+- Tests: 529 unit/contract + 15 UI runtime cases.
 
 ## 0.4.0-beta.51 (header/row-status runtime slice)
 
 - Rendered Header with running/blocked/unread counts and new-group/toggle wiring; added current/running SessionRow state assertions.
 - UI runtime now has 13 cases (1 module-load + 12 component tests, covering 11 components).
-- Tests: 522 unit/contract + 13 UI runtime cases.
+- Tests: 529 unit/contract + 13 UI runtime cases.
 
 ## 0.4.0-beta.50 (menu/dialog/flat runtime slice)
 
 - Rendered non-null MenuPopover, DialogHost and FlatFallback; UI runtime now has 11 cases.
 - Fixed FlatFallback crash caused by a missing SessionStatusCell import (same missing-import class as Banner/SessionRow).
-- Tests: 522 unit/contract + 11 UI runtime cases.
+- Tests: 529 unit/contract + 11 UI runtime cases.
 
 ## 0.4.0-beta.49 (UI row/group runtime slice)
 
 - Rendered SessionRow and GroupNode under the test React peer; UI runtime now has 8 cases.
 - Fixed SessionRow archived-click crash caused by a missing toast import (same class of bug as Banner dispatch).
-- Tests: 522 unit/contract + 8 UI runtime cases.
+- Tests: 529 unit/contract + 8 UI runtime cases.
 
 ## 0.4.0-beta.48 (UI component runtime slice)
 
 - Rendered OnboardingCard, Banner, Rail, Toast and VirtualSpacer under the test React peer; 5 UI runtime cases total.
 - Fixed a real Banner bug: dismiss called an undefined dispatch and would throw on click; it now uses the command bridge.
-- Tests: 522 unit/contract + 5 UI runtime cases; no browser/A+ claim.
+- Tests: 529 unit/contract + 5 UI runtime cases; no browser/A+ claim.
 
 ## 0.4.0-beta.47 (UI runtime smoke gate)
 
 - Added a test-only React peer loader and `check:ui`: 19 client/UI modules are actually imported and their main component exports checked without a browser or production dependency.
 - CI/release workflow now run `npm run check:ui`; line coverage remains scoped to the existing logic gate, UI render coverage is the next step.
-- Tests: 522 unit/contract; UI smoke is a separate 1-case gate.
+- Tests: 529 unit/contract; UI smoke is a separate 1-case gate.
 
 ## 0.4.0-beta.46 (release gate hardening)
 
 - Release workflow now runs `check:coverage` + `check:release`, uploads a SHA256SUMS file, and only marks tags with a prerelease suffix as prerelease.
 - Added a zero-dependency release preflight for version/tag/release-note/bundle/packaged-path consistency, with 9 tests.
 - A+/all-locales remain documented manual evidence; the workflow does not fake them.
-- Tests: 522/522; no runtime/UI behavior change.
+- Tests: 529/529; no runtime/UI behavior change.
 
 ## 0.4.0-beta.45 (dead-export cleanup + guard)
 

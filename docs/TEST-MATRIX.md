@@ -1,6 +1,6 @@
 # Test Matrix
 
-Status: `0.4.0-beta.58`  
+Status: `0.4.0-beta.59`  
 This file is the single source of truth for **what has actually been verified**
 and at which level. Other docs should link here instead of restating counts.
 
@@ -28,7 +28,7 @@ The default English A+ is `e2e/isolated.spec.mjs`; the language-pack A+ is
 `e2e/locale-pack.spec.mjs`, and `e2e/all-locales.spec.mjs` switches through
 every packaged dictionary and checks the header + new-group dialog.
 
-A+ C and A+ O cells were re-run on `0.4.0-beta.58`; LP was re-run on `0.4.0-beta.58`
+A+ C and A+ O cells were re-run on `0.4.0-beta.59`; LP was re-run on `0.4.0-beta.59`
 (community and official isolated hosts). Earlier `.22` and `.30` cells remain historical artifacts.
 
 ## Environment matrix
