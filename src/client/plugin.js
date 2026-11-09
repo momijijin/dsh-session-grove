@@ -116,14 +116,36 @@ export const createPlugin = () => {
     }
   }
 
-  const notify = ({ kind = 'info', message = '' } = {}) => {
+  /**
+   * Show a transient toast (SPEC §7.8).
+   *
+   * A toast without an action keeps the original 2600ms path so every existing
+   * call is unchanged. An action (switch undo) keeps the toast for 5000ms,
+   * clears the timer when the action runs, and lets the action raise its own
+   * follow-up toast.
+   */
+  const notify = ({ kind = 'info', message = '', action = null } = {}) => {
     if (!store || !message) return
-    store.dispatch('toast', { toast: { kind, message } })
+    const actionTimerStop = () => {
+      if (toastTimer !== null) clearTimeout(toastTimer)
+      toastTimer = null
+    }
+    const storedAction = action
+      ? {
+          label: action.label,
+          duration: Number.isFinite(action.duration) ? action.duration : 5000,
+          onClick: (...args) => {
+            actionTimerStop()
+            action.onClick?.(...args)
+          },
+        }
+      : null
+    store.dispatch('toast', { toast: { kind, message, action: storedAction } })
     if (toastTimer !== null) clearTimeout(toastTimer)
     toastTimer = setTimeout(() => {
       toastTimer = null
       store?.dispatch('toast', { toast: null })
-    }, 2600)
+    }, storedAction ? storedAction.duration : 2600)
   }
 
   // --- floating drag label (V1 drag affordance; document-level overlay) ----
@@ -315,6 +337,20 @@ export const createPlugin = () => {
       profilesPromise = null
     })
     return profilesPromise
+  }
+
+  /**
+   * SPEC §7.5: another window switched the active profile. The change router
+   * suppresses this for a local switch (`isLocalSwitch`); here the refreshed
+   * list resolves the human name for the passive toast.
+   */
+  const announcePassiveSwitch = (activeId) => {
+    refreshProfiles({ background: true }).then((result) => {
+      const profiles = Array.isArray(result?.profiles) ? result.profiles : []
+      const profile = profiles.find((entry) => entry?.id === activeId)
+      const name = typeof profile?.name === 'string' && profile.name !== '' ? profile.name : activeId
+      notify({ kind: 'info', message: t('profiles.switchedElsewhere', { name }) })
+    })
   }
 
   /** Live session ids for the switch preview classification (SPEC §8.4). */
@@ -904,12 +940,14 @@ export const createPlugin = () => {
         refreshForced = true
         if (info.changed) {
           // The router already dispatched the reset (epoch/latest revision/doc
-          // state); read the new active document and registry list now.
+          // state); read the new active document and registry list now, then
+          // announce the passive switch with the resolved profile name.
           load()
+          announcePassiveSwitch(activeId)
         } else {
           load({ background: true })
+          refreshProfiles({ background: true })
         }
-        refreshProfiles({ background: true })
       },
       isLocalSwitch: (activeId) => profileSwitchTarget !== null && profileSwitchTarget === activeId,
       trace: (type, detail) => diagTrace(type, detail),

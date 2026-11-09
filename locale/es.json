@@ -311,5 +311,59 @@
   "status.subagentsRunning": {
     "one": "{n} subagente en ejecución",
     "other": "{n} subagentes en ejecución"
-  }
+  },
+  "profiles.open": "Cambiar de perfil de agrupación",
+  "profiles.title": "Perfiles de agrupación",
+  "profiles.defaultName": "Predeterminado",
+  "profiles.copySuffix": "copia",
+  "profiles.counts": {
+    "one": "{groups} grupo · {sessions} sesiones",
+    "other": "{groups} grupos · {sessions} sesiones"
+  },
+  "profiles.saveAs": "Guardar como perfil nuevo…",
+  "profiles.manage": "Gestionar perfiles…",
+  "profiles.switch": "Cambiar",
+  "profiles.current": "Actual",
+  "profiles.empty": "Aún no hay perfiles de agrupación",
+  "profiles.degraded": "El registro de perfiles está degradado. Los cambios de perfil están limitados; cambia a un perfil saludable para continuar.",
+  "profiles.limit": "Hasta {max} perfiles",
+  "profiles.nameLabel": "Nombre del perfil",
+  "profiles.namePlaceholder": "Nombre del perfil",
+  "profiles.nameInvalid": "Usa entre 1 y 40 caracteres.",
+  "profiles.nameDuplicate": "Ese nombre ya está en uso.",
+  "profiles.create": "Crear",
+  "profiles.createPreview": "Copia el perfil actual: {groups} grupos · {sessions} sesiones",
+  "profiles.rename": "Renombrar",
+  "profiles.archive": "Archivar",
+  "profiles.archiveConfirm": "Al archivarlo se oculta del selector y se conserva su archivo; no se elimina ninguna sesión y puedes restaurarlo manualmente.",
+  "profiles.archived": "Archivado",
+  "profiles.previewTitle": "Cambiar a «{name}»",
+  "profiles.previewSubtitle": "Actual: {current} · Destino: {target}",
+  "profiles.preview.groups": "Grupos",
+  "profiles.preview.sessions": "Sesiones agrupadas",
+  "profiles.preview.added": "Añadidos",
+  "profiles.preview.removed": "Eliminados",
+  "profiles.preview.changed": "Modificados",
+  "profiles.preview.reordered": "Orden modificado",
+  "profiles.preview.moved": "Movidas entre grupos",
+  "profiles.preview.newlyGrouped": "Recién agrupadas",
+  "profiles.preview.ungrouped": "Vuelven a sin grupo",
+  "profiles.preview.stale": "Referencias no válidas",
+  "profiles.preview.ungroupedWarning": {
+    "one": "{n} sesión volverá a «sin grupo».",
+    "other": "{n} sesiones volverán a «sin grupo»."
+  },
+  "profiles.preview.noDelete": "No se elimina nada; al volver atrás se restaura todo.",
+  "profiles.preview.disable": "Cambiar directamente a partir de ahora",
+  "profiles.preview.confirm": "Cambiar a este perfil",
+  "profiles.preview.staleRefresh": "Esta vista previa está desactualizada. Ciérrala y vuelve a seleccionar el perfil.",
+  "profiles.preview.truncated": {
+    "one": "{n} elemento más sin mostrar",
+    "other": "{n} elementos más sin mostrar"
+  },
+  "profiles.switched": "Cambiado a «{name}»",
+  "profiles.switchedElsewhere": "Otra ventana ha cambiado a «{name}»",
+  "profiles.undo": "Deshacer",
+  "profiles.switching": "Cambiando…",
+  "profiles.saveFailed": "No se pudo completar el cambio de perfil."
 }

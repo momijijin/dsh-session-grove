@@ -22,6 +22,7 @@ const componentUngrouped = readFileSync(new URL('../../src/client/components-ung
 const componentResize = readFileSync(new URL('../../src/client/components-resize-handle.js', import.meta.url), 'utf8')
 const componentSearch = readFileSync(new URL('../../src/client/components-search-box.js', import.meta.url), 'utf8')
 const componentHeader = readFileSync(new URL('../../src/client/components-header.js', import.meta.url), 'utf8')
+const componentProfiles = readFileSync(new URL('../../src/client/components-profiles.js', import.meta.url), 'utf8')
 const dialogHost = readFileSync(new URL('../../src/client/dialog-host.js', import.meta.url), 'utf8')
 const groupsViewWidth = readFileSync(new URL('../../src/client/groups-view-width.js', import.meta.url), 'utf8')
 const groupsViewState = readFileSync(new URL('../../src/client/groups-view-state.js', import.meta.url), 'utf8')
@@ -35,6 +36,7 @@ const components = [
   componentResize,
   componentSearch,
   componentHeader,
+  componentProfiles,
   dialogHost,
   groupsViewWidth,
   groupsViewState,
@@ -873,3 +875,79 @@ test('0.3.0-beta.74 session menu aligns move-up/down with the group menu', () =>
   assert.match(components, /const moveSessionStep = \(sessionId, delta\)/)
   assert.match(components, /assignSession\(latest, sessionId, container\.groupId, nextIndex\)/)
 })
+
+// ---------------------------------------------------------------------------
+// 0.4.0 multi-profile switch UI (SPEC §9.1-§9.3 / §9.6-§9.9)
+// ---------------------------------------------------------------------------
+test('0.4.0 profiles: header chevron is a fixed 24px target beside the title', () => {
+  const trigger = block('.dsg-profile-trigger {')
+  assert.match(trigger, /flex:\s*none/)
+  assert.match(trigger, /width:\s*24px/)
+  assert.match(trigger, /height:\s*24px/)
+  const menu = block('.dsg-profile-menu {')
+  assert.match(menu, /position:\s*relative/)
+  assert.match(menu, /display:\s*inline-flex/)
+  assert.match(menu, /flex:\s*none/)
+  const label = block('.dsg-header-label {')
+  assert.match(label, /min-width:\s*0/)
+  assert.match(label, /text-overflow:\s*ellipsis/)
+  assert.match(CSS, /\.dsg-root\[data-narrow="true"\] \.dsg-header-title \{ gap:\s*2px; \}/)
+  assert.match(componentProfiles, /renderGlyph\(h, 'chevronDown', 14\)/)
+  assert.match(componentProfiles, /'aria-haspopup': 'menu'/)
+  assert.match(componentProfiles, /'aria-expanded': open \? 'true' : 'false'/)
+  assert.match(componentProfiles, /'data-testid': 'session-groups-profile-trigger'/)
+  assert.match(componentHeader, /h\(ProfileMenu, \{/)
+  // The title must not clip the anchored popover anymore.
+  assert.equal(/\.dsg-header-title \{[^}]*overflow:\s*hidden/s.test(CSS), false)
+})
+
+test('0.4.0 profiles: popover mirrors view-options with left alignment and rows', () => {
+  const popover = block('.dsg-profile-popover {')
+  assert.match(popover, /left:\s*0/)
+  assert.match(popover, /right:\s*auto/)
+  assert.match(popover, /min-width:\s*220px/)
+  assert.match(popover, /max-width:\s*min\(300px/)
+  assert.match(popover, /max-height:\s*60vh/)
+  assert.match(popover, /overflow-y:\s*auto/)
+  assert.match(componentProfiles, /dsg-view-options-popover dsg-profile-popover/)
+  assert.match(componentProfiles, /role: 'menuitemradio'/)
+  assert.match(componentProfiles, /'aria-checked': active \? 'true' : 'false'/)
+  assert.match(componentProfiles, /'data-testid': 'session-groups-profile-item'/)
+  assert.match(componentProfiles, /t\('profiles\.counts'/)
+  assert.match(componentProfiles, /renderGlyph\(h, 'check', 14\)/)
+  assert.match(block('.dsg-profile-item[data-active="true"] {'), /font-weight:\s*600/)
+  assert.match(block('.dsg-profile-item:disabled {'), /opacity:\s*\.45/)
+  assert.match(CSS, /\.dsg-profile-warning \{/)
+  // SPEC §9.2 defers the save-as/manage footer to S7; the class exists for it.
+  assert.match(CSS, /\.dsg-profile-footer \{/)
+})
+
+test('0.4.0 profiles: preview dialog is wider, scrolls and reuses DialogHost chrome', () => {
+  assert.match(CSS, /\.dsg-dialog\[data-kind="profile-preview"\] \{ width:\s*min\(420px/)
+  assert.match(dialogHost, /dialog\.kind === 'profile-preview'/)
+  assert.match(dialogHost, /ProfilePreviewBody/)
+  assert.match(dialogHost, /ProfilePreviewActions/)
+  assert.match(dialogHost, /'aria-labelledby': 'dsg-dialog-title'/)
+  assert.match(componentProfiles, /'data-testid': 'session-groups-profile-preview'/)
+  assert.match(componentProfiles, /'data-testid': 'session-groups-profile-preview-confirm'/)
+  assert.match(componentProfiles, /'data-testid': 'session-groups-profile-preview-cancel'/)
+  assert.match(componentProfiles, /'data-testid': 'session-groups-profile-preview-disable'/)
+  assert.match(componentProfiles, /dsh-session-grove\.profilePreview\.v1/)
+  // DialogHost owns Escape/Tab; the profile module must not add its own dialog Escape.
+  assert.doesNotMatch(componentProfiles, /event\.key === 'Escape'/)
+  assert.match(componentProfiles, /profiles\.preview\.staleRefresh/)
+  assert.match(componentProfiles, /profiles\.preview\.ungroupedWarning/)
+  assert.match(componentProfiles, /slice\(0, 8\)/)
+  assert.match(CSS, /\.dsg-profile-preview-auto \{[^}]*margin-right:\s*auto/s)
+  assert.match(CSS, /\.dsg-root\[dir="rtl"\] \.dsg-profile-popover \{ left:\s*auto; right:\s*0; \}/)
+})
+
+test('0.4.0 profiles: toast action keeps the old text toast and adds a button', () => {
+  assert.match(sessionMenu, /session-groups-toast-action/)
+  assert.match(sessionMenu, /action\.onClick\?\.\(\)/)
+  assert.match(block('.dsg-toast-action {'), /text-decoration:\s*underline/)
+  assert.match(plugin, /duration:\s*Number\.isFinite\(action\.duration\) \? action\.duration : 5000/)
+  assert.match(plugin, /storedAction \? storedAction\.duration : 2600/)
+  assert.match(plugin, /profiles\.switchedElsewhere/)
+})
+

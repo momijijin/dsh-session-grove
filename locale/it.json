@@ -311,5 +311,59 @@
   "status.subagentsRunning": {
     "one": "{n} subagente in esecuzione",
     "other": "{n} subagenti in esecuzione"
-  }
+  },
+  "profiles.open": "Cambia profilo di raggruppamento",
+  "profiles.title": "Profili di raggruppamento",
+  "profiles.defaultName": "Predefinito",
+  "profiles.copySuffix": "copia",
+  "profiles.counts": {
+    "one": "{groups} gruppo · {sessions} sessioni",
+    "other": "{groups} gruppi · {sessions} sessioni"
+  },
+  "profiles.saveAs": "Salva come nuovo profilo…",
+  "profiles.manage": "Gestisci profili…",
+  "profiles.switch": "Cambia",
+  "profiles.current": "Attuale",
+  "profiles.empty": "Nessun profilo di raggruppamento",
+  "profiles.degraded": "Il registro dei profili è degradato. Le modifiche ai profili sono limitate; passa a un profilo integro per continuare.",
+  "profiles.limit": "Fino a {max} profili",
+  "profiles.nameLabel": "Nome del profilo",
+  "profiles.namePlaceholder": "Nome del profilo",
+  "profiles.nameInvalid": "Usa da 1 a 40 caratteri.",
+  "profiles.nameDuplicate": "Questo nome è già in uso.",
+  "profiles.create": "Crea",
+  "profiles.createPreview": "Copia il profilo attuale: {groups} gruppi · {sessions} sessioni",
+  "profiles.rename": "Rinomina",
+  "profiles.archive": "Archivia",
+  "profiles.archiveConfirm": "L’archiviazione lo nasconde dal selettore e conserva il file; nessuna sessione viene eliminata e puoi ripristinarlo manualmente.",
+  "profiles.archived": "Archiviato",
+  "profiles.previewTitle": "Passa a «{name}»",
+  "profiles.previewSubtitle": "Attuale: {current} · Destinazione: {target}",
+  "profiles.preview.groups": "Gruppi",
+  "profiles.preview.sessions": "Sessioni raggruppate",
+  "profiles.preview.added": "Aggiunti",
+  "profiles.preview.removed": "Rimossi",
+  "profiles.preview.changed": "Modificati",
+  "profiles.preview.reordered": "Ordine modificato",
+  "profiles.preview.moved": "Spostate tra gruppi",
+  "profiles.preview.newlyGrouped": "Nuovamente raggruppate",
+  "profiles.preview.ungrouped": "Torno a non raggruppate",
+  "profiles.preview.stale": "Riferimenti mancanti",
+  "profiles.preview.ungroupedWarning": {
+    "one": "{n} sessione tornerà tra quelle non raggruppate.",
+    "other": "{n} sessioni torneranno tra quelle non raggruppate."
+  },
+  "profiles.preview.noDelete": "Non viene eliminato nulla; tornando indietro si ripristina tutto.",
+  "profiles.preview.disable": "Passa direttamente d’ora in poi",
+  "profiles.preview.confirm": "Passa a questo profilo",
+  "profiles.preview.staleRefresh": "Questa anteprima è obsoleta. Chiudila e seleziona di nuovo il profilo.",
+  "profiles.preview.truncated": {
+    "one": "{n} altro elemento non mostrato",
+    "other": "{n} altri elementi non mostrati"
+  },
+  "profiles.switched": "Passato a «{name}»",
+  "profiles.switchedElsewhere": "Un’altra finestra è passata a «{name}»",
+  "profiles.undo": "Annulla",
+  "profiles.switching": "Cambio in corso…",
+  "profiles.saveFailed": "Impossibile completare la modifica del profilo."
 }

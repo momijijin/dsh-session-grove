@@ -311,5 +311,59 @@
   "status.subagentsRunning": {
     "one": "เอเจนต์ย่อย {n} รายการกำลังทำงาน",
     "other": "เอเจนต์ย่อย {n} รายการกำลังทำงาน"
-  }
+  },
+  "profiles.open": "สลับโปรไฟล์การจัดกลุ่ม",
+  "profiles.title": "โปรไฟล์การจัดกลุ่ม",
+  "profiles.defaultName": "ค่าเริ่มต้น",
+  "profiles.copySuffix": "สำเนา",
+  "profiles.counts": {
+    "one": "{groups} กลุ่ม · {sessions} เซสชัน",
+    "other": "{groups} กลุ่ม · {sessions} เซสชัน"
+  },
+  "profiles.saveAs": "บันทึกเป็นโปรไฟล์ใหม่…",
+  "profiles.manage": "จัดการโปรไฟล์…",
+  "profiles.switch": "สลับ",
+  "profiles.current": "ปัจจุบัน",
+  "profiles.empty": "ยังไม่มีโปรไฟล์การจัดกลุ่ม",
+  "profiles.degraded": "รีจิสทรีโปรไฟล์เสื่อมสภาพ การเปลี่ยนโปรไฟล์ถูกจำกัด โปรดสลับไปยังโปรไฟล์ที่ปกติเพื่อดำเนินการต่อ",
+  "profiles.limit": "สูงสุด {max} โปรไฟล์",
+  "profiles.nameLabel": "ชื่อโปรไฟล์",
+  "profiles.namePlaceholder": "ชื่อโปรไฟล์",
+  "profiles.nameInvalid": "ใช้ 1–40 อักขระ",
+  "profiles.nameDuplicate": "ชื่อนี้ถูกใช้แล้ว",
+  "profiles.create": "สร้าง",
+  "profiles.createPreview": "คัดลอกโปรไฟล์ปัจจุบัน: {groups} กลุ่ม · {sessions} เซสชัน",
+  "profiles.rename": "เปลี่ยนชื่อ",
+  "profiles.archive": "เก็บถาวร",
+  "profiles.archiveConfirm": "การเก็บถาวรจะซ่อนจากรายการสลับและเก็บไฟล์ไว้ ไม่มีการลบเซสชัน และคุณสามารถกู้คืนด้วยตนเองได้",
+  "profiles.archived": "เก็บถาวรแล้ว",
+  "profiles.previewTitle": "สลับไปที่ “{name}”",
+  "profiles.previewSubtitle": "ปัจจุบัน: {current} · เป้าหมาย: {target}",
+  "profiles.preview.groups": "กลุ่ม",
+  "profiles.preview.sessions": "เซสชันในกลุ่ม",
+  "profiles.preview.added": "เพิ่ม",
+  "profiles.preview.removed": "ลบ",
+  "profiles.preview.changed": "เปลี่ยน",
+  "profiles.preview.reordered": "ลำดับเปลี่ยน",
+  "profiles.preview.moved": "ย้ายระหว่างกลุ่ม",
+  "profiles.preview.newlyGrouped": "จัดกลุ่มใหม่",
+  "profiles.preview.ungrouped": "กลับไปยังไม่ได้จัดกลุ่ม",
+  "profiles.preview.stale": "การอ้างอิงไม่ถูกต้อง",
+  "profiles.preview.ungroupedWarning": {
+    "one": "{n} เซสชันจะกลับไปยังที่ไม่ได้จัดกลุ่ม",
+    "other": "{n} เซสชันจะกลับไปยังที่ไม่ได้จัดกลุ่ม"
+  },
+  "profiles.preview.noDelete": "ไม่มีสิ่งใดถูกลบ การสลับกลับจะคืนค่าทั้งหมด",
+  "profiles.preview.disable": "สลับโดยตรงจากนี้ไป",
+  "profiles.preview.confirm": "สลับไปยังโปรไฟล์นี้",
+  "profiles.preview.staleRefresh": "ตัวอย่างนี้ล้าสมัยแล้ว ปิดแล้วเลือกโปรไฟล์อีกครั้ง",
+  "profiles.preview.truncated": {
+    "one": "อีก {n} รายการไม่ถูกแสดง",
+    "other": "อีก {n} รายการไม่ถูกแสดง"
+  },
+  "profiles.switched": "สลับไปที่ “{name}” แล้ว",
+  "profiles.switchedElsewhere": "หน้าต่างอื่นสลับไปที่ “{name}”",
+  "profiles.undo": "เลิกทำ",
+  "profiles.switching": "กำลังสลับ…",
+  "profiles.saveFailed": "ไม่สามารถเปลี่ยนโปรไฟล์ให้เสร็จได้"
 }

@@ -13,6 +13,7 @@ import { dialogKeyboardDelta } from './dialog-keyboard.js'
 import { GroupListPicker } from './group-list-picker.js'
 import { ICON_GROUPS, renderGlyph, renderIcon } from './icons.js'
 import { ScrollArea } from './scroll-area.js'
+import { ProfilePreviewActions, ProfilePreviewBody } from './components-profiles.js'
 
 const h = createElement
 const dispatch = (action, payload) => rt()?.store.dispatch(action, payload)
@@ -28,7 +29,7 @@ const focusableIn = (element) =>
   )
 
 
-export const DialogHost = ({ store, props }) => {
+export const DialogHost = ({ store, props, sessionsById }) => {
   const dialog = store.dialog
   const t = rt()?.t
   const [value, setValue] = useState('')
@@ -51,6 +52,15 @@ export const DialogHost = ({ store, props }) => {
     const saved = readDialogGeometries()[dialog.kind]
     setDialogRect(saved ? clampDialogRect(saved, globalThis.innerWidth, globalThis.innerHeight) : null)
   }, [dialog?.kind])
+
+  // SPEC §9.3: Escape closes the preview through the generic dialog action; the
+  // preview target/token must be cleared with it, otherwise the next switch
+  // starts from a stale diff and disabled confirm.
+  useEffect(() => {
+    if (dialog) return
+    if (store?.profilePreview?.open !== true) return
+    dispatch('profile-preview-close')
+  }, [dialog, store?.profilePreview?.open])
 
   useEffect(() => {
     if (!dialog) {
@@ -147,9 +157,11 @@ export const DialogHost = ({ store, props }) => {
         borderHeight
     )
     const naturalHeight = laidOutHeight || Math.ceil(box.height) || 320
+    // SPEC §9.3: the switch preview is wider (420) than the standard 360.
+    const wideKind = dialog.kind === 'icon' || dialog.kind === 'profile-preview'
     setDialogRect(
       centeredDialogRect(
-        box.width || (dialog.kind === 'icon' ? 420 : 360),
+        box.width || (wideKind ? 420 : 360),
         naturalHeight || 320,
         globalThis.innerWidth,
         globalThis.innerHeight
@@ -381,9 +393,17 @@ export const DialogHost = ({ store, props }) => {
     saveDialogGeometry(dialog.kind, next)
   }
   const errorText = dialog.error ? t(dialog.error === 'name-required' ? 'dialog.namePlaceholder' : dialog.error) : null
-  const title = t(dialog.titleKey)
+  const isProfilePreview = dialog.kind === 'profile-preview'
+  const title = isProfilePreview
+    ? t('profiles.previewTitle', {
+        name: dialog.targetName ?? store?.profilePreview?.targetName ?? dialog.targetId ?? '',
+      })
+    : t(dialog.titleKey)
   const optionCheck = () => h('span', { class: 'dsg-dialog-option-check', 'aria-hidden': 'true' }, renderGlyph(h, 'check', 16))
   const bodyNodes = []
+  if (isProfilePreview) {
+    bodyNodes.push(h(ProfilePreviewBody, { store, t, byId: sessionsById }))
+  }
   if (dialog.kind === 'delete-group') {
     const options = deleteGroupOptions(store.doc, dialog.groupId)
     bodyNodes.push(
@@ -690,21 +710,27 @@ export const DialogHost = ({ store, props }) => {
       ),
       h(
         'div',
-        { class: 'dsg-dialog-actions' },
-        h('button', { type: 'button', class: 'dsg-dialog-cancel', 'data-testid': 'session-groups-dialog-cancel', onClick: close }, t('dialog.cancel')),
-        h(
-          'button',
-          {
-            type: 'button',
-            class: 'dsg-dialog-confirm',
-            'data-testid': 'session-groups-dialog-confirm',
-            'data-variant': danger ? 'danger' : 'primary',
-            disabled: !canConfirm,
-            onClick: () =>
-              confirm(needsInput ? { value: value.trim() } : selectable ? dialogConfirmPayload(dialog, selection) : {}),
-          },
-          danger ? (dialog.kind === 'delete-group' ? t('dialog.moveAndDelete') : t('dialog.stopAndArchive')) : t('dialog.confirm')
-        )
+        { class: isProfilePreview ? 'dsg-dialog-actions dsg-profile-preview-actions' : 'dsg-dialog-actions' },
+        ...(isProfilePreview
+          ? // SPEC §9.3 footer: [x] switch directly / Cancel / Switch. Confirm is
+            // never the initial focus target; DialogHost focuses the checkbox.
+            ProfilePreviewActions({ store, t })
+          : [
+              h('button', { type: 'button', class: 'dsg-dialog-cancel', 'data-testid': 'session-groups-dialog-cancel', onClick: close }, t('dialog.cancel')),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  class: 'dsg-dialog-confirm',
+                  'data-testid': 'session-groups-dialog-confirm',
+                  'data-variant': danger ? 'danger' : 'primary',
+                  disabled: !canConfirm,
+                  onClick: () =>
+                    confirm(needsInput ? { value: value.trim() } : selectable ? dialogConfirmPayload(dialog, selection) : {}),
+                },
+                danger ? (dialog.kind === 'delete-group' ? t('dialog.moveAndDelete') : t('dialog.stopAndArchive')) : t('dialog.confirm')
+              ),
+            ])
       ),
       ...['n', 'e', 's', 'w', 'ne', 'nw', 'se', 'sw'].map((dir) => {
         const keyboardResizable = dir === 'se'
