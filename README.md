@@ -174,7 +174,8 @@ Profile metadata and additional profile documents:
 
 - writes use revision comparison and a serialized queue;
 - conflicts load the latest revision;
-- a corrupt record is quarantined first; a valid `.bak` is restored automatically, otherwise the plugin starts with an empty document;
+- the `default` profile keeps the legacy healing `load()` semantics at `/load`: a corrupt or invalid record is quarantined first, a valid `.bak` is restored automatically, and otherwise the plugin serves a healthy empty document with a warning (200); a missing file is a healthy empty document;
+- a named active profile is only probed read-only at `/load` (`peek`): a corrupt, invalid or missing document returns `409 profile-unhealthy` / `profile-missing` without quarantining, restoring a `.bak` or writing an empty document, while the UI shows a recovery strip that can switch to a healthy profile and the files stay on disk. A damaged named profile is never silently served as empty groups; for named profiles `.bak` restore/quarantine happens only on the healing `load()` path used by writes and control/native-tool reads;
 - a single-slot `.bak` is kept before successful commits;
 - the registry keeps `activeId` and one revision, so every window agrees on the active profile;
 - each profile has its own `.bak`, `.lock` and quarantine family; damage in one profile cannot overwrite or be counted against another;
@@ -271,7 +272,7 @@ The native tool and the HTTP control routes accept an optional `profileId`:
 - there is no `activate`/`switch` action: AI can read and write a selected profile's groups but cannot change which profile the user is viewing;
 - the native tool has no apply replay cache; HTTP `/control/apply` keys its `idempotencyKey` cache as `${profileId}:${idempotencyKey}`, so the same key can be reused for another profile;
 - `doctor` adds `storage.registry` and `storage.profiles[]` (`id`/`name`/`archived`/`healthy`/`revision`/`backupStatus`) to its read-only report;
-- the CLI adds `--profile`: `state`/`resolve`/`doctor` may omit it (active), `plan`/`apply` require it when multiple profiles exist.
+- the CLI accepts `--profile` only for `state`/`resolve`/`plan`/`apply`: `state` and `resolve` may omit it (active profile), `plan`/`apply` require it when multiple profiles exist; `doctor` and the session actions are host-scoped and reject `--profile` with a usage error.
 
 ### Copy-paste AI prompts
 
@@ -355,7 +356,7 @@ Only while `diagnostics` is on. It contains drag events, ids and timings, never 
 - the active profile is global to the DSH instance; an independent active profile per window is not implemented, so every window follows the same switch;
 - archived profiles are shown read-only in **Manage**; a restore UI is not implemented (the profile can only be un-archived by editing its registry entry);
 - AI control can read and write a selected profile but cannot activate one;
-- the switch preview is bound to a `previewToken`: if another window switches or edits the active/target profile while the preview is open, the confirm button is disabled and the preview must be reopened; extremely narrow windows rely on viewport clamping and vertical scrolling for long diff lists;
+- the switch preview token is derived from the active, target and registry revisions. A switch performed in another window closes an open preview; if the active/target document or the registry changes while the preview is open, confirming returns `409 preview-stale`, the preview is marked stale and the confirm button is disabled until the preview is reopened (the host keeps rejecting the old token); extremely narrow windows rely on viewport clamping and vertical scrolling for long diff lists;
 - **Manage** refreshes the list after rename without forcing the archived-row read (the archive path forces it); a stale response can briefly hide the new archived row until the dialog is reopened;
 - `profiles.counts` uses one CLDR plural template for groups and sessions; a few languages can show an approximate noun form (for example English "1 sessions"); splitting it into separate `countsGroups` / `countsSessions` keys is deferred;
 - search returns at most 20 matches and matches titles/workspaces/group paths only;

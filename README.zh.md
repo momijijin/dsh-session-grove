@@ -180,7 +180,8 @@ dsh-session-grove
 
 - 写入使用 revision 比较与串行队列
 - 冲突时加载最新版本
-- 损坏文件会先隔离原文件；若 `.bak` 有效则自动恢复上一版并提示，否则该配置降级为空分组
+- `default` 配置的 `/load` 沿用旧的 `load()` 恢复语义：损坏或非法记录会先隔离，`.bak` 有效时自动恢复，否则返回健康空文档并带 warning（200）；文件缺失也视为健康空文档
+- active 为命名配置时，`/load` 只做只读探测（`peek`）：文档损坏、非法或缺失会返回 `409 profile-unhealthy` / `profile-missing`，不隔离、不恢复 `.bak`、不写空文档；界面显示恢复条（recovery strip），可切换到健康配置，原文件保留在磁盘上。命名配置不会静默降级为空分组；命名配置的 `.bak` 恢复/隔离只发生在写路径与控制/原生工具读取所用的 `load()` 路径
 - 成功提交前保留单槽 `.bak` 备份
 - registry 保存 `activeId` 与一个 revision，所有窗口对 active 配置保持一致
 - 每个配置有独立的 `.bak`、`.lock` 和隔离文件族；一个配置损坏不会覆盖或误计到另一个配置
@@ -284,7 +285,7 @@ doctor
 - 不提供 `activate`/`switch` 动作：AI 可读写指定配置的分组，但不能改变用户当前查看的配置；
 - 原生工具没有 apply 重放缓存；HTTP `/control/apply` 的 `idempotencyKey` 缓存键为 `${profileId}:${idempotencyKey}`，同一个 key 可在不同配置复用；
 - `doctor` 的只读报告新增 `storage.registry` 与 `storage.profiles[]`（`id`/`name`/`archived`/`healthy`/`revision`/`backupStatus`）；
-- CLI 新增 `--profile`：`state`/`resolve`/`doctor` 可省略（用 active），`plan`/`apply` 在多配置时必须提供。
+- CLI 的 `--profile` 只适用于 `state`/`resolve`/`plan`/`apply`：`state` 与 `resolve` 可省略（用 active），`plan`/`apply` 在多配置时必须提供；`doctor` 与会话动作是 host-scoped 的，传 `--profile` 会以 usage 错误拒绝。
 
 ### 可直接复制的 AI 提示词
 
@@ -370,7 +371,7 @@ node scripts/session-grove-control.mjs doctor
 - active 配置对 DSH 实例全局生效；“每个窗口独立 active”未实现，所有窗口跟随同一个切换。
 - 归档配置在“管理配置”中只读展示；恢复 UI 未实现（目前只能改 registry 里的 `archivedAt`）。
 - AI 控制可以读写指定配置，但不能切换 active 配置。
-- 切换预览绑定 `previewToken`：预览期间若其他窗口切换了 active 或改动了目标配置，确认按钮会被禁用，需要重新打开预览；极窄窗口下预览弹窗按视口 clamp，长差异列表需要纵向滚动。
+- 切换预览的 token 由 active、目标和 registry 三个 revision 派生：其他窗口切换 active 会关闭本窗口已打开的预览；预览期间 active/目标文档或 registry 变化时，点击确认会收到 `409 preview-stale`，预览被标记为过期、确认按钮禁用，必须重新打开预览，宿主仍会拒绝旧 token；极窄窗口下预览弹窗按视口 clamp，长差异列表需要纵向滚动。
 - 重命名后“管理配置”列表刷新不走强制归档行读取（归档路径是强制的）；旧响应可能短暂隐藏新归档行，重新打开弹窗即恢复。
 - `profiles.counts` 用同一个 CLDR 复数模板显示分组数与会话数；少数语言会出现近似的名词形式（例如英文 “1 sessions”）；后续应拆分为 `countsGroups` / `countsSessions` 两个键，当前仍为 deferred。
 - 写入使用进程内队列 + 短生命周期 `<record>.lock` 文件做跨进程串行化；持有者 PID 消失或锁文件超过 30 秒时会自动回收。
