@@ -6,10 +6,18 @@
  * reads the record, its `.bak`, and the quarantine family.
  */
 import { readFile, readdir } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 
 import { DOC_VERSION } from '../shared/constants.js'
 import { normalizeColorHex, validateDoc } from '../shared/model.js'
+import {
+  DEFAULT_PROFILE_ID,
+  PROFILES_DIR_NAME,
+  RECORD_FILE_NAME,
+  REGISTRY_FILE_NAME,
+  REGISTRY_VERSION,
+} from './constants.js'
+import { isProfileId, validateRegistry } from './profile-registry.js'
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 
@@ -124,3 +132,212 @@ export const inspectStorageHealth = async (filePath) => {
   result.error = primary.error
   return result
 }
+
+const errorText = (error) => (error instanceof Error ? error.message : String(error))
+
+/** Registry statuses that make profile writes answer `registry-unhealthy`. */
+const DEGRADED_REGISTRY_STATUSES = new Set(['corrupt', 'invalid', 'unsupported-version', 'unreadable'])
+
+/**
+ * Classify one registry body without touching the filesystem.
+ * @param {string} text
+ */
+const classifyRegistryText = (text) => {
+  let parsed
+  try {
+    parsed = JSON.parse(text)
+  } catch (error) {
+    return {
+      status: 'corrupt',
+      revision: null,
+      activeId: null,
+      profileCount: 0,
+      error: errorText(error),
+      registry: null,
+    }
+  }
+  if (!isObject(parsed)) {
+    return {
+      status: 'corrupt',
+      revision: null,
+      activeId: null,
+      profileCount: 0,
+      error: 'registry is not a JSON object',
+      registry: null,
+    }
+  }
+  const revision = Number.isInteger(parsed.revision) ? parsed.revision : null
+  const activeId = typeof parsed.activeId === 'string' ? parsed.activeId : null
+  const profileCount = Array.isArray(parsed.profiles) ? parsed.profiles.length : 0
+  if (typeof parsed.version === 'number' && parsed.version > REGISTRY_VERSION) {
+    return {
+      status: 'unsupported-version',
+      revision,
+      activeId,
+      profileCount,
+      error: `registry version ${String(parsed.version)} is newer than ${String(REGISTRY_VERSION)}`,
+      registry: null,
+    }
+  }
+  if (parsed.version !== REGISTRY_VERSION) {
+    return {
+      status: 'invalid',
+      revision,
+      activeId,
+      profileCount,
+      error: `version must be ${String(REGISTRY_VERSION)} (got ${JSON.stringify(parsed.version)})`,
+      registry: null,
+    }
+  }
+  const verdict = validateRegistry(parsed)
+  if (!verdict.ok) {
+    return {
+      status: 'invalid',
+      revision,
+      activeId,
+      profileCount,
+      error: verdict.errors.join('; '),
+      registry: null,
+    }
+  }
+  return { status: 'ok', revision, activeId, profileCount, error: null, registry: parsed }
+}
+
+/** Read one registry file (or its absence) without mutating it. */
+const inspectRegistryFile = async (path) => {
+  try {
+    return { exists: true, ...classifyRegistryText(await readFile(path, 'utf8')) }
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return {
+        exists: false,
+        status: 'missing',
+        revision: null,
+        activeId: null,
+        profileCount: 0,
+        error: null,
+        registry: null,
+      }
+    }
+    return {
+      exists: true,
+      status: 'unreadable',
+      revision: null,
+      activeId: null,
+      profileCount: 0,
+      error: errorText(error),
+      registry: null,
+    }
+  }
+}
+
+/** Inspect the live registry, its `.bak`, and its quarantine family read-only. */
+const inspectRegistryFamily = async (filePath) => {
+  const backup = await inspectRegistryFile(`${filePath}.bak`)
+  let quarantined = 0
+  try {
+    const prefix = `${basename(filePath, '.json')}.corrupt-`
+    const entries = await readdir(dirname(filePath))
+    quarantined = entries.filter((name) => name.startsWith(prefix) && name.endsWith('.json')).length
+  } catch {
+    quarantined = 0
+  }
+  const primary = await inspectRegistryFile(filePath)
+  return { primary, backup, quarantined }
+}
+
+const registryHealthOf = ({ primary, backup, quarantined }) => ({
+  status: primary.status,
+  revision: primary.revision,
+  activeId: primary.activeId,
+  profileCount: primary.profileCount,
+  degraded: DEGRADED_REGISTRY_STATUSES.has(primary.status),
+  error: primary.error,
+  backup: backup.exists,
+  backupStatus: backup.status,
+  backupRevision: backup.revision,
+  backupError: backup.error,
+  quarantined,
+})
+
+/**
+ * Inspect `dsh-session-grove.profiles.json` read-only.
+ * @param {string} filePath
+ */
+const inspectProfileRegistry = async (filePath) => registryHealthOf(await inspectRegistryFamily(filePath))
+
+const listProfileDirs = async (profilesDir) => {
+  try {
+    const entries = await readdir(profilesDir, { withFileTypes: true })
+    return entries
+      .filter((entry) => entry.isDirectory() && isProfileId(entry.name))
+      .map((entry) => entry.name)
+      .sort()
+  } catch (error) {
+    if (error?.code === 'ENOENT') return []
+    throw error
+  }
+}
+
+/**
+ * Inspect the registry plus every profile document read-only (SPEC 4.8/6.1).
+ *
+ * Profiles come from the registry when it is parseable; otherwise every
+ * `profiles/<id>/` directory is listed and flagged as an orphan. The default
+ * profile is always reported. No file is created, moved, or quarantined.
+ *
+ * @param {{ storageDir: string, registryFilePath?: string, defaultRecordPath?: string }} options
+ */
+const inspectProfileStorage = async (options = {}) => {
+  const { storageDir, registryFilePath, defaultRecordPath } = options
+  if (typeof storageDir !== 'string' || storageDir.length === 0) {
+    throw new Error('inspectProfileStorage: storageDir is required')
+  }
+  const root = resolve(storageDir)
+  const registryPath = resolve(registryFilePath ?? join(root, REGISTRY_FILE_NAME))
+  const defaultPath = resolve(defaultRecordPath ?? join(root, RECORD_FILE_NAME))
+  const profilesDir = join(root, PROFILES_DIR_NAME)
+
+  const family = await inspectRegistryFamily(registryPath)
+  const registry = registryHealthOf(family)
+  const registered =
+    family.primary.status === 'ok' && family.primary.registry !== null ? family.primary.registry.profiles : []
+  const known = new Map(registered.map((profile) => [profile.id, profile]))
+  const onDisk = await listProfileDirs(profilesDir)
+
+  const profiles = []
+  const seen = new Set()
+  const add = async (id, entry, orphan) => {
+    if (seen.has(id)) return
+    seen.add(id)
+    const filePath = id === DEFAULT_PROFILE_ID ? defaultPath : join(profilesDir, id, RECORD_FILE_NAME)
+    const health = await inspectStorageHealth(filePath)
+    profiles.push({
+      id,
+      name: typeof entry?.name === 'string' ? entry.name : null,
+      archived: entry?.archivedAt != null,
+      healthy: health.status === 'ok',
+      status: health.status,
+      revision: health.revision,
+      error: health.error,
+      backupStatus: health.backupStatus,
+      quarantined: health.quarantined,
+      orphan,
+    })
+  }
+
+  await add(
+    DEFAULT_PROFILE_ID,
+    known.get(DEFAULT_PROFILE_ID) ?? { id: DEFAULT_PROFILE_ID, name: null, archivedAt: null },
+    false,
+  )
+  for (const profile of registered) {
+    if (profile.id !== DEFAULT_PROFILE_ID) await add(profile.id, profile, false)
+  }
+  for (const id of onDisk) {
+    if (id !== DEFAULT_PROFILE_ID && !known.has(id)) await add(id, { id, name: null, archivedAt: null }, true)
+  }
+  return { registry, profiles }
+}
+
+export { inspectProfileRegistry, inspectProfileStorage }
