@@ -32,7 +32,7 @@ import { COMMIT_PATH, DEBUG_PATH, DIAGNOSTICS_PATH, LOAD_PATH, MAX_BODY_BYTES, M
 import { fenceRequest, probeConnection } from './fence.js'
 import { logInfo, logWarn } from './log.js'
 
-import { sendJson, sendEmpty, sendMethodNotAllowed, contentTypeOf, readBoundedBody, controlPlanHash, unexpectedControlField, loadResponse, commitResponse, parseCommitBody, parseDiagnosticsBody, profileFailureResponse, profileChangedResponse, registryUnhealthyResponse, profileHealth } from './route-contract.js'
+import { sendJson, sendEmpty, sendMethodNotAllowed, contentTypeOf, readBoundedBody, unexpectedControlField, loadResponse, commitResponse, parseCommitBody, parseDiagnosticsBody, profileFailureResponse, profileChangedResponse, registryUnhealthyResponse, profileHealth } from './route-contract.js'
 export { loadResponse, commitResponse, parseCommitBody, parseDiagnosticsBody } from './route-contract.js'
 
 const isProfileManager = (value) =>
@@ -95,8 +95,8 @@ export const registerRoutes = (ctx, store, options = {}) => {
   // adapter keeps the historical route set (no /profiles surface at all).
   const manageProfiles =
     suppliedManager !== null && typeof suppliedManager.registry?.createProfile === 'function'
-  // The control routes still operate on the default document in S3a; S4 scopes
-  // them per profile. The store identity is stable (manager cache).
+  // Legacy load/commit paths keep the default store; the control routes resolve
+  // their target store per request through the manager (SPEC 6.1).
   const defaultStore = profileManager.storeFor(DEFAULT_PROFILE_ID)
   const diagnosticsFilePath =
     typeof options.diagnosticsFilePath === 'string' && options.diagnosticsFilePath.length > 0
@@ -547,7 +547,7 @@ export const registerRoutes = (ctx, store, options = {}) => {
   let eventsPath = null
   const controlRoutes = registerControlRoutes({
     register,
-    store: defaultStore,
+    profileManager,
     ctx,
     options,
     changeHub,
@@ -562,7 +562,6 @@ export const registerRoutes = (ctx, store, options = {}) => {
     unexpectedControlField,
     loadResponse,
     commitResponse,
-    controlPlanHash,
     publishChange,
     logInfo,
   })

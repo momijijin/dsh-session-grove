@@ -3,10 +3,20 @@
  * Extracted from routes.js without changing the wire contract.
  */
 import { createHash } from 'node:crypto'
-import { basename } from 'node:path'
+import { basename, join } from 'node:path'
 import { DOC_VERSION } from '../shared/constants.js'
 import { hasControlChars, normalizeColor, normalizeColorHex, validateDoc } from '../shared/model.js'
-import { MAX_BODY_BYTES, MAX_DIAGNOSTICS_EVENTS, MAX_PROFILE_NAME, MAX_PROFILES } from './constants.js'
+import {
+  DEFAULT_PROFILE_ID,
+  MAX_BODY_BYTES,
+  MAX_DIAGNOSTICS_EVENTS,
+  MAX_PROFILE_NAME,
+  MAX_PROFILES,
+  PROFILES_DIR_NAME,
+  RECORD_FILE_NAME,
+} from './constants.js'
+import { isProfileId } from './profile-registry.js'
+import { inspectProfileStorage } from './storage-health.js'
 
 export const sendJson = (res, status, payload) => {
   res.statusCode = status
@@ -56,8 +66,13 @@ export const readBoundedBody = async (req, limit = MAX_BODY_BYTES) => {
   return { text: Buffer.concat(chunks, size).toString('utf8') }
 }
 
-export const controlPlanHash = (baseRevision, operations) =>
-  createHash('sha256').update(JSON.stringify({ baseRevision, operations })).digest('hex')
+/**
+ * SPEC 6.1: the plan token is scoped to the profile it was built for, so a
+ * plan cannot be replayed against another profile. Tool and HTTP share this
+ * exact function.
+ */
+export const controlPlanHash = (profileId, baseRevision, operations) =>
+  createHash('sha256').update(JSON.stringify({ profileId, baseRevision, operations })).digest('hex')
 
 export const unexpectedControlField = (body, allowed) => {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return null
@@ -220,6 +235,166 @@ export const profileTargetFailure = (code, profileId, health = null) => {
   const body = { ok: false, code, profileId }
   if (health !== null) body.health = health
   return { status: 409, body }
+}
+
+/** 422 for a malformed `profileId` on the control surface (SPEC 6.1/4.8). */
+const invalidProfileIdResponse = () => ({
+  status: 422,
+  body: {
+    ok: false,
+    code: 'invalid-profile-id',
+    message: 'profileId must match ^[a-z0-9][a-z0-9-]{2,63}$',
+    field: 'profileId',
+  },
+})
+
+/** 422 when a multi-profile host needs an explicit target (SPEC 6.1/6.2). */
+const profileRequiredResponse = (unarchivedCount) => ({
+  status: 422,
+  body: {
+    ok: false,
+    code: 'profile-required',
+    message: 'multiple profiles exist; pass profileId explicitly',
+    field: 'profileId',
+    unarchivedCount,
+  },
+})
+
+/**
+ * Resolve the profile a control action targets (SPEC 6.1).
+ *
+ * Shared by the native tool and the HTTP control routes so the policy cannot
+ * drift:
+ * - `state`/`resolve` may omit `profileId` (the active profile is used);
+ * - `plan`/`apply` must pass it unless exactly one profile is unarchived;
+ * - an explicit target does not have to be the active one (AI reads/writes a
+ *   named profile explicitly; no action ever switches the active profile);
+ * - registry health, membership and archived state come from one registry
+ *   snapshot; the store is only chosen after those checks pass;
+ * - named profiles are health-checked read-only (`peek`), never via `load`,
+ *   so a control read cannot quarantine a document.
+ *
+ * @param {object} profileManager manager (or the legacy single-store view)
+ * @param {string|undefined} requestedProfileId
+ * @param {{ requireExplicitWhenMultiple?: boolean }} [options]
+ * @returns {Promise<
+ *   | { ok: true, profileId: string, activeId: string, activeProfile: { id: string, name: string|null }, entry: object, registryRevision: number, store: object }
+ *   | { ok: false, status: number, body: object }
+ * >}
+ */
+export const resolveControlProfile = async (profileManager, requestedProfileId, options = {}) => {
+  if (requestedProfileId !== undefined && (typeof requestedProfileId !== 'string' || !isProfileId(requestedProfileId))) {
+    return { ok: false, ...invalidProfileIdResponse() }
+  }
+  const registryState = await profileManager.loadRegistry()
+  if (registryState?.degraded === true) return { ok: false, ...registryUnhealthyResponse() }
+  if (registryState?.kind !== 'ok') {
+    return {
+      ok: false,
+      status: 503,
+      body: { ok: false, code: 'io', message: 'profile registry is unavailable' },
+    }
+  }
+  const registry = registryState.registry
+  const unarchived = registry.profiles.filter((profile) => profile.archivedAt === null)
+  if (requestedProfileId === undefined && options.requireExplicitWhenMultiple === true && unarchived.length > 1) {
+    return { ok: false, ...profileRequiredResponse(unarchived.length) }
+  }
+  const profileId = requestedProfileId ?? registry.activeId
+  const entry = registry.profiles.find((profile) => profile.id === profileId) ?? null
+  if (entry === null) return { ok: false, ...profileTargetFailure('profile-missing', profileId) }
+  if (entry.archivedAt !== null) return { ok: false, ...profileTargetFailure('profile-archived', profileId) }
+  if (profileId !== DEFAULT_PROFILE_ID) {
+    const peek = await profileManager.peekFor(profileId)
+    if (peek.kind !== 'ok') {
+      const code = peek.kind === 'missing' ? 'profile-missing' : 'profile-unhealthy'
+      return { ok: false, ...profileTargetFailure(code, profileId, profileHealth(peek)) }
+    }
+  }
+  const activeEntry = registry.profiles.find((profile) => profile.id === registry.activeId) ?? null
+  return {
+    ok: true,
+    profileId,
+    activeId: registry.activeId,
+    activeProfile: { id: registry.activeId, name: activeEntry?.name ?? null },
+    entry,
+    registryRevision: registryState.revision,
+    store: profileManager.storeFor(profileId),
+  }
+}
+
+/** Public doctor row for one profile document (SPEC 6.1). */
+const profileDoctorRow = (profile, storageDir) => {
+  const directory = profile.id === DEFAULT_PROFILE_ID ? storageDir : join(storageDir, PROFILES_DIR_NAME, profile.id)
+  const quarantined = Number.isInteger(profile.quarantined) ? profile.quarantined : 0
+  return {
+    id: profile.id,
+    name: profile.name ?? null,
+    archived: profile.archived === true,
+    healthy: profile.healthy === true,
+    status: profile.status,
+    revision: Number.isInteger(profile.revision) ? profile.revision : null,
+    backupStatus: profile.backupStatus,
+    // `storage-health` only counts the quarantine family; the row carries the
+    // directory + name pattern plus a human note instead of inventing a path.
+    quarantinedTo:
+      quarantined > 0
+        ? join(directory, `${basename(RECORD_FILE_NAME, '.json')}.corrupt-*.json`)
+        : null,
+    quarantined,
+    quarantineNote:
+      quarantined > 0 ? `${quarantined} quarantined document(s) preserved in ${directory}` : null,
+    orphan: profile.orphan === true,
+    error: profile.error ?? null,
+  }
+}
+
+/**
+ * Add the read-only profile registry/document report to a doctor response
+ * (SPEC 6.1). Uses the storage-health inspector, so nothing is healed,
+ * quarantined or written while diagnosing.
+ *
+ * A legacy single-store manager has no `registryFilePath`; in that case the
+ * report is returned unchanged (the frozen direct-route tests keep their shape).
+ */
+export const withProfileStorage = async (report, profileManager) => {
+  if (!isObject(report)) return report
+  if (
+    !isObject(profileManager) ||
+    typeof profileManager.storageDir !== 'string' ||
+    typeof profileManager.registryFilePath !== 'string'
+  ) {
+    return report
+  }
+  let registry
+  let profiles
+  try {
+    const inspected = await inspectProfileStorage({
+      storageDir: profileManager.storageDir,
+      registryFilePath: profileManager.registryFilePath,
+      defaultRecordPath:
+        typeof profileManager.defaultFilePath === 'string' ? profileManager.defaultFilePath : undefined,
+    })
+    registry = inspected.registry
+    profiles = inspected.profiles.map((profile) => profileDoctorRow(profile, profileManager.storageDir))
+  } catch (error) {
+    return {
+      ...report,
+      storage: {
+        ...(isObject(report.storage) ? report.storage : {}),
+        registry: { status: 'unreadable', error: error instanceof Error ? error.message : String(error) },
+        profiles: [],
+      },
+    }
+  }
+  return {
+    ...report,
+    storage: {
+      ...(isObject(report.storage) ? report.storage : {}),
+      registry,
+      profiles,
+    },
+  }
 }
 
 /**
