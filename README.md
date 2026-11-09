@@ -179,7 +179,7 @@ Profile metadata and additional profile documents:
 - the registry keeps `activeId` and one revision, so every window agrees on the active profile;
 - each profile has its own `.bak`, `.lock` and quarantine family; damage in one profile cannot overwrite or be counted against another;
 - archiving a profile writes only its `archivedAt` marker: the document, backups and sessions stay on disk and no file is deleted;
-- an existing single-profile installation is the `default` profile; upgrading does not migrate, rename or copy `dsh-session-grove.json`, and the registry plus `profiles/` appear on the first profile write;
+- an existing single-profile installation is the `default` profile; upgrading does not migrate, rename or copy `dsh-session-grove.json`; the registry appears on the first profile write (save-as/create or rename/archive/activate), while `profiles/` appears only when a named profile is first saved (save-as/create);
 - a build without profile support reads the default document and ignores the registry; the profiles are still there after upgrading again;
 - official workspace and session data are never written.
 
@@ -357,7 +357,7 @@ Only while `diagnostics` is on. It contains drag events, ids and timings, never 
 - AI control can read and write a selected profile but cannot activate one;
 - the switch preview is bound to a `previewToken`: if another window switches or edits the active/target profile while the preview is open, the confirm button is disabled and the preview must be reopened; extremely narrow windows rely on viewport clamping and vertical scrolling for long diff lists;
 - **Manage** refreshes the list after rename without forcing the archived-row read (the archive path forces it); a stale response can briefly hide the new archived row until the dialog is reopened;
-- `profiles.counts` uses one CLDR plural template for groups and sessions; a few languages can show an approximate noun form (for example English "1 sessions");
+- `profiles.counts` uses one CLDR plural template for groups and sessions; a few languages can show an approximate noun form (for example English "1 sessions"); splitting it into separate `countsGroups` / `countsSessions` keys is deferred;
 - search returns at most 20 matches and matches titles/workspaces/group paths only;
 - the width override depends on the DSH sidebar DOM; if the host changes the layout it fails soft and group functionality is unaffected;
 - dialog move/resize has keyboard support; a full automated axe/contrast audit and keyboard drag for the whole tree remain deferred;
@@ -405,7 +405,7 @@ npm pack
 - `npm run check:core`: load and test `src/core` without DSH;
 - `scripts/qa/clean-profile.ps1`: isolated profile install/uninstall validation, never the real `~/.dsh`;
 - `scripts/qa/lifecycle-isolated.ps1`: isolated install → uninstall → reinstall with record hash preservation;
-- `scripts/qa/start-isolated-web.ps1` + `npm run test:isolated`: A+ isolated Playwright smoke, including two-window concurrent CAS and the profile create/switch/preview/save-as/rename/archive/limit/recovery flow (manual local evidence; the release workflow does not run it);
+- `scripts/qa/start-isolated-web.ps1` + `npm run test:isolated`: A+ isolated Playwright smoke, including two-window concurrent CAS and the profile create/switch/preview/save-as/rename/archive/limit flow plus returning to the default profile (manual local evidence; the release workflow does not run it); the unhealthy-active recovery strip is not covered by this script and remains manual/pending;
 - build artifact: `lib/client.js`;
 - package: `dsh-session-grove-0.4.0-beta.59.tgz`;
 - release steps: `docs/RELEASE.md`;
