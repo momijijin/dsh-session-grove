@@ -80,8 +80,13 @@ page.on('console', (msg) => {
 //   hairline (`src/client/css.js`), so the measured box gap between adjacent
 //   changes must stay within 1px.
 // - The narrow-layout gate above stores the sidebar width as 264px and reloads;
-//   `SIDEBAR_WIDTH_MIN = 264` (`src/client/sidebar-width.js`) is the narrow
-//   sidebar the preview must still fit inside.
+//   `SIDEBAR_WIDTH_MIN = 264` (`src/client/sidebar-width.js`) is the host sidebar
+//   *track* width. The plugin's `.dsg-root` box sits inside that track, so its
+//   measured width is smaller (252px on the isolated host: about 12px of host
+//   chrome inset). Gate 5 therefore asserts a narrow-layout band
+//   (224 <= root width <= 264 + 1) instead of an exact width; the default
+//   persisted width is 420px, so the band unambiguously means "narrowest layout
+//   is already applied".
 // - `.dsg-profile-preview-change-title/-detail { white-space: normal;
 //   overflow-wrap: anywhere }` and `.dsg-dialog-content { overflow-y: auto }`
 //   (`src/client/css.js`) are what the wrapping/scroll assertions verify.
@@ -92,6 +97,8 @@ const PREVIEW_DIALOG_MIN_HEIGHT_PX = 320
 const PREVIEW_VIEWPORT_MARGIN_PX = 24
 const PREVIEW_ROW_GAP_TOLERANCE_PX = 1
 const SIDEBAR_MIN_WIDTH_PX = 264
+/** Lower bound of the narrow-layout band for the plugin root box (host inset). */
+const PREVIEW_NARROW_SIDEBAR_MIN_PX = 224
 /** Enough removed-group rows to overflow the 560px-capped preview body. */
 const PREVIEW_DIFF_GROUP_COUNT = 60
 
@@ -1239,9 +1246,21 @@ try {
   if (!(gapSpread <= PREVIEW_ROW_GAP_TOLERANCE_PX)) {
     throw new Error(`preview row gaps are inconsistent: ${JSON.stringify(previewGeometry.gaps)}`)
   }
-  // 5) At the 264px sidebar minimum the dialog still fits inside the viewport.
-  if (!(Math.abs(previewGeometry.sidebarWidth - SIDEBAR_MIN_WIDTH_PX) <= 4)) {
-    throw new Error(`expected the ${SIDEBAR_MIN_WIDTH_PX}px narrow sidebar, got ${previewGeometry.sidebarWidth}px`)
+  // 5) Narrow layout: the plugin root box must be inside the narrow-layout band,
+  //    and the dialog must still fit in the viewport. `SIDEBAR_MIN_WIDTH_PX` is
+  //    the host sidebar *track* width; the plugin `.dsg-root` box is inset by
+  //    the host chrome (measured 252px = 264 − 12px on the isolated host), so an
+  //    exact 264 assertion is wrong. The default persisted width is 420px, so
+  //    224..265 unambiguously means "the narrowest layout is applied".
+  if (!(
+    previewGeometry.sidebarWidth >= PREVIEW_NARROW_SIDEBAR_MIN_PX &&
+    previewGeometry.sidebarWidth <= SIDEBAR_MIN_WIDTH_PX + 1
+  )) {
+    throw new Error(
+      `expected the narrow sidebar band (${PREVIEW_NARROW_SIDEBAR_MIN_PX}..${
+        SIDEBAR_MIN_WIDTH_PX + 1
+      }px), got ${previewGeometry.sidebarWidth}px`
+    )
   }
   const geometryRect = previewGeometry.dialog
   if (!(
@@ -1252,6 +1271,14 @@ try {
   )) {
     throw new Error(`preview dialog escapes the viewport: ${JSON.stringify(previewGeometry)}`)
   }
+  // PASS diagnostics: keep the measured geometry in the `test:isolated` log so a
+  // future host-side layout change is easy to diagnose.
+  console.log(
+    `preview geometry: dialog ${previewGeometry.dialog.width}x${previewGeometry.dialog.height}px, ` +
+      `narrow sidebar ${previewGeometry.sidebarWidth}px, ` +
+      `body scroll ${previewGeometry.content.scrollHeight}>${previewGeometry.content.clientHeight}px, ` +
+      `row gaps ${JSON.stringify(previewGeometry.gaps)}`
+  )
   await cancelPreview()
 
   // Session actions must preserve the official core set: no no-op pin item,
