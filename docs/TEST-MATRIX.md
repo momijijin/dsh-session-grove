@@ -1,6 +1,6 @@
 # Test Matrix
 
-Status: `0.4.0-beta.60`  
+Status: `0.4.0-beta.61`  
 This file is the single source of truth for **what has actually been verified**
 and at which level. Other docs should link here instead of restating counts.
 
@@ -8,23 +8,27 @@ Automated gates are `npm run check:style`, `npm run check:lib`, `npm test`,
 `npm run check:coverage` and `npm run check:ui` in CI, plus
 `npm run check:style`, `npm run check:lib`, `npm run check:ui` and
 `npm run check:release` in the release workflow. `check:ui` is 39 UI runtime cases (1 module-load + 38 component tests, covering
-17 components across 21 client modules) + 1 browser runtime spec, not full browser UI coverage. The A+ / LP rows below are
+17 components across 24 client modules) + 1 browser runtime spec, not full browser UI coverage. The A+ / LP rows below are
 manual local evidence: the release workflow does not start an isolated DSH
 instance or run Playwright, so a release note cannot claim A+ or all-locales as
 an automated CI result.
 
-Counts in this file describe the published `0.4.0-beta.60` tree unless a line
-says otherwise. `v0.4.0-beta.60` was gated by 699/699 unit/contract tests, 39/39
-UI runtime cases (1 module-load + 38 component tests) and 1 browser runtime
-spec, with 331 locale keys. The previous `v0.4.0-beta.59` release was gated by
-529/529 unit/contract tests and 15/15 UI runtime cases; those `.59` numbers are
-historical and must not be quoted as `.60` evidence.
+Counts in this file describe the current `dev` tree (`0.4.0-beta.61`,
+**unreleased**) unless a line says otherwise. The `.61` dev tree runs
+**726/726** unit/contract tests, 39/39 UI runtime cases (1 module-load + 38
+component tests, 24 client modules) and 1 browser runtime spec, with 331 locale
+keys. Five real-geometry preview assertions were added to
+`e2e/isolated.spec.mjs` in this batch but have not been run on an isolated host
+yet; they are **pending local `test:isolated` verification**. The last published
+release, `v0.4.0-beta.60`, was gated by 699/699 unit/contract tests and 39/39 UI
+runtime cases; `.59` used 529/529 + 15/15. Those published-release numbers are
+historical and must not be quoted as `.61` evidence.
 
 ## Evidence levels
 
 | Code | Meaning |
 |---|---|
-| `U` | Unit/contract tests: `npm test` (699 tests at the `.60` release; 529 at the `.59` release) |
+| `U` | Unit/contract tests: `npm test` (726 tests on the current `.61` dev tree; 699 at the `.60` release; 529 at the `.59` release) |
 | `A+ C` | Isolated Playwright, community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2` |
 | `A+ O` | Isolated Playwright, official DeepSeek Harness desktop 0.2.1.0 / DSH `0.2.1-rc.5` |
 | `LP` | Test-only all-locale pack (`e2e/fixtures/ja-locale-pack`): host catalog injection + active locale switch |
@@ -78,6 +82,7 @@ Earlier `.22` and `.30` cells remain historical artifacts.
 | Profile multi-window: SSE active convergence and `profile-changed` 409 | PASS | PASS (2026-11-09) | PASS (2026-11-10) | — | — |
 | Profile-scoped collapsed state, epoch reset and switch/undo/reset actions | PASS | PASS (2026-11-09) | PASS (2026-11-10) | — | — |
 | Profile UI: chevron/popover/preview/save-as/manage (39 UI runtime cases) | PASS | PASS (2026-11-09) | PASS (2026-11-10) | PASS (23 cases) | PASS (user desktop 2026-11-10) |
+| Profile preview real geometry (SPEC §8.1: width/height caps, body scroll, wrapping, adjacent-row gaps, 264px sidebar) | — (assertions added in `e2e/isolated.spec.mjs`; offline mock only) | — | **PENDING local `test:isolated`** (added in `.61`) | — | — |
 | Profile i18n: 45 `profiles.*` keys × 19 dictionaries | PASS | — | — | PASS (23 cases) | — |
 | Full non-English UI surfaces | PASS (resources only) | — | — | LP header/dialog/group menu/settings + ja onboarding/dialog only | — |
 
@@ -162,6 +167,11 @@ plural rules are used for plural selection.
 
 ## Not verified
 
+- Preview dialog real geometry: the five SPEC §8.1 assertions added to
+  `e2e/isolated.spec.mjs` in `.61` are pending user-local `test:isolated`
+  evidence. They were validated offline against the real stylesheet plus a mock
+  dialog DOM (both documented falsification edits turned the matching assertions
+  red); no isolated-host run has been recorded for `.61`.
 - Profile flows in `.60` have community A+ C (2026-11-09), official A+ O
   (2026-11-10, `test:isolated` + `test:ui-browser`), LP (2026-11-09) and user
   desktop acceptance (2026-11-10) evidence. The official A+ O run is not a full
