@@ -20,8 +20,9 @@ component tests, 24 client modules) and 1 browser runtime spec, with 331 locale
 keys. Five real-geometry preview assertions were added to
 `e2e/isolated.spec.mjs` in this batch and **PASSed on the 2026-11-10 community
 isolated host** (measured: dialog 560×560px, narrow sidebar 252px, body scroll
-3492 > 466px, row gaps [0,0,0]); the official A+ O host has not run `.61` yet.
-The last published
+3492 > 466px, row gaps [0,0,0]); the official A+ O host also PASSed `.61`
+(2026-11-10, official DeepSeek Harness 0.2.2.0 / DSH `0.2.2-rc.1`; measured
+narrow sidebar 256px, body scroll 3659 > 466px). The last published
 release, `v0.4.0-beta.60`, was gated by 699/699 unit/contract tests and 39/39 UI
 runtime cases; `.59` used 529/529 + 15/15. Those published-release numbers are
 historical and must not be quoted as `.61` evidence.
@@ -32,7 +33,7 @@ historical and must not be quoted as `.61` evidence.
 |---|---|
 | `U` | Unit/contract tests: `npm test` (726 tests on the current `.61` dev tree; 699 at the `.60` release; 529 at the `.59` release) |
 | `A+ C` | Isolated Playwright, community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2` |
-| `A+ O` | Isolated Playwright, official DeepSeek Harness desktop 0.2.1.0 / DSH `0.2.1-rc.5` |
+| `A+ O` | Isolated Playwright on an official DeepSeek Harness desktop host (`.60`: 0.2.1.0 / DSH `0.2.1-rc.5`; `.61`: 0.2.2.0 / DSH `0.2.2-rc.1`) |
 | `LP` | Test-only all-locale pack (`e2e/fixtures/ja-locale-pack`): host catalog injection + active locale switch |
 | `H` | Historical/manual evidence in an earlier release note or test-results snapshot; not a current default automation |
 | `—` | Not tested |
@@ -72,15 +73,25 @@ onboarding/dialog); `test:all-locales` PASS 23/23 (19 languages plus variants,
 settings/config rows included). Flake note: the first `test:isolated` attempt
 aborted early at `keyboard dialog move did not move right`; re-running the whole
 suite on the same build PASSed, so it is recorded as a focus/timing flake, not a
-refactor regression. The official A+ O desktop host was not exercised for
-`.61`; those rows remain `.60` evidence.
+refactor regression. The official A+ O host then ran the same `.61` tarball on
+2026-11-10 (official DeepSeek Harness isolated host, FileVersion `0.2.2-rc.1` /
+ProductVersion `0.2.2.0`): `test:isolated` PASS on the full suite with preview
+geometry measured as dialog 560×560px, **narrow sidebar 256px**, body scroll
+3659 > 466px and row gaps [0,0,0] (the official host insets the plugin root
+differently from the community host — 256 vs 252px — which is exactly what the
+narrow-layout band assertion accepts by design); `test:ui-browser` PASS on a
+separate fresh official host (`bundleEntries` 1, `executedBytes` 3096507 =
+`sourceBytes` 3096507, `executedRatio` 1). The `.60` official A+ O rows remain
+historical.
 
 The last full all-locales / locale-pack sweep was the 2026-11-09 `.59` run
 (23/23) until the 2026-11-10 `.61` dev run repeated it (`test:locale-pack` PASS,
 `test:all-locales` PASS 23/23); `.60` itself was not re-swept. No locale
 resources changed after the `.59` sweep, so the 331-key dictionaries are
-covered. The latest official A+ O sweep is `.60`; the `.61` evidence above is a
-community host. Earlier `.22` and `.30` cells remain historical artifacts.
+covered. The latest official A+ O sweep is `.61` (the 2026-11-10 official run
+covered `test:isolated` + `test:ui-browser`, not the locale sweeps); the `.61`
+locale-sweep evidence above is a community host. Earlier `.22` and `.30` cells
+remain historical artifacts.
 
 ## Environment matrix
 
@@ -98,7 +109,7 @@ community host. Earlier `.22` and `.30` cells remain historical artifacts.
 | Profile multi-window: SSE active convergence and `profile-changed` 409 | PASS | PASS (2026-11-09) | PASS (2026-11-10) | — | — |
 | Profile-scoped collapsed state, epoch reset and switch/undo/reset actions | PASS | PASS (2026-11-09) | PASS (2026-11-10) | — | — |
 | Profile UI: chevron/popover/preview/save-as/manage (39 UI runtime cases) | PASS | PASS (2026-11-09) | PASS (2026-11-10) | PASS (23 cases) | PASS (user desktop 2026-11-10) |
-| Profile preview real geometry (SPEC §8.1: width/height caps, body scroll, wrapping, adjacent-row gaps, narrow sidebar) | — (e2e assertions added in `e2e/isolated.spec.mjs`) | PASS (2026-11-10, community isolated host, `.61` tarball; dialog 560×560px, narrow sidebar 252px, body scroll 3492>466px, row gaps [0,0,0]) | — (official host not run for `.61`) | — | — |
+| Profile preview real geometry (SPEC §8.1: width/height caps, body scroll, wrapping, adjacent-row gaps, narrow sidebar) | — (e2e assertions added in `e2e/isolated.spec.mjs`) | PASS (2026-11-10, community isolated host, `.61` tarball; dialog 560×560px, narrow sidebar 252px, body scroll 3492>466px, row gaps [0,0,0]) | PASS (2026-11-10, official DeepSeek Harness 0.2.2.0 / `0.2.2-rc.1` isolated host, `.61` tarball; dialog 560×560px, narrow sidebar 256px, body scroll 3659>466px, row gaps [0,0,0]) | — | — |
 | Profile i18n: 45 `profiles.*` keys × 19 dictionaries | PASS | — | — | PASS (23 cases) | — |
 | Full non-English UI surfaces | PASS (resources only) | — | — | LP header/dialog/group menu/settings + ja onboarding/dialog only | — |
 
@@ -172,7 +183,7 @@ plural rules are used for plural selection.
 | Onboarding card | U + English A+ C/O + ja LP | ja LP checks title/dismiss |
 | Settings/config form | U + English A+ C/O + all-locale settings smoke | all 23 cases check title/hint/controlApi/skill-repair copy |
 | Group menu / session menu | U + English A+ C/O | |
-| Profile chevron / popover / switch preview / save-as / manage | U + UI runtime (39 cases) + community A+ C (2026-11-09) + `.61` community A+ C (2026-11-10) + official A+ O (2026-11-10) + LP (23 cases) | 45 keys × 19 dictionaries; the all-locales run checks chevron, popover and preview bounds; official A+ O ran the profile save-as/preview/undo/rename/archive/limit flows in `test:isolated`; the `.61` community run covered the same profile flows plus the new preview real-geometry assertions |
+| Profile chevron / popover / switch preview / save-as / manage | U + UI runtime (39 cases) + community A+ C (2026-11-09) + `.61` community A+ C (2026-11-10) + official A+ O (2026-11-10, `.60`) + official A+ O (2026-11-10, `.61`) + LP (23 cases) | 45 keys × 19 dictionaries; the all-locales run checks chevron, popover and preview bounds; official A+ O ran the profile save-as/preview/undo/rename/archive/limit flows in `test:isolated` (both `.60` and `.61`); the `.61` community and official runs covered the same profile flows plus the new preview real-geometry assertions |
 | Dialog titles/body | U + English A+ C/O + ja LP (new-group title) | |
 | Status labels and subagent count | U (including pl one/few/many/other) | UI uses one key + `{n}` |
 | Drag labels | U + English A+ C/O | |
@@ -183,11 +194,6 @@ plural rules are used for plural selection.
 
 ## Not verified
 
-- Preview dialog real geometry in `.61`: PASS on the 2026-11-10 **community**
-  isolated host (see the `.61` evidence paragraph above; measured dialog
-  560×560px, narrow sidebar 252px, body scroll 3492 > 466px, row gaps [0,0,0]).
-  The official A+ O desktop host has NOT run the `.61` tarball yet, so official
-  A+ O coverage for `.61` remains pending.
 - Profile flows in `.60` have community A+ C (2026-11-09), official A+ O
   (2026-11-10, `test:isolated` + `test:ui-browser`), LP (2026-11-09) and user
   desktop acceptance (2026-11-10) evidence. The official A+ O `.60` run is not
