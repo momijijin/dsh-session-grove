@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { emptyDoc } from '../../src/shared/model.js'
 import { createStore } from '../../src/host/store.js'
@@ -384,4 +385,197 @@ test('peek ignores a live filesystem lock and never waits for it', async (t) => 
   const peeked = await store.peek()
   assert.equal(peeked.kind, 'ok')
   assert.equal(peeked.revision, 1)
+})
+
+// ---------------------------------------------------------------------------
+// T3.2 boundary tests (SPEC §8.2): serialized writes and degraded write refusal.
+// ---------------------------------------------------------------------------
+
+test('T3.2: queued commit/save/load calls run in one serialized critical section', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  // The three calls are issued back-to-back before any settles; the promise tail
+  // must run them in call order so save() observes the committed revision.
+  const commitResult = temp.store.commit(0, { ...sampleDoc(), ungrouped: ['s-9'] })
+  const saveResult = temp.store.save({ ...sampleDoc(), ungrouped: ['s-10'] })
+  const loadResult = temp.store.load()
+  const [committed, saved, loaded] = await Promise.all([commitResult, saveResult, loadResult])
+  assert.equal(committed.kind, 'ok')
+  assert.equal(committed.revision, 1)
+  assert.equal(saved.revision, 2)
+  assert.equal(loaded.revision, 2)
+  assert.deepEqual(loaded.doc.ungrouped, ['s-10'])
+
+  // A commit queued after the tail settled uses the latest revision and wins.
+  const next = await temp.store.commit(2, { ...sampleDoc(), ungrouped: ['s-11'] })
+  assert.equal(next.kind, 'ok')
+  assert.equal(next.revision, 3)
+  const final = await temp.store.load()
+  assert.equal(final.revision, 3)
+  assert.deepEqual(final.doc.ungrouped, ['s-11'])
+})
+
+test('T3.2: two store instances on one file serialize through the filesystem lock', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  const secondStore = createStore({ filePath: temp.filePath, lockWaitMs: 5000, lockRetryMs: 5 })
+  const [left, right] = await Promise.all([
+    temp.store.commit(0, { ...sampleDoc(), ungrouped: ['a'] }),
+    secondStore.commit(0, { ...sampleDoc(), ungrouped: ['b'] }),
+  ])
+  assert.deepEqual([left.kind, right.kind].sort(), ['conflict', 'ok'])
+  const winner = left.kind === 'ok' ? left : right
+  assert.equal(JSON.parse(await readFile(temp.filePath, 'utf8')).revision, winner.revision)
+  assert.equal(await readFile(`${temp.filePath}.lock`, 'utf8').catch(() => 'missing'), 'missing')
+})
+
+test('T3.2: a live held lock refuses writes with store-busy and leaves the record untouched', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  const store = createStore({ filePath: temp.filePath, lockWaitMs: 40, lockRetryMs: 5 })
+  await writeFile(
+    `${temp.filePath}.lock`,
+    JSON.stringify({ pid: process.pid, token: 'held', createdAt: new Date().toISOString() }),
+    'utf8',
+  )
+  const before = await readFile(temp.filePath, 'utf8').catch(() => 'missing')
+  await assert.rejects(() => store.save(sampleDoc()), (error) => error?.code === 'store-busy')
+  await assert.rejects(() => store.commit(0, sampleDoc()), (error) => error?.code === 'store-busy')
+  assert.equal(await readFile(temp.filePath, 'utf8').catch(() => 'missing'), before)
+  assert.deepEqual(await list(temp.storages), ['dsh-session-grove.json.lock'])
+
+  // Releasing the lock restores the write path without restarting the store.
+  await rm(`${temp.filePath}.lock`, { force: true })
+  const recovered = await store.commit(0, sampleDoc())
+  assert.equal(recovered.kind, 'ok')
+  assert.equal(recovered.revision, 1)
+})
+
+test('T3.2: a stale lock (dead PID or old mtime) is reclaimed so writes proceed', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  await writeFile(
+    `${temp.filePath}.lock`,
+    JSON.stringify({ pid: 999_999_999, token: 'dead', createdAt: new Date().toISOString() }),
+    'utf8',
+  )
+  const firstStore = createStore({ filePath: temp.filePath, lockWaitMs: 1000, lockRetryMs: 5 })
+  const first = await firstStore.commit(0, sampleDoc())
+  assert.equal(first.kind, 'ok')
+  assert.equal(await readFile(`${temp.filePath}.lock`, 'utf8').catch(() => 'missing'), 'missing')
+
+  // An old-mtime lock owned by this live process is stale too (crashed writer
+  // that never released its lock file).
+  await writeFile(
+    `${temp.filePath}.lock`,
+    JSON.stringify({ pid: process.pid, token: 'old', createdAt: new Date(0).toISOString() }),
+    'utf8',
+  )
+  const old = new Date(Date.now() - 60_000)
+  await utimes(`${temp.filePath}.lock`, old, old)
+  const secondStore = createStore({ filePath: temp.filePath, lockWaitMs: 1000, lockRetryMs: 5, lockStaleMs: 50 })
+  const second = await secondStore.commit(1, sampleDoc())
+  assert.equal(second.kind, 'ok')
+  assert.equal(second.revision, 2)
+})
+
+test('T3.2: a malformed lock file is treated as stale and reclaimed', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  await writeFile(`${temp.filePath}.lock`, '{not-json', 'utf8')
+  const store = createStore({ filePath: temp.filePath, lockWaitMs: 1000, lockRetryMs: 5 })
+  const result = await store.commit(0, sampleDoc())
+  assert.equal(result.kind, 'ok')
+  assert.equal(result.revision, 1)
+})
+
+test('T3.2: a degraded (newer-schema) document refuses save() and commit()', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  await writeFile(temp.filePath, JSON.stringify({ version: 2, revision: 5, groups: [], ungrouped: [] }), 'utf8')
+  const before = await sha256(temp.filePath)
+  await assert.rejects(
+    () => temp.store.save(sampleDoc()),
+    (error) => error?.code === 'unsupported-version',
+  )
+  const commit = await temp.store.commit(5, sampleDoc())
+  assert.equal(commit.kind, 'unsupported-version')
+  assert.equal(await sha256(temp.filePath), before)
+})
+
+test('T3.2: save() rejects an invalid document with the shared validation errors', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  await assert.rejects(
+    () =>
+      temp.store.save({
+        version: 1,
+        groups: [{ id: 'g-a', name: '', parentId: null, sessionIds: [] }],
+        ungrouped: [],
+      }),
+    (error) => error?.code === 'invalid' && error.errors.some((entry) => entry.startsWith('group-name:')),
+  )
+  assert.deepEqual(await list(temp.storages), [])
+})
+
+test('T3.2: createStore needs an explicit path and accepts the {dir,fileName} shape', () => {
+  assert.throws(() => createStore(), /createStore: pass \{ filePath \} or \{ dir, fileName \}/)
+  const store = createStore({ dir: join(tmpdir(), 'dsg-store-shape-check'), fileName: 'record.json' })
+  assert.equal(store.path, join(tmpdir(), 'dsg-store-shape-check', 'record.json'))
+})
+
+test('T3.2: a non-object JSON payload is quarantined as corrupt-file', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  await writeFile(temp.filePath, '42', 'utf8')
+  const result = await temp.store.load()
+  assert.equal(result.warning, 'corrupt-file')
+  assert.match(result.detail, /not a JSON object/)
+})
+
+test('T3.2: a wrong-version record recovers the last valid backup', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  await temp.store.commit(0, sampleDoc())
+  await temp.store.commit(1, sampleDoc())
+  await writeFile(temp.filePath, JSON.stringify({ ...sampleDoc(), version: 0, revision: 3 }), 'utf8')
+  const loaded = await temp.store.load()
+  assert.equal(loaded.warning, 'recovered-backup')
+  assert.equal(loaded.revision, 1)
+  assert.match(loaded.detail, /version must be 1/)
+})
+
+test('T3.2: a first quarantine-target collision gets a numeric suffix', async (t) => {
+  const fixedNow = () => 1_760_000_000_000
+  const temp = await makeTempStore(fixedNow)
+  t.after(temp.cleanup)
+  const stamp = new Date(fixedNow()).toISOString().replaceAll(':', '-').replaceAll('.', '-')
+  const firstTarget = join(temp.storages, `dsh-session-grove.corrupt-${stamp}.json`)
+  await writeFile(firstTarget, 'already-there', 'utf8')
+  await writeFile(temp.filePath, '{broken', 'utf8')
+  const result = await temp.store.load()
+  assert.equal(result.warning, 'corrupt-file')
+  assert.equal(result.quarantinedTo, join(temp.storages, `dsh-session-grove.corrupt-${stamp}-1.json`))
+})
+
+test('T3.2: peek propagates IO errors and classifies wrong-version/non-object payloads', async (t) => {
+  const directoryStore = await makeTempStore()
+  t.after(directoryStore.cleanup)
+  await mkdir(directoryStore.filePath, { recursive: true })
+  await assert.rejects(
+    () => createStore({ filePath: directoryStore.filePath }).peek(),
+    /EISDIR|illegal operation on a directory/,
+  )
+
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  await writeFile(temp.filePath, JSON.stringify({ version: 0, revision: 1, groups: [], ungrouped: [] }), 'utf8')
+  const wrongVersion = await temp.store.peek()
+  assert.equal(wrongVersion.kind, 'invalid')
+  assert.match(wrongVersion.detail, /version must be 1/)
+
+  await writeFile(temp.filePath, 'null', 'utf8')
+  const nonObject = await temp.store.peek()
+  assert.equal(nonObject.kind, 'corrupt')
+  assert.match(nonObject.detail, /not a JSON object/)
 })
