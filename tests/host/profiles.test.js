@@ -709,3 +709,210 @@ test('the profile manager accepts custom registry and default record paths', asy
   assert.equal(manager.pathFor(DEFAULT_PROFILE_ID), defaultRecordPath)
   assert.equal(manager.storeFor(DEFAULT_PROFILE_ID).path, defaultRecordPath)
 })
+
+// ---------------------------------------------------------------------------
+// T3.4 boundary tests (SPEC §8.2): remaining registry corruption/degradation
+// branches. No implementation changes.
+// ---------------------------------------------------------------------------
+
+test('T3.4: createProfileRegistry requires an explicit registry file path', () => {
+  assert.throws(() => createProfileRegistry(), /createProfileRegistry: pass \{ filePath \}/)
+})
+
+test('T3.4: validateRegistry rejects every frozen-schema invariant', () => {
+  const defaultProfile = (overrides) => sampleDefaultProfile(overrides)
+  const named = (overrides = {}) => sampleNamedProfile(overrides)
+  const errorsOf = (registry) => validateRegistry(registry).errors.join('; ')
+  const base = () => sampleRegistry({ revision: 1 })
+
+  assert.equal(validateRegistry(42).ok, false)
+  assert.match(errorsOf(42), /registry-not-object/)
+  assert.match(errorsOf({ ...base(), version: 2 }), /version/)
+  assert.match(errorsOf({ ...base(), revision: -1 }), /revision/)
+  assert.match(errorsOf({ ...base(), activeId: '' }), /active-id/)
+  assert.match(errorsOf({ ...base(), profiles: {} }), /profiles/)
+  assert.match(errorsOf({ ...base(), profiles: [null] }), /profile-not-object/)
+  assert.match(errorsOf({ ...base(), profiles: [defaultProfile(), named({ id: 'BAD' })] }), /profile-id:BAD/)
+  assert.match(
+    errorsOf({ ...base(), profiles: [defaultProfile(), named(), named()] }),
+    /duplicate-profile-id/,
+  )
+  assert.match(errorsOf({ ...base(), profiles: [defaultProfile({ dir: 'wrong' })] }), /profile-dir:default/)
+  assert.match(
+    errorsOf({ ...base(), profiles: [defaultProfile({ archivedAt: FIXED_TIMESTAMP })] }),
+    /profile-archived:default/,
+  )
+  assert.match(
+    errorsOf({ ...base(), profiles: [defaultProfile(), named({ dir: 'profiles/wrong' })] }),
+    /profile-dir:/,
+  )
+  assert.match(
+    errorsOf({ ...base(), profiles: [defaultProfile({ name: 'x'.repeat(41) })] }),
+    /profile-name:default:name-too-long/,
+  )
+  assert.match(
+    errorsOf({ ...base(), profiles: [defaultProfile({ createdAt: 'not-a-date', updatedAt: 'not-a-date' })] }),
+    /profile-created-at:default/,
+  )
+  assert.match(
+    errorsOf({
+      ...base(),
+      profiles: [
+        defaultProfile(),
+        named({ id: 'p-arch-0001', name: 'Archived', dir: `${PROFILES_DIR_NAME}/p-arch-0001`, archivedAt: 'nope' }),
+      ],
+    }),
+    /profile-archived-at:/,
+  )
+  assert.match(
+    errorsOf({
+      ...base(),
+      profiles: [
+        defaultProfile(),
+        named({ id: 'p-dup-0001', name: 'Same name', dir: `${PROFILES_DIR_NAME}/p-dup-0001` }),
+        named({ id: 'p-dup-0002', name: 'same NAME', dir: `${PROFILES_DIR_NAME}/p-dup-0002` }),
+      ],
+    }),
+    /duplicate-profile-name:same name/,
+  )
+  assert.match(errorsOf({ ...base(), profiles: limitProfiles(MAX_PROFILES) }), /profile-limit/)
+  assert.match(errorsOf({ ...base(), activeId: 'p-missing-0000' }), /active-profile-missing/)
+  assert.match(
+    errorsOf({
+      ...base(),
+      activeId: 'p-arch-0002',
+      profiles: [
+        defaultProfile(),
+        named({ id: 'p-arch-0002', dir: `${PROFILES_DIR_NAME}/p-arch-0002`, archivedAt: FIXED_TIMESTAMP }),
+      ],
+    }),
+    /active-profile-archived/,
+  )
+  assert.equal(validateRegistry(base()).ok, true)
+})
+
+test('T3.4: peek classifies non-object, wrong-version and newer-version registries', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  const registry = makeRegistry(home)
+
+  await writeFile(home.registryFilePath, '42', 'utf8')
+  const nonObject = await registry.peek()
+  assert.equal(nonObject.kind, 'corrupt')
+  assert.match(nonObject.detail, /not a JSON object/)
+
+  await writeFile(home.registryFilePath, JSON.stringify({ ...sampleRegistry(), version: 0 }), 'utf8')
+  const wrongVersion = await registry.peek()
+  assert.equal(wrongVersion.kind, 'invalid')
+  assert.match(wrongVersion.detail, /version must be 1/)
+
+  await writeFile(home.registryFilePath, JSON.stringify({ ...sampleRegistry(), version: 2 }), 'utf8')
+  const newer = await registry.peek()
+  assert.equal(newer.kind, 'unsupported-version')
+  assert.equal(newer.version, 2)
+  assert.match(newer.detail, /newer than 1/)
+})
+
+test('T3.4: an unreadable registry backup degrades the registry and blocks writes', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  // A directory at the `.bak` path makes the backup reader fail with an IO error
+  // instead of a clean "missing"/"corrupt" classification.
+  await mkdir(`${home.registryFilePath}.bak`, { recursive: true })
+  await writeFile(home.registryFilePath, '{broken', 'utf8')
+  const registry = makeRegistry(home)
+
+  const loaded = await registry.load()
+  assert.equal(loaded.degraded, true)
+  assert.equal(loaded.warning, 'corrupt-file')
+  assert.equal(loaded.backupStatus, 'unreadable')
+  assert.match(loaded.backupError, /EISDIR|illegal operation on a directory/)
+  assert.match(loaded.quarantinedTo, /dsh-session-grove\.profiles\.corrupt-.*\.json$/)
+  assert.equal(await readFile(loaded.quarantinedTo, 'utf8'), '{broken')
+  assert.equal(existsSync(home.registryFilePath), false, 'the corrupt live registry was quarantined')
+
+  const degradedWrite = await registry.commit(0, (draft) => ({ ok: true, registry: draft }))
+  assert.equal(degradedWrite.kind, 'registry-unhealthy')
+  assert.match(degradedWrite.detail, /invalid JSON/)
+})
+
+test('T3.4: a first quarantine-target collision gets a numeric suffix', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  const stamp = new Date(NOW_MS).toISOString().replaceAll(':', '-').replaceAll('.', '-')
+  const targetStem = REGISTRY_FILE_NAME.replace(/\.json$/, '')
+  const occupied = join(home.storageDir, `${targetStem}.corrupt-${stamp}.json`)
+  await writeFile(occupied, 'occupied', 'utf8')
+  await writeFile(home.registryFilePath, '{broken', 'utf8')
+
+  const loaded = await makeRegistry(home).load()
+  assert.equal(loaded.degraded, true)
+  assert.equal(loaded.quarantinedTo, join(home.storageDir, `${targetStem}.corrupt-${stamp}-1.json`))
+  assert.equal(await readFile(occupied, 'utf8'), 'occupied')
+  assert.equal(await readFile(loaded.quarantinedTo, 'utf8'), '{broken')
+})
+
+test('T3.4: archiving an unknown profile returns profile-missing without a write', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  await writeJsonFile(home.registryFilePath, sampleRegistry({ revision: 1 }))
+  const registry = makeRegistry(home)
+  const before = await sha256(home.registryFilePath)
+
+  const result = await registry.archiveProfile({ baseRevision: 1, id: 'p-missing-0000' })
+  assert.equal(result.kind, 'profile-missing')
+  const malformed = await registry.archiveProfile({ baseRevision: 1, id: 'BAD' })
+  assert.equal(malformed.kind, 'invalid-profile-id')
+  assert.equal(await sha256(home.registryFilePath), before)
+})
+
+test('T3.4: a mutation producing an invalid registry fails closed and writes nothing', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  await writeJsonFile(home.registryFilePath, sampleRegistry({ revision: 1 }))
+  const registry = makeRegistry(home)
+  const before = await sha256(home.registryFilePath)
+
+  await assert.rejects(
+    () =>
+      registry.commit(1, (draft) => {
+        draft.activeId = 'not-a-valid-id'
+        return { ok: true, registry: draft }
+      }),
+    (error) => error?.code === 'invalid-registry',
+  )
+  assert.equal(await sha256(home.registryFilePath), before)
+})
+
+test('T3.4: a malformed registry lock is reclaimed so writes proceed', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  await writeJsonFile(home.registryFilePath, sampleRegistry({ revision: 1 }))
+  await writeFile(`${home.registryFilePath}.lock`, '{not-json', 'utf8')
+  const registry = makeRegistry(home, { lockWaitMs: 1000, lockRetryMs: 5 })
+
+  const result = await registry.commit(1, (draft) => {
+    draft.revision = 1
+    return { ok: true, registry: draft }
+  })
+  assert.equal(result.kind, 'ok')
+  assert.equal(result.revision, 2)
+})
+
+test('T3.4: a live-PID lock with an old mtime is reclaimed', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  await writeJsonFile(home.registryFilePath, sampleRegistry({ revision: 1 }))
+  await writeFile(
+    `${home.registryFilePath}.lock`,
+    JSON.stringify({ pid: process.pid, token: 'old', createdAt: new Date(0).toISOString() }),
+    'utf8',
+  )
+  const old = new Date(Date.now() - 60_000)
+  await utimes(`${home.registryFilePath}.lock`, old, old)
+  const registry = makeRegistry(home, { lockWaitMs: 1000, lockRetryMs: 5, lockStaleMs: 50 })
+
+  const result = await registry.commit(1, (draft) => ({ ok: true, registry: draft }))
+  assert.equal(result.kind, 'ok')
+  assert.equal(result.revision, 2)
+})
