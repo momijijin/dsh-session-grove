@@ -30,6 +30,11 @@ const componentProfiles = [
 ].join('\n')
 const componentProfileDialogs = readFileSync(new URL('../../src/client/components-profile-dialogs.js', import.meta.url), 'utf8')
 const dialogHost = readFileSync(new URL('../../src/client/dialog-host.js', import.meta.url), 'utf8')
+// Profile form bodies/validation/actions live in dialog-profile.js; the shell
+// keeps the generic modal chrome and the `dialog.kind` dispatch, so the
+// profile-dialog assertions read both files.
+const dialogProfile = readFileSync(new URL('../../src/client/dialog-profile.js', import.meta.url), 'utf8')
+const dialogHostProfile = [dialogHost, dialogProfile].join('\n')
 const groupsViewWidth = readFileSync(new URL('../../src/client/groups-view-width.js', import.meta.url), 'utf8')
 const groupsViewState = readFileSync(new URL('../../src/client/groups-view-state.js', import.meta.url), 'utf8')
 const groupsViewMenu = readFileSync(new URL('../../src/client/groups-view-menu-handlers.js', import.meta.url), 'utf8')
@@ -1119,14 +1124,14 @@ test('0.4.0 profiles: save-as/manage footer and dialogs reuse the dialog chrome'
   assert.match(plugin, /profile-name-duplicate'\) return 'profiles\.nameDuplicate'/)
   assert.match(plugin, /profile-name-invalid'\) return 'profiles\.nameInvalid'/)
   // DialogHost owns the new kinds, the wide manage rect and the shared Escape.
-  assert.match(dialogHost, /'profile-save-as'/)
-  assert.match(dialogHost, /'profile-manage'/)
-  assert.match(dialogHost, /'profile-rename'/)
-  assert.match(dialogHost, /'profile-archive'/)
-  assert.match(dialogHost, /ProfileSaveAsBody/)
-  assert.match(dialogHost, /ProfileManageBody/)
-  assert.match(dialogHost, /dialog\.returnTo === 'profile-manage'/)
-  assert.match(dialogHost, /dialog\.kind === 'profile-manage'/)
+  assert.match(dialogHostProfile, /'profile-save-as'/)
+  assert.match(dialogHostProfile, /'profile-manage'/)
+  assert.match(dialogHostProfile, /'profile-rename'/)
+  assert.match(dialogHostProfile, /'profile-archive'/)
+  assert.match(dialogHostProfile, /ProfileSaveAsBody/)
+  assert.match(dialogHostProfile, /ProfileManageBody/)
+  assert.match(dialogHostProfile, /dialog\.returnTo === 'profile-manage'/)
+  assert.match(dialogHostProfile, /dialog\.kind === 'profile-manage'/)
   // The shell facade registers every open/confirm entry.
   assert.match(components, /createProfileDialogHandlers\(\{ t \}\)/)
   // S6 review carry #3: unique keys for the stale preview section and notice.
