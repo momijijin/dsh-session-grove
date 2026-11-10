@@ -22,10 +22,12 @@ Counts in this file describe the current `dev` tree (`0.4.0-beta.61`,
 component tests, 24 client modules) and 1 browser runtime spec, with 331 locale
 keys. Five real-geometry preview assertions were added to
 `e2e/isolated.spec.mjs` in this batch and **PASSed on the 2026-11-10 community
-isolated host** (measured: dialog 560×560px, narrow sidebar 252px, body scroll
-3492 > 466px, row gaps [0,0,0]); the official A+ O host also PASSed `.61`
-(2026-11-10, official DeepSeek Harness 0.2.2.0 / DSH `0.2.2-rc.1`; measured
-narrow sidebar 256px, body scroll 3659 > 466px). The last published
+isolated host** (measured: dialog 560×560px, narrow sidebar 252px, row gaps
+[0,0,0]; the body scroll assertion holds — `scrollHeight` ≫ `clientHeight`,
+fixture-dependent order ~3.5–3.7k px > 466px, the absolute value floats with the
+fixture content); the official A+ O host also PASSed `.61` (2026-11-10, official
+DeepSeek Harness 0.2.2.0 / DSH `0.2.2-rc.1`; measured narrow sidebar 256px, body
+`scrollHeight` ≫ `clientHeight` with the same order of magnitude). The last published
 release, `v0.4.0-beta.60`, was gated by 699/699 unit/contract tests and 39/39 UI
 runtime cases; `.59` used 529/529 + 15/15. Those published-release numbers are
 historical and must not be quoted as `.61` evidence.
@@ -68,7 +70,9 @@ The `.61` dev tree (unreleased) has its own isolated evidence from 2026-11-10 on
 a locally installed **community** DSH Desktop host, with the tarball
 `dsh-session-grove-0.4.0-beta.61.tgz` built from the current branch:
 `test:isolated` PASS on the full suite (new preview geometry measured: dialog
-560×560px, narrow sidebar 252px, body scroll 3492 > 466px, row gaps [0,0,0]);
+560×560px, narrow sidebar 252px, row gaps [0,0,0]; the body scroll assertion
+holds — `scrollHeight` ≫ `clientHeight`, fixture-dependent order ~3.5–3.7k px >
+466px, the absolute scroll height floats with the fixture content);
 `test:ui-browser` PASS on a separate fresh host (`bundleEntries` 1,
 `executedBytes` 2461374 = `sourceBytes` 2461374, `executedRatio` 1);
 `test:locale-pack` PASS (third-party `ja` locale pack activates the Japanese
@@ -79,12 +83,16 @@ suite on the same build PASSed, so it is recorded as a focus/timing flake, not a
 refactor regression. The official A+ O host then ran the same `.61` tarball on
 2026-11-10 (official DeepSeek Harness isolated host, FileVersion `0.2.2-rc.1` /
 ProductVersion `0.2.2.0`): `test:isolated` PASS on the full suite with preview
-geometry measured as dialog 560×560px, **narrow sidebar 256px**, body scroll
-3659 > 466px and row gaps [0,0,0] (the official host insets the plugin root
-differently from the community host — 256 vs 252px — which is exactly what the
-narrow-layout band assertion accepts by design); `test:ui-browser` PASS on a
+geometry measured as dialog 560×560px, **narrow sidebar 256px**, row gaps
+[0,0,0]; the body scroll assertion holds (`scrollHeight` ≫ `clientHeight`, same
+fixture-dependent order), and the official host insets the plugin root
+differently from the community host (256 vs 252px) — exactly what the
+narrow-layout band assertion accepts by design; `test:ui-browser` PASS on a
 separate fresh official host (`bundleEntries` 1, `executedBytes` 3096507 =
-`sourceBytes` 3096507, `executedRatio` 1). The `.60` official A+ O rows remain
+`sourceBytes` 3096507, `executedRatio` 1). Final re-verification on HEAD
+`8df323c` (2026-11-10): community and official isolated runs both PASS, both
+`test:ui-browser` runs report `executedRatio` 1, `test:locale-pack` PASS and
+`test:all-locales` PASS 23/23. The `.60` official A+ O rows remain
 historical.
 
 The last full all-locales / locale-pack sweep was the 2026-11-09 `.59` run
@@ -112,7 +120,7 @@ remain historical artifacts.
 | Profile multi-window: SSE active convergence and `profile-changed` 409 | PASS | PASS (2026-11-09) | PASS (2026-11-10) | — | — |
 | Profile-scoped collapsed state, epoch reset and switch/undo/reset actions | PASS | PASS (2026-11-09) | PASS (2026-11-10) | — | — |
 | Profile UI: chevron/popover/preview/save-as/manage (39 UI runtime cases) | PASS | PASS (2026-11-09) | PASS (2026-11-10) | PASS (23 cases) | PASS (user desktop 2026-11-10) |
-| Profile preview real geometry (SPEC §8.1: width/height caps, body scroll, wrapping, adjacent-row gaps, narrow sidebar) | — (e2e assertions added in `e2e/isolated.spec.mjs`) | PASS (2026-11-10, community isolated host, `.61` tarball; dialog 560×560px, narrow sidebar 252px, body scroll 3492>466px, row gaps [0,0,0]) | PASS (2026-11-10, official DeepSeek Harness 0.2.2.0 / `0.2.2-rc.1` isolated host, `.61` tarball; dialog 560×560px, narrow sidebar 256px, body scroll 3659>466px, row gaps [0,0,0]) | — | — |
+| Profile preview real geometry (SPEC §8.1: width/height caps, body scroll, wrapping, adjacent-row gaps, narrow sidebar) | — (e2e assertions added in `e2e/isolated.spec.mjs`) | PASS (2026-11-10, community isolated host, `.61` tarball; dialog 560×560px, narrow sidebar 252px, body `scrollHeight` ≫ `clientHeight` (fixture-dependent), row gaps [0,0,0]) | PASS (2026-11-10, official DeepSeek Harness 0.2.2.0 / `0.2.2-rc.1` isolated host, `.61` tarball; dialog 560×560px, narrow sidebar 256px, body `scrollHeight` ≫ `clientHeight` (fixture-dependent), row gaps [0,0,0]) | — | — |
 | Profile i18n: 45 `profiles.*` keys × 19 dictionaries | PASS | — | — | PASS (23 cases) | — |
 | Full non-English UI surfaces | PASS (resources only) | — | — | LP header/dialog/group menu/settings + ja onboarding/dialog only | — |
 
