@@ -17,13 +17,14 @@ import { clientRuntime as rt } from '../adapters/client-runtime.js'
 import { sessionTitle } from '../core/filter.js'
 import { sameDocs } from '../core/profile-diff.js'
 import { renderGlyph } from './icons.js'
-import { safeStorage } from './state.js'
 import { StatusSpinner, TextButton } from './components-primitives.js'
+import {
+  PROFILE_PREVIEW_KEY,
+  readProfilePreviewDisabled,
+  writeProfilePreviewDisabled,
+} from './profile-storage.js'
 
 const h = createElement
-
-/** localStorage flag: `'0'` means "switch directly next time" (SPEC §7.6). */
-const PROFILE_PREVIEW_KEY = 'dsh-session-grove.profilePreview.v1'
 
 /** Display caps for the preview lists (SPEC §8.5); the diff core is uncapped. */
 const MAX_GROUP_ROWS = 100
@@ -31,23 +32,6 @@ const MAX_SESSION_ROWS = 300
 const MAX_STALE_ROWS = 100
 
 const classNames = (...values) => values.filter(Boolean).join(' ')
-
-const readProfilePreviewDisabled = (storage = safeStorage()) => {
-  try {
-    return storage?.getItem(PROFILE_PREVIEW_KEY) === '0'
-  } catch {
-    return false
-  }
-}
-
-const writeProfilePreviewDisabled = (disabled, storage = safeStorage()) => {
-  try {
-    if (disabled) storage?.setItem(PROFILE_PREVIEW_KEY, '0')
-    else storage?.removeItem(PROFILE_PREVIEW_KEY)
-  } catch {
-    /* blocked storage keeps the in-memory preference only */
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Store shape helpers
