@@ -17,7 +17,7 @@ import { perfRender } from './perf.js'
 
 import { SearchBox } from './components-search-box.js'
 import { dispatch, IconButton, SessionStatusCell, TextButton } from './components-primitives.js'
-import { ProfileMenu, ProfileRecovery } from './components-profiles.js'
+import { ProfileMenu, ProfileRecovery } from './profile-switcher.js'
 
 const h = createElement
 

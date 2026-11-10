@@ -13,7 +13,7 @@ import { dialogKeyboardDelta } from './dialog-keyboard.js'
 import { GroupListPicker } from './group-list-picker.js'
 import { ICON_GROUPS, renderGlyph, renderIcon } from './icons.js'
 import { ScrollArea } from './scroll-area.js'
-import { ProfilePreviewActions, ProfilePreviewBody } from './components-profiles.js'
+import { ProfilePreviewActions, ProfilePreviewBody } from './profile-preview.js'
 import {
   ProfileArchiveBody,
   ProfileManageBody,

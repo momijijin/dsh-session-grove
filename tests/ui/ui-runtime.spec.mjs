@@ -40,7 +40,10 @@ const expand = (node) => {
 const uiModules = [
   'components.js',
   'components-header.js',
-  'components-profiles.js',
+  'profile-switcher.js',
+  'profile-preview.js',
+  'profile-switch.js',
+  'profile-storage.js',
   'components-profile-dialogs.js',
   'components-rows.js',
   'components-primitives.js',
@@ -62,7 +65,7 @@ const uiModules = [
 ]
 
 test('client UI modules execute under a test React peer', async () => {
-  assert.equal(uiModules.length, 21)
+  assert.equal(uiModules.length, 24)
   for (const file of uiModules) {
     const module = await import(new URL(`../../src/client/${file}`, import.meta.url))
     assert.ok(module && typeof module === 'object', `${file} did not load`)
@@ -359,7 +362,7 @@ const profileSnapshot = (overrides = {}) => ({
 
 test('ProfileMenu renders the chevron trigger only with the profile surface', async () => {
   installClientRuntime({ t: (key) => 'T:' + key })
-  const { ProfileMenu } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const { ProfileMenu } = await import(new URL('../../src/client/profile-switcher.js', import.meta.url))
   assert.equal(ProfileMenu({ store: { profiles: { available: false } }, handlers: {} }), null)
   assert.equal(ProfileMenu({ store: {}, handlers: {} }), null)
   const base = profileSnapshot()
@@ -404,7 +407,7 @@ test('ProfilePopover marks the active row, shows counts and disables items while
     t: (key, params) =>
       key === 'profiles.counts' && params ? `${key}:${params.groups}/${params.sessions}` : 'T:' + key,
   })
-  const { ProfilePopover } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const { ProfilePopover } = await import(new URL('../../src/client/profile-switcher.js', import.meta.url))
   const calls = []
   const store = profileSnapshot()
   const tree = ProfilePopover({
@@ -440,7 +443,7 @@ test('ProfilePopover marks the active row, shows counts and disables items while
 
 test('ProfilePopover surfaces degraded/error/loading states', async () => {
   installClientRuntime({ t: (key) => 'T:' + key })
-  const { ProfilePopover } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const { ProfilePopover } = await import(new URL('../../src/client/profile-switcher.js', import.meta.url))
   const degraded = ProfilePopover({
     store: profileSnapshot({
       profiles: { ...profileSnapshot().profiles, degraded: true, error: { code: 'io' }, loading: true },
@@ -479,7 +482,7 @@ const previewDiff = (overrides = {}) => ({
 
 test('ProfilePreviewBody renders summary, ungrouped warning and change sections', async () => {
   const t = (key) => 'T:' + key
-  const { ProfilePreviewBody } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const { ProfilePreviewBody } = await import(new URL('../../src/client/profile-preview.js', import.meta.url))
   const store = profileSnapshot({
     profilePreview: {
       open: true,
@@ -589,7 +592,7 @@ test('ProfilePreviewBody renders summary, ungrouped warning and change sections'
 
 test('ProfilePreviewBody keeps change titles and paths in separate wrapping lines', async () => {
   const t = (key) => 'T:' + key
-  const { ProfilePreviewBody } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const { ProfilePreviewBody } = await import(new URL('../../src/client/profile-preview.js', import.meta.url))
   const longTitle = 'Quarterly planning session with a very long descriptive title'
   const store = profileSnapshot({
     profilePreview: {
@@ -637,7 +640,7 @@ test('ProfilePreviewBody keeps change titles and paths in separate wrapping line
 
 test('ProfilePreviewBody truncates oversized change lists with the remaining count', async () => {
   const t = (key) => 'T:' + key
-  const { ProfilePreviewBody } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const { ProfilePreviewBody } = await import(new URL('../../src/client/profile-preview.js', import.meta.url))
   const added = Array.from({ length: 130 }, (_, index) => `G${index}`)
   const diff = previewDiff({
     summary: {
@@ -691,7 +694,7 @@ test('DialogHost renders the profile-preview dialog with its dedicated footer', 
 
 test('ProfileRecovery offers only healthy profiles when the active one is unhealthy', async () => {
   installClientRuntime({ t: (key) => 'T:' + key, retryLoad: () => {}, refreshProfiles: () => {} })
-  const { ProfileRecovery } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const { ProfileRecovery } = await import(new URL('../../src/client/profile-switcher.js', import.meta.url))
   const t = (key) => 'T:' + key
   assert.equal(ProfileRecovery({ store: { profiles: { available: false }, banner: { code: 'profile-unhealthy' } }, t }), null)
   assert.equal(
@@ -723,7 +726,7 @@ test('ProfileRecovery offers only healthy profiles when the active one is unheal
 test('ProfilePreviewActions disables confirm while stale and cancels through the store', async () => {
   const dispatched = []
   installClientRuntime({ t: (key) => 'T:' + key, store: { dispatch: (action, payload) => dispatched.push([action, payload]) } })
-  const { ProfilePreviewActions } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const { ProfilePreviewActions } = await import(new URL('../../src/client/profile-preview.js', import.meta.url))
   const actions = ProfilePreviewActions({
     store: profileSnapshot({ profilePreview: { ...profileSnapshot().profilePreview, open: true, stale: true } }),
     t: (key) => 'T:' + key,
@@ -746,7 +749,7 @@ test('ProfilePreviewActions disables confirm while stale and cancels through the
 
 test('profile preview preference round-trips through injected storage', async () => {
   const { readProfilePreviewDisabled, writeProfilePreviewDisabled } = await import(
-    new URL('../../src/client/components-profiles.js', import.meta.url)
+    new URL('../../src/client/profile-storage.js', import.meta.url)
   )
   const memory = {
     value: null,
@@ -770,8 +773,11 @@ test('profile preview preference round-trips through injected storage', async ()
 })
 
 test('an empty or identical preview activates directly without a dialog', async () => {
-  const { beginProfileSwitch, isPreviewDiffEmpty } = await import(
-    new URL('../../src/client/components-profiles.js', import.meta.url)
+  const { beginProfileSwitch } = await import(
+    new URL('../../src/client/profile-switch.js', import.meta.url)
+  )
+  const { isPreviewDiffEmpty } = await import(
+    new URL('../../src/client/profile-preview.js', import.meta.url)
   )
   assert.equal(isPreviewDiffEmpty(null), true)
   assert.equal(isPreviewDiffEmpty(previewDiff()), false)
@@ -856,7 +862,7 @@ test('Toast renders and runs a text action, clearing the toast first', async () 
 // ---------------------------------------------------------------------------
 test('ProfilePopover footer exposes save-as/manage and disables them while degraded or busy', async () => {
   installClientRuntime({ t: (key) => 'T:' + key })
-  const { ProfilePopover } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const { ProfilePopover } = await import(new URL('../../src/client/profile-switcher.js', import.meta.url))
   const calls = []
   const handlers = { openSaveAs: () => calls.push('saveAs'), openManage: () => calls.push('manage') }
   const onClose = (options) => calls.push(['close', options])
@@ -891,7 +897,7 @@ test('ProfilePopover footer exposes save-as/manage and disables them while degra
 
 test('ProfilePopover caps save-as at the profile limit but keeps manage reachable', async () => {
   installClientRuntime({ t: (key, params) => (params ? `${key}:${params.max}` : 'T:' + key) })
-  const { ProfilePopover } = await import(new URL('../../src/client/components-profiles.js', import.meta.url))
+  const { ProfilePopover } = await import(new URL('../../src/client/profile-switcher.js', import.meta.url))
   const list = Array.from({ length: 20 }, (_, index) => ({
     id: `p${index}`,
     name: `P${index}`,
