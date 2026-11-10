@@ -30,6 +30,11 @@ Thumbs.db
 
 # Release artifacts
 *.tgz
+SHA256SUMS
+*.sha256
+# Local packaging must write into a temp directory, e.g.
+#   npm pack --pack-destination "$env:TEMP\dsh-grove-pack"
+# A tarball left in the repo root is a historical leftover and is never tracked.
 
 # Local Gate 0 spike packages/reports (summarized in docs/GATE0-SUMMARY.md)
 spike/

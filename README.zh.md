@@ -408,15 +408,17 @@ node --check lib/client.js
 npm run check:coverage
 npm run check:ui
 npm run check:release
-npm pack
+npm pack --pack-destination "$env:TEMP\dsh-grove-pack"
 ```
 
-- `npm test`：699 项单元/契约测试
+正式产物由 tag 触发的 release workflow 在 CI 生成；本地包仅供自测——请输出到临时目录（不要留在仓库根目录），安装前先核对 manifest / `package.json` 版本。
+
+- `npm test`：726 项单元/契约测试
 - `npm run check:style`: zero-dependency style guard (tabs/trailing whitespace/final newline)
 - `npm run check:lib`: rebuild and verify lib/ is current with src/
 - `npm run test:ui-browser`: real-browser UI runtime coverage (isolated host; manual)
-- `npm run check:ui`：UI runtime smoke（39 个 UI runtime case：1 个模块加载 + 38 个组件测试，覆盖 17 个组件、21 个客户端模块；不并入逻辑 coverage）
-- `npm run check:coverage`：Node 内置 coverage 报告（当前约 93.1% lines / 83.9% branches / 90.5% functions）
+- `npm run check:ui`：UI runtime smoke（39 个 UI runtime case：1 个模块加载 + 38 个组件测试，覆盖 17 个组件、24 个客户端模块；不并入逻辑 coverage）
+- `npm run check:coverage`：Node 内置 coverage 报告（当前约 94% lines / 85% branches / 90% functions；每次运行有百分之几的波动）
 - `npm run check:release`：release workflow 发布门禁；校验 `package.json` / `dsh.plugin.json` / `src/shared/constants.js` / `package-lock.json` 版本一致；设置了 `GITHUB_REF_NAME` 时要求 tag 等于 `v<version>`；并检查 release note、`lib/client.js` 版本戳和 `package.json.files` 的全部路径
 - 分层：`src/core` 纯函数核心，`src/adapters` 承载 DSH 版本适配；见 `docs/ARCHITECTURE.md`
 - `npm run check:all`：全文件语法检查 + 测试

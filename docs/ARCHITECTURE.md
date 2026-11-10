@@ -1,6 +1,6 @@
 # 架构：纯函数核心 + DSH 适配器
 
-当前实现：**0.4.0-beta.60**  
+当前实现：**0.4.0-beta.61**  
 支持宿主：`@deepseek-ai/dsh` 0.2.1-rc.2 / 0.2.1-rc.5  
 已验证壳：社区版 DSH Desktop **Stable** 2.0.18（rc.2）；官方 DeepSeek Harness 桌面版 0.2.1.0（rc.5，隔离 A+ + 桌面窗口验收）  
 明确不支持：社区版 DSH Desktop Beta、社区版 DSH NEXT（`-next`）  
@@ -69,14 +69,18 @@ src/index.js     Cordis host 入口
   - `revision` 事件带 `profileId`；新增 `active` 事件（`activeId, registryRevision`），在 create/activate 后广播；
   - 客户端只接受缺失 `profileId`（旧 host）或等于本地 active 的 revision；`active` 事件触发 epoch++、清队列、`/load` + `/profiles`。
 - 客户端
-  - `src/client/components-profiles.js`：header chevron、popover、切换/撤销编排、preview 主体与 recovery；
+  - `src/client/profile-switcher.js`：header chevron、popover、recovery strip；
+  - `src/client/profile-preview.js`：切换差异预览 body 与预览 footer；
+  - `src/client/profile-switch.js`：预览→激活→撤销/恢复编排与 GroupsView handler facade；
+  - `src/client/profile-storage.js`：preview 偏好（localStorage 开关）读写；
   - `src/client/components-profile-dialogs.js`：save-as/rename/archive/manage 弹窗主体；
-  - `src/client/state.js`：`profiles`/`profilePreview`/`profileEpoch`/`profileSwitching`；切换成功或收到 active 事件时递增 epoch、清零 `latestSeenRevision`、清空 optimistic/doc 状态；
+  - `src/client/dialog-profile.js`：DialogHost 的 profile 弹窗 body、名字校验与 footer 动作；group/session body 仍在壳内；
+  - `src/client/state.js`：`profiles`/`profilePreview`/`profileEpoch`/`profileSwitching`；切换成功或收到 active 事件时递增 epoch、清零 `latestSeenRevision`、清空 optimistic/doc 状态（存储适配在 `state/persistence.js`，SSE 变更判定在 `state/external-change.js`，`state.js` 保留 `createStore` 与 re-export）；
   - 折叠状态键不变，值变为 `{[profileId]: {[groupId]: true}}`；旧扁平值按 default 读取，下一次写入升级；
   - 旧 host（`/profiles` 404）→ `profiles.available=false`，不渲染 chevron。
 - `src/core/profile-diff.js`
   - 纯函数 `normalizeDocForCompare/sameDocs/diffDocs`；忽略 `version/revision`，按 id-first + 唯一 path-fallback 匹配分组；
-  - 返回完整数组，`truncated` 恒为 false；100/300 行截断只在 UI 层（`components-profiles.js`）。
+  - 返回完整数组，`truncated` 恒为 false；100/300 行截断只在 UI 层（`profile-preview.js`）。
 
 ## 客户端 i18n 分层
 
@@ -99,7 +103,10 @@ src/index.js     Cordis host 入口
 - `scripts/build-client.mjs`：主 bundle + `lib/client.locale-*.js` 懒加载 chunk 生成
 - `src/client/groups-view-menu-handlers.js`：菜单锚点/上下文菜单/导航命令
 - `src/client/groups-view-dialog-handlers.js`：新建/重命名/移动/删除/归档/fork 等 dialog 命令
-- `src/client/components-profiles.js`：配置 chevron/popover、切换预览与切换/撤销编排
+- `src/client/profile-switcher.js`：配置 chevron/popover 与 recovery strip
+- `src/client/profile-preview.js`：切换差异预览 body 与预览 footer
+- `src/client/profile-switch.js`：预览/激活/撤销/恢复流程与 handler facade
+- `src/client/profile-storage.js`：preview 偏好 storage 开关
 - `src/client/components-profile-dialogs.js`：另存为、重命名、归档与管理列表弹窗
 - `src/client/plugin-locale.js`：locale service 注册/订阅、translator/direction/time 运行时
 - `src/client/plugin-settings.js`：`plugins.bundle.config` slot 注册与 config form
@@ -166,7 +173,8 @@ src/index.js     Cordis host 入口
   - 本地 bearer token（0600）+ host fence；token 目前会预生成，合法 token 在插件内部放行 control 路由，但不绕过 Host 外层浏览器 fence
   - revision CAS、planHash、idempotency、审计日志
   - `change-hub` 在每次 commit 后广播 revision；浏览器通过 `/events` SSE 重新 load
-  - 0.3.0-beta.79 拆分：`routes.js` 只保留注册编排；纯响应/解析在 `route-contract.js`，控制路由在 `control-routes.js`
+  - 0.3.0-beta.79 拆分：`routes.js` 只保留注册编排；控制路由在 `control-routes.js`
+  - 0.4.0-beta.61 再拆分：HTTP 原语/请求体解析在 `host/http/wire.js`，冻结响应形状在 `host/http/respond.js`，profile 策略（planHash/目标解析/doctor 存储报告/名称策略）在 `profile-policy.js`，legacy 单 store 适配器在 `legacy-profile-manager.js`
 - `src/client/components.js` + `components-*.js`
   - `components.js` 只保留 GroupsView 编排；primitives、rows、ungrouped、resize-handle、search-box、header 分模块
   - DOM、testid、CSS 类与 props 契约不变

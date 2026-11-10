@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { writeFile } from 'node:fs/promises'
+import { readFile, readdir, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   CONTROL_APPLY_PATH,
@@ -10,12 +11,13 @@ import {
   CONTROL_RESOLVE_PATH,
   CONTROL_STATE_PATH,
   DEFAULT_PROFILE_ID,
+  EVENTS_PATH,
   LOAD_PATH,
   MAX_CONTROL_BODY_BYTES,
   PROFILES_DIR_NAME,
   RECORD_FILE_NAME,
 } from '../../src/host/constants.js'
-import { controlPlanHash } from '../../src/host/route-contract.js'
+import { controlPlanHash } from '../../src/host/profile-policy.js'
 import {
   FIXED_TIMESTAMP,
   PROFILE_ID,
@@ -759,4 +761,314 @@ test('control apply idempotency is scoped per profile', async (t) => {
   const noKeySecond = await mounted.call(CONTROL_APPLY_PATH, post(noKeyBody))
   assert.equal(noKeySecond.res.statusCode, 409)
   assert.equal(noKeySecond.json.code, 'conflict')
+})
+
+// ---------------------------------------------------------------------------
+// T3.3 boundary tests (SPEC §8.2): idempotency eviction, degraded zero-write
+// and the per-route fence/method/body status matrix.
+// ---------------------------------------------------------------------------
+
+test('T3.3: the apply idempotency cache keeps 128 entries and evicts oldest first', async (t) => {
+  const state = { doc: { ...sampleDoc(), revision: 1 }, revision: 1 }
+  const store = {
+    async load() {
+      return { kind: 'ok', doc: state.doc, revision: state.revision, exists: true }
+    },
+    async peek() {
+      return { kind: 'ok', doc: state.doc, revision: state.revision, exists: true }
+    },
+    async commit(baseRevision, nextDoc) {
+      if (baseRevision !== state.revision) return { kind: 'conflict', doc: state.doc, revision: state.revision }
+      state.revision += 1
+      state.doc = { ...nextDoc, revision: state.revision }
+      return { kind: 'ok', doc: state.doc, revision: state.revision }
+    },
+  }
+  const mounted = await mountRoutes({ store, connection: connection(), controlApiEnabled: true })
+  t.after(() => mounted.cleanup())
+
+  const operationsFor = (index) => [{ op: 'group.create', name: `Evict ${index}`, parentId: null, index: 0 }]
+  const bodyFor = (index, baseRevision) => ({
+    baseRevision,
+    operations: operationsFor(index),
+    planHash: controlPlanHash(DEFAULT_PROFILE_ID, baseRevision, operationsFor(index)),
+    idempotencyKey: `evict-${index}`,
+  })
+  const apply = async (index, baseRevision) => {
+    const response = await mounted.call(CONTROL_APPLY_PATH, post(bodyFor(index, baseRevision)))
+    assert.equal(response.res.statusCode, 200, `apply ${index}`)
+    return response.json
+  }
+
+  // 129 entries: the first insert is evicted as soon as the 129th arrives.
+  let baseRevision = 1
+  for (let index = 0; index < 129; index += 1) {
+    baseRevision = (await apply(index, baseRevision)).revision
+  }
+  const evicted = await mounted.call(CONTROL_APPLY_PATH, post(bodyFor(0, 1)))
+  assert.equal(evicted.res.statusCode, 409, 'evict-0 must have been evicted')
+  assert.equal(evicted.json.code, 'conflict')
+  // The oldest surviving entry is still served from the cache with its original
+  // (now stale) revision, proving it did not run the stale-revision path.
+  const retained = await mounted.call(CONTROL_APPLY_PATH, post(bodyFor(1, 2)))
+  assert.equal(retained.res.statusCode, 200)
+  assert.equal(retained.json.revision, 3)
+
+  // The 130th entry evicts evict-1, not evict-128: FIFO order, not LRU.
+  const overflow = await apply(129, baseRevision)
+  assert.equal(overflow.revision, 131)
+  const evictedSecond = await mounted.call(CONTROL_APPLY_PATH, post(bodyFor(1, 2)))
+  assert.equal(evictedSecond.res.statusCode, 409)
+  assert.equal(evictedSecond.json.code, 'conflict')
+  const newest = await mounted.call(CONTROL_APPLY_PATH, post(bodyFor(128, 129)))
+  assert.equal(newest.res.statusCode, 200)
+  assert.equal(newest.json.revision, 130)
+  const last = await mounted.call(CONTROL_APPLY_PATH, post(bodyFor(129, 130)))
+  assert.equal(last.res.statusCode, 200)
+  assert.equal(last.json.revision, 131)
+})
+
+test('T3.3: a degraded registry refuses plan and apply without writing anything', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  await writeProfileDoc(home, DEFAULT_PROFILE_ID, { revision: 1 })
+  await writeFile(home.registryFilePath, '{ not-a-registry', 'utf8')
+  const manager = createTestProfileManager(home)
+  const mounted = await mountRoutes({ profileManager: manager, connection: connection(), controlApiEnabled: true })
+  t.after(mounted.cleanup)
+
+  // Heal/quarantine once before the snapshot so the assertion below covers only
+  // what plan/apply themselves might write.
+  await manager.loadRegistry()
+  const filesBefore = (await readdir(home.storageDir)).sort()
+  const recordBefore = await readFile(home.defaultFilePath, 'utf8')
+
+  const operations = [{ op: 'group.create', name: 'Degraded', parentId: null, index: 0 }]
+  const plan = await mounted.call(
+    CONTROL_PLAN_PATH,
+    post({ baseRevision: 1, operations, profileId: DEFAULT_PROFILE_ID }),
+  )
+  assert.equal(plan.res.statusCode, 409)
+  assert.equal(plan.json.code, 'registry-unhealthy')
+
+  const apply = await mounted.call(
+    CONTROL_APPLY_PATH,
+    post({
+      baseRevision: 1,
+      operations,
+      profileId: DEFAULT_PROFILE_ID,
+      planHash: controlPlanHash(DEFAULT_PROFILE_ID, 1, operations),
+      idempotencyKey: 'degraded-write',
+    }),
+  )
+  assert.equal(apply.res.statusCode, 409)
+  assert.equal(apply.json.code, 'registry-unhealthy')
+
+  assert.deepEqual((await readdir(home.storageDir)).sort(), filesBefore, 'degraded plan/apply must not write')
+  assert.equal(await readFile(home.defaultFilePath, 'utf8'), recordBefore)
+})
+
+test('T3.3: every control route enforces the fence, the method and the body ceiling', async (t) => {
+  const changeHub = { publish() {}, publishActive() {}, subscribe() { return () => {} } }
+  const mounted = await mountRoutes({ connection: connection(), controlApiEnabled: true, changeHub })
+  t.after(mounted.cleanup)
+  const getRoutes = [CONTROL_STATE_PATH, CONTROL_CATALOG_PATH, CONTROL_DOCTOR_PATH, EVENTS_PATH]
+  const postRoutes = [CONTROL_RESOLVE_PATH, CONTROL_PLAN_PATH, CONTROL_APPLY_PATH]
+
+  for (const path of [...getRoutes, ...postRoutes]) {
+    const unauthorized = await mounted.call(
+      path,
+      makeRequest({
+        method: getRoutes.includes(path) ? 'GET' : 'POST',
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    assert.equal(unauthorized.res.statusCode, 401, `${path} must require the fence cookie`)
+    const crossSite = await mounted.call(
+      path,
+      makeRequest({ method: 'GET', headers: { cookie: 'token=ok', 'sec-fetch-site': 'cross-site' } }),
+    )
+    assert.equal(crossSite.res.statusCode, 403, `${path} must reject cross-site requests`)
+  }
+
+  for (const path of getRoutes) {
+    const wrongMethod = await mounted.call(path, makeRequest({ method: 'POST', headers }))
+    assert.equal(wrongMethod.res.statusCode, 405, `${path} must reject POST`)
+  }
+  for (const path of postRoutes) {
+    const wrongMethod = await mounted.call(path, makeRequest({ method: 'GET', headers }))
+    assert.equal(wrongMethod.res.statusCode, 405, `${path} must reject GET`)
+    const oversized = await mounted.call(
+      path,
+      makeRequest({
+        method: 'POST',
+        headers,
+        body: `"${'x'.repeat(MAX_CONTROL_BODY_BYTES)}"`,
+      }),
+    )
+    assert.equal(oversized.res.statusCode, 413, `${path} must reject an oversized body`)
+    assert.equal(oversized.json.code, 'payload-too-large')
+  }
+
+  // Apply is the one route with an extra allow-list (planHash/idempotencyKey);
+  // an unexpected field must still be rejected before any profile work.
+  const unexpectedApply = await mounted.call(
+    CONTROL_APPLY_PATH,
+    post({ baseRevision: 1, operations: [], planHash: 'x', idempotencyKey: 'y', surprise: true }),
+  )
+  assert.equal(unexpectedApply.res.statusCode, 422)
+  assert.equal(unexpectedApply.json.code, 'unexpected-field')
+})
+
+test('T3.3: resolve/plan/apply fail closed on an unsupported document version', async (t) => {
+  const unsupportedStore = {
+    async load() {
+      return { kind: 'unsupported-version', version: 9 }
+    },
+    async commit() {
+      throw new Error('unreachable')
+    },
+    async peek() {
+      return { kind: 'unsupported-version', version: 9 }
+    },
+  }
+  const mounted = await mountRoutes({ store: unsupportedStore, connection: connection(), controlApiEnabled: true })
+  t.after(mounted.cleanup)
+
+  const resolve = await mounted.call(CONTROL_RESOLVE_PATH, post({ path: [] }))
+  assert.equal(resolve.res.statusCode, 409)
+  assert.equal(resolve.json.code, 'unsupported-version')
+  assert.equal(resolve.json.version, 9)
+
+  const operations = []
+  const plan = await mounted.call(CONTROL_PLAN_PATH, post({ baseRevision: 1, operations }))
+  assert.equal(plan.res.statusCode, 409)
+  assert.equal(plan.json.code, 'unsupported-version')
+
+  const apply = await mounted.call(
+    CONTROL_APPLY_PATH,
+    post({ baseRevision: 1, operations, planHash: controlPlanHash(DEFAULT_PROFILE_ID, 1, operations) }),
+  )
+  assert.equal(apply.res.statusCode, 409)
+  assert.equal(apply.json.code, 'unsupported-version')
+})
+
+test('T3.3: resolve validates its revision, plan reports conflicts and apply rejects bad operations', async (t) => {
+  const mounted = await mountRoutes({ connection: connection(), controlApiEnabled: true })
+  t.after(mounted.cleanup)
+  await mounted.store.save(sampleDoc())
+
+  const badRevision = await mounted.call(CONTROL_RESOLVE_PATH, post({ path: [], baseRevision: -2 }))
+  assert.equal(badRevision.res.statusCode, 422)
+  assert.equal(badRevision.json.code, 'invalid-revision')
+
+  const revisionMismatch = await mounted.call(CONTROL_RESOLVE_PATH, post({ path: [], baseRevision: 99 }))
+  assert.equal(revisionMismatch.res.statusCode, 409)
+  assert.equal(revisionMismatch.json.code, 'revision-mismatch')
+
+  const conflict = await mounted.call(CONTROL_PLAN_PATH, post({ baseRevision: 99, operations: [] }))
+  assert.equal(conflict.res.statusCode, 409)
+  assert.equal(conflict.json.code, 'conflict')
+
+  const invalidOperations = [{ op: 'group.rename', groupId: 'g-missing', name: 'x' }]
+  const invalidPlan = await mounted.call(CONTROL_PLAN_PATH, post({ baseRevision: 1, operations: invalidOperations }))
+  assert.equal(invalidPlan.res.statusCode, 422)
+  assert.equal(typeof invalidPlan.json.code, 'string')
+  const invalidApply = await mounted.call(
+    CONTROL_APPLY_PATH,
+    post({
+      baseRevision: 1,
+      operations: invalidOperations,
+      planHash: controlPlanHash(DEFAULT_PROFILE_ID, 1, invalidOperations),
+    }),
+  )
+  assert.equal(invalidApply.res.statusCode, 422)
+  assert.equal(typeof invalidApply.json.code, 'string')
+})
+
+test('T3.3: control routes report registry, document and doctor failures as 503 io', async (t) => {
+  const throwingManager = {
+    storageDir: join(tmpdir(), 'dsg-control-io'),
+    loadRegistry: async () => {
+      throw new Error('registry io')
+    },
+    storeFor: () => ({
+      async load() {
+        return { kind: 'ok', doc: sampleDoc(), revision: 1, exists: true }
+      },
+    }),
+    peekFor: async () => ({ kind: 'ok' }),
+    entryFor: async () => null,
+  }
+  const registryIo = await mountRoutes({
+    profileManager: throwingManager,
+    connection: connection(),
+    controlApiEnabled: true,
+  })
+  t.after(registryIo.cleanup)
+  const resolve = await registryIo.call(CONTROL_RESOLVE_PATH, post({ path: [] }))
+  assert.equal(resolve.res.statusCode, 503)
+  assert.equal(resolve.json.code, 'io')
+  const plan = await registryIo.call(CONTROL_PLAN_PATH, post({ baseRevision: 1, operations: [] }))
+  assert.equal(plan.res.statusCode, 503)
+  assert.equal(plan.json.code, 'io')
+
+  const throwingStore = {
+    async load() {
+      throw new Error('document io')
+    },
+    async peek() {
+      throw new Error('document io')
+    },
+    async commit() {
+      throw new Error('unreachable')
+    },
+  }
+  const storeIo = await mountRoutes({ store: throwingStore, connection: connection(), controlApiEnabled: true })
+  t.after(storeIo.cleanup)
+  const apply = await storeIo.call(
+    CONTROL_APPLY_PATH,
+    post({ baseRevision: 1, operations: [], planHash: controlPlanHash(DEFAULT_PROFILE_ID, 1, []) }),
+  )
+  assert.equal(apply.res.statusCode, 503)
+  assert.equal(apply.json.code, 'io')
+
+  const rejectedStore = {
+    async load() {
+      return { kind: 'ok', doc: { ...sampleDoc(), revision: 1 }, revision: 1, exists: true }
+    },
+    async peek() {
+      return { kind: 'ok', doc: { ...sampleDoc(), revision: 1 }, revision: 1, exists: true }
+    },
+    async commit() {
+      return { kind: 'invalid', errors: ['commit-rejected'] }
+    },
+  }
+  const rejected = await mountRoutes({ store: rejectedStore, connection: connection(), controlApiEnabled: true })
+  t.after(rejected.cleanup)
+  const rejectedOperations = [{ op: 'group.create', name: 'Rejected', parentId: null, index: 0 }]
+  const rejectedApply = await rejected.call(
+    CONTROL_APPLY_PATH,
+    post({
+      baseRevision: 1,
+      operations: rejectedOperations,
+      planHash: controlPlanHash(DEFAULT_PROFILE_ID, 1, rejectedOperations),
+    }),
+  )
+  assert.equal(rejectedApply.res.statusCode, 422)
+  assert.equal(rejectedApply.json.code, 'invalid')
+  assert.match(rejectedApply.json.message, /commit-rejected/)
+
+  const doctorFailure = await mountRoutes({
+    connection: connection(),
+    controlApiEnabled: true,
+    doctorReport: async () => {
+      throw new Error('doctor io')
+    },
+  })
+  t.after(doctorFailure.cleanup)
+  const doctor = await doctorFailure.call(CONTROL_DOCTOR_PATH, makeRequest({ headers }))
+  assert.equal(doctor.res.statusCode, 503)
+  assert.equal(doctor.json.code, 'doctor-failed')
+  assert.match(doctor.json.message, /doctor io/)
 })
