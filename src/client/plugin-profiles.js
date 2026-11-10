@@ -11,6 +11,7 @@
  * sequence counters, the local switch target (suppresses our own SSE `active`
  * echo), the save-as create flag and the reset-listener set live here.
  */
+import { MAX_PROFILES } from '../shared/profile-limits.js'
 import { diffDocs } from '../core/profile-diff.js'
 
 /**
@@ -208,7 +209,7 @@ export const createProfileController = ({ store, api, notify, t, documentSync, d
   }
 
   const profileDialogErrorParams = (code) =>
-    code === 'profile-limit' ? { max: store.getSnapshot().profiles.limits?.max ?? 20 } : null
+    code === 'profile-limit' ? { max: store.getSnapshot().profiles.limits?.max ?? MAX_PROFILES } : null
 
   /** Close the rename/archive dialog but keep the manage list (SPEC §9.5). */
   const reopenProfileManage = () => {

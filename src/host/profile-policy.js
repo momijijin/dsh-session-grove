@@ -10,8 +10,7 @@
  */
 import { createHash } from 'node:crypto'
 import { basename, join } from 'node:path'
-import { hasControlChars } from '../shared/model.js'
-import { DEFAULT_PROFILE_ID, MAX_PROFILE_NAME, PROFILES_DIR_NAME, RECORD_FILE_NAME } from './constants.js'
+import { DEFAULT_PROFILE_ID, PROFILES_DIR_NAME, RECORD_FILE_NAME } from './constants.js'
 import { isProfileId } from './profile-registry.js'
 import { inspectProfileStorage } from './storage-health.js'
 import { isObject } from './http/wire.js'
@@ -177,29 +176,8 @@ export const previewTokenFor = ({ activeId, activeRevision, targetId, targetRevi
     .update(JSON.stringify({ activeId, activeRevision, targetId, targetRevision, registryRevision }))
     .digest('hex')
 
-/**
- * Validate a profile display name before a doc-first create writes an orphan.
- * The registry re-validates under its CAS lock, so this is a pre-check only.
- *
- * @returns {{ ok: true, name: string } | { ok: false, reason: string }}
- */
-export const normalizeProfileNameInput = (name) => {
-  if (typeof name !== 'string') return { ok: false, reason: 'name-required' }
-  const text = name.trim()
-  if (text.length === 0) return { ok: false, reason: 'name-required' }
-  if (text.length > MAX_PROFILE_NAME) return { ok: false, reason: 'name-too-long' }
-  if (hasControlChars(text)) return { ok: false, reason: 'name-control-chars' }
-  return { ok: true, name: text }
-}
+// The display-name checks are the shared pure functions from
+// `src/shared/profile-name.js`; `normalizeProfileNameInput` keeps its public
+// name for the callers that predate the extraction (SPEC §7.5#2).
+export { normalizeProfileName as normalizeProfileNameInput, profileNameTaken } from '../shared/profile-name.js'
 
-/** Case-insensitive duplicate check over the unarchived profiles (SPEC 4.3). */
-export const profileNameTaken = (registry, name, exceptId = null) => {
-  const key = name.trim().toLowerCase()
-  return registry.profiles.some(
-    (profile) =>
-      profile.archivedAt === null &&
-      profile.id !== exceptId &&
-      typeof profile.name === 'string' &&
-      profile.name.trim().toLowerCase() === key,
-  )
-}
