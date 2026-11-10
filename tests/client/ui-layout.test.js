@@ -58,8 +58,20 @@ const components = [
 const sessionMenu = readFileSync(new URL('../../src/client/session-menu.js', import.meta.url), 'utf8')
 const scrollArea = readFileSync(new URL('../../src/client/scroll-area.js', import.meta.url), 'utf8')
 const groupPicker = readFileSync(new URL('../../src/client/group-list-picker.js', import.meta.url), 'utf8')
+/**
+ * The plugin family is split across the composition root (`plugin.js`) and the
+ * three controllers it wires (document / profiles / host). Source-text
+ * assertions read the concatenation of all four, plus the small mount adapters.
+ */
+const pluginFamily = () =>
+  [
+    readFileSync(new URL('../../src/client/plugin.js', import.meta.url), 'utf8'),
+    readFileSync(new URL('../../src/client/plugin-document.js', import.meta.url), 'utf8'),
+    readFileSync(new URL('../../src/client/plugin-profiles.js', import.meta.url), 'utf8'),
+    readFileSync(new URL('../../src/client/plugin-host.js', import.meta.url), 'utf8'),
+  ].join('\n')
 const plugin = [
-  readFileSync(new URL('../../src/client/plugin.js', import.meta.url), 'utf8'),
+  pluginFamily(),
   readFileSync(new URL('../../src/client/plugin-settings.js', import.meta.url), 'utf8'),
   readFileSync(new URL('../../src/client/plugin-workspace-chrome.js', import.meta.url), 'utf8'),
 ].join('\n')
@@ -497,7 +509,7 @@ test('0.2.15 group palette: twelve distinct ids, color-token rules and a menu co
   assert.match(block('.dsg-color-swatch {'), /background:|width:\s*16px/)
   assert.match(block('.dsg-color-option[data-selected="true"] {'), /border-color:\s*var\(--dsw-alias-label-primary/)
   // The plugin applies the choice through the shared model setter.
-  const plugin = readFileSync(new URL('../../src/client/plugin.js', import.meta.url), 'utf8')
+  const plugin = pluginFamily()
   assert.match(plugin, /case 'group-color'/)
   assert.match(plugin, /setGroupColor\(latest, dialog\.groupId, payload\.color\)/)
 })
@@ -657,7 +669,7 @@ test('0.2.7 hash default icon and custom color precedence helpers', () => {
   assert.match(colorCore, /groupColorHex\(group\) \?\? `var\(--dsg-color-\$\{groupColor\(group\)\}\)`/)
   assert.match(components, /style: \{ '--dsg-group-color': groupColorCss\(group\) \}/)
   // The host stores the custom hex alongside the legacy palette id.
-  const plugin = readFileSync(new URL('../../src/client/plugin.js', import.meta.url), 'utf8')
+  const plugin = pluginFamily()
   assert.match(plugin, /setGroupColorHex\(latest, dialog\.groupId, payload\.colorHex\)/)
 })
 
@@ -671,7 +683,7 @@ test('0.2.7 right-click/keyboard menu wiring and clamped anchors', () => {
   assert.match(components, /if \(dragRef\.current\) return/)
   // The mounted menu re-clamps with its real rect.
   assert.match(sessionMenu, /clampMenuPosition\(\{/)
-  const plugin = readFileSync(new URL('../../src/client/plugin.js', import.meta.url), 'utf8')
+  const plugin = pluginFamily()
   assert.match(plugin, /'scroll', closeMenuOnViewportChange, true/)
   assert.match(plugin, /'resize', closeMenuOnViewportChange/)
 })
@@ -763,7 +775,7 @@ test('0.2.9 delete group: destination picker, empty direct path and move-and-del
   // Empty leaf: no dialog, direct runtime commit + toast.
   assert.match(components, /deleteGroupNeedsDialog\(store\.doc, groupId\)/)
   assert.match(components, /deleteGroupDirect\?\.\(groupId\)/)
-  const plugin = readFileSync(new URL('../../src/client/plugin.js', import.meta.url), 'utf8')
+  const plugin = pluginFamily()
   assert.match(plugin, /const deleteGroupDirect = async \(groupId\)/)
   assert.match(plugin, /'toast\.groupDeleted'/)
   assert.match(plugin, /deleteGroupTo\(latest, dialog\.groupId, payload\.destinationId \?\? null\)/)
@@ -820,7 +832,7 @@ test('0.2.14 dialog options use roomy padding and standard depth indent', () => 
 })
 
 test('0.3.0-beta.3 move dialogs insert at the target group head', () => {
-  const plugin = readFileSync(new URL('../../src/client/plugin.js', import.meta.url), 'utf8')
+  const plugin = pluginFamily()
   assert.match(plugin, /actions\.moveSession\(dialog\.sessionId, payload\.groupId \?\? null, 0\)/)
   assert.match(plugin, /moveGroup\(latest, dialog\.groupId, payload\.groupId \?\? null, 0\)/)
 })
@@ -1152,7 +1164,7 @@ test('0.4.0 profiles: save-as echo is local and archive refresh is forced', () =
   assert.match(plugin, /let createInFlight = false/)
   assert.match(plugin, /createInFlight = true/)
   assert.match(plugin, /createInFlight = false/)
-  assert.match(plugin, /isLocalSwitch: \(activeId\) =>\s*createInFlight \|\|/)
+  assert.match(plugin, /const isLocalSwitch = \(activeId\) =>\s*createInFlight \|\|/)
   assert.match(plugin, /if \(info\.local\) return/)
   // Forced list reads bypass the in-flight slot and drop the older response,
   // so the manage list cannot be repopulated by a read started before archive.
