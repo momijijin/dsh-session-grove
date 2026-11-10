@@ -23,7 +23,9 @@ const componentResize = readFileSync(new URL('../../src/client/components-resize
 const componentSearch = readFileSync(new URL('../../src/client/components-search-box.js', import.meta.url), 'utf8')
 const componentHeader = readFileSync(new URL('../../src/client/components-header.js', import.meta.url), 'utf8')
 const componentProfiles = [
-  readFileSync(new URL('../../src/client/components-profiles.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../src/client/profile-switcher.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../src/client/profile-preview.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../src/client/profile-switch.js', import.meta.url), 'utf8'),
   readFileSync(new URL('../../src/client/profile-storage.js', import.meta.url), 'utf8'),
 ].join('\n')
 const componentProfileDialogs = readFileSync(new URL('../../src/client/components-profile-dialogs.js', import.meta.url), 'utf8')
