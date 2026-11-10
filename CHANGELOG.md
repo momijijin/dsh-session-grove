@@ -20,6 +20,12 @@
 
 - `createActions` is now created after mount with the mounted translator (it used to be created at `createPlugin()` module-load time when `t` was the identity). A failed session unarchive toast now shows the translated `toast.unarchiveFailed` copy instead of the raw i18n key; the rename failure path is unchanged (its visible toast already came from the dialog handler). This corrects an existing wrong message; it is not a feature and no API/UX contract changed.
 
+### CI hardening
+
+- Pinned GitHub Actions to immutable commit SHAs in both `.github/workflows/ci.yml` and `.github/workflows/release.yml`: `actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0`, `actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0`.
+- Added a production dependency audit gate (`npm audit --omit=dev --audit-level=high`): an `ubuntu-24.04`-only CI step right after install, and the first command of the release `Verify release` block; runtime dependencies only, install keeps `--no-audit --no-fund`.
+- Local audit: `found 0 vulnerabilities` (all severities; a first attempt hit a transient `registry.npmjs.org` TLS disconnect and the retry passed). This hardening changes no runtime/API/storage behavior.
+
 ### Tests
 
 - Unit/contract tests: 699 → 726 (+12 store serialization/degraded-write, +6 control idempotency/degraded/status-matrix, +9 profile-registry corruption/degradation); UI runtime 39/39 (module smoke now 24 client modules).
