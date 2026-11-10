@@ -393,16 +393,21 @@ node --check lib/client.js
 npm run check:coverage
 npm run check:ui
 npm run check:release
-npm pack
+npm pack --pack-destination "$env:TEMP\dsh-grove-pack"
 ```
 
-- `npm test`: 699 unit/contract tests;
+Official artifacts are produced by the tag-triggered release workflow in CI; the
+local package is for self-testing only — output it to a temporary directory
+(never the repo root) and check the manifest / `package.json` version before
+installing it.
+
+- `npm test`: 726 unit/contract tests;
 - `npm run check:style`: zero-dependency style guard (tabs/trailing whitespace/final newline)
 - `npm run check:lib`: rebuild and verify lib/ is current with src/
 - `npm run test:ui-browser`: real-browser UI runtime coverage (isolated host; manual)
-- `npm run check:ui`: UI runtime smoke (39 UI runtime cases (1 module-load + 38 component tests, covering 17 components across 21 client modules) + 1 browser runtime spec; separate from logic coverage);
+- `npm run check:ui`: UI runtime smoke (39 UI runtime cases (1 module-load + 38 component tests, covering 17 components across 24 client modules) + 1 browser runtime spec; separate from logic coverage);
 - `npm run test:all-locales`: all 19 packaged languages + aliases through the test-only locale pack (header, new-group dialog, group menu, settings and profile popover/preview; requires an isolated web instance; manual local evidence, not a CI gate);
-- `npm run check:coverage`: Node built-in coverage (currently about 93.1% lines / 83.9% branches / 90.5% functions, `src/**` scope);
+- `npm run check:coverage`: Node built-in coverage (currently about 94% lines / 85% branches / 90% functions; a few hundredths of a percent of per-run variance, `src/**` scope);
 - `npm run check:release`: release-workflow release gate; checks version consistency across `package.json` / `dsh.plugin.json` / `src/shared/constants.js` / `package-lock.json`, requires `GITHUB_REF_NAME` to equal `v<version>` when set, checks the release note, the `lib/client.js` version stamp and every `package.json.files` path;
 - layers: `src/core` is the pure-function core and `src/adapters` holds DSH-version-specific adapters; see `docs/ARCHITECTURE.md`;
 - `npm run check:all`: syntax check plus the test suite;
