@@ -26,6 +26,12 @@
 - Added a production dependency audit gate (`npm audit --omit=dev --audit-level=high`): an `ubuntu-24.04`-only CI step right after install, and the first command of the release `Verify release` block; runtime dependencies only, install keeps `--no-audit --no-fund`.
 - Local audit: `found 0 vulnerabilities` (all severities; a first attempt hit a transient `registry.npmjs.org` TLS disconnect and the retry passed). This hardening changes no runtime/API/storage behavior.
 
+### Docs & repo hygiene
+
+- Removed maintainer-machine absolute paths from the public docs: `docs/TEST-RESULTS.md` run instructions now use `cd <repo-path>` and `docs/archive/README.md` archive pointers use `%USERPROFILE%\Projects\...`.
+- `.gitignore` also ignores `SHA256SUMS` / `*.sha256` and documents that local packaging must write into a temp directory (a root tarball is historical leftover and never tracked); both READMEs' development checklists now use `npm pack --pack-destination "$env:TEMP\dsh-grove-pack"` and note that official artifacts come from the tag-triggered release workflow.
+- Refreshed stale README dev-tree numbers: 699 → 726 unit/contract tests, 21 → 24 client modules, coverage about 94% lines / 85% branches / 90% functions (the historical `.60` paragraphs keep 699).
+
 ### Tests
 
 - Unit/contract tests: 699 → 726 (+12 store serialization/degraded-write, +6 control idempotency/degraded/status-matrix, +9 profile-registry corruption/degradation); UI runtime 39/39 (module smoke now 24 client modules).
