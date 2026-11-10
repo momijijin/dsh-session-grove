@@ -18,10 +18,11 @@
  */
 import { ARCHIVE_FILTERS } from '../shared/constants.js'
 import { emptyDoc } from '../shared/model.js'
+import { MAX_PROFILES } from '../shared/profile-limits.js'
 import { DEFAULT_PROFILE_ID, readArchiveFilter, readCollapsed, readViewMode, safeStorage, writeArchiveFilter, writeCollapsed, writeViewMode } from './state/persistence.js'
 
 /** Fallback profile cap when a legacy host omits `limits` (SPEC §5.3). */
-const DEFAULT_PROFILE_LIMIT = 20
+const DEFAULT_PROFILE_LIMIT = MAX_PROFILES
 
 /**
  * Empty profile summary (SPEC §7.2); `available` flips only on a 404 probe.

@@ -7,6 +7,7 @@
  */
 import { createElement, useEffect, useRef } from 'react'
 import { clientRuntime as rt } from '../adapters/client-runtime.js'
+import { MAX_PROFILES } from '../shared/profile-limits.js'
 import { renderGlyph } from './icons.js'
 import { StatusSpinner, TextButton } from './components-primitives.js'
 import { profileLabel, recoverProfile } from './profile-switch.js'
@@ -127,7 +128,7 @@ const ProfilePopover = ({ store, handlers, onClose }) => {
   const degraded = profiles.degraded === true
   const error = profiles.error ?? null
   const loading = profiles.loading === true
-  const limit = Number.isInteger(profiles.limits?.max) ? profiles.limits.max : 20
+  const limit = Number.isInteger(profiles.limits?.max) ? profiles.limits.max : MAX_PROFILES
   const atLimit = list.length >= limit
   // A degraded registry or an explicit `registry-unhealthy` error disables every
   // profile write (SPEC §9.2/§10); reads still render.
