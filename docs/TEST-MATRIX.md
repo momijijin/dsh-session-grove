@@ -7,7 +7,10 @@ and at which level. Other docs should link here instead of restating counts.
 Automated gates are `npm run check:style`, `npm run check:lib`, `npm test`,
 `npm run check:coverage` and `npm run check:ui` in CI, plus
 `npm run check:style`, `npm run check:lib`, `npm run check:ui` and
-`npm run check:release` in the release workflow. `check:ui` is 39 UI runtime cases (1 module-load + 38 component tests, covering
+`npm run check:release` in the release workflow. As of this `.61` batch both
+workflows also run a production dependency audit
+(`npm audit --omit=dev --audit-level=high`) and the two third-party actions are
+pinned to immutable commit SHAs. `check:ui` is 39 UI runtime cases (1 module-load + 38 component tests, covering
 17 components across 24 client modules) + 1 browser runtime spec, not full browser UI coverage. The A+ / LP rows below are
 manual local evidence: the release workflow does not start an isolated DSH
 instance or run Playwright, so a release note cannot claim A+ or all-locales as
