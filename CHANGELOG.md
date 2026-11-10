@@ -23,7 +23,8 @@
 ### Tests
 
 - Unit/contract tests: 699 → 726 (+12 store serialization/degraded-write, +6 control idempotency/degraded/status-matrix, +9 profile-registry corruption/degradation); UI runtime 39/39 (module smoke now 24 client modules).
-- Added five real-geometry preview assertions to `e2e/isolated.spec.mjs` (dialog width/height caps, body scroll, wrapping without horizontal overflow, adjacent-row gap consistency, 264px-sidebar viewport containment) with documented falsification steps. **These are pending user-local `test:isolated` verification** on an isolated DSH host; the offline mock validation is not a release claim.
+- Added five real-geometry preview assertions to `e2e/isolated.spec.mjs` (dialog width/height caps, body scroll, wrapping without horizontal overflow, adjacent-row gap consistency, narrow-sidebar viewport containment) with documented falsification steps.
+- Real isolated-host evidence on 2026-11-10 (locally installed community DSH Desktop host; tarball `dsh-session-grove-0.4.0-beta.61.tgz` built from this branch — `.61` is still unreleased): `test:isolated` PASS on the full suite, with the new geometry measured as dialog 560×560px, narrow sidebar 252px, body scroll 3492>466px, row gaps [0,0,0]; `test:ui-browser` PASS on a separate fresh host (`bundleEntries` 1, `executedBytes` 2461374, `executedRatio` 1); `test:locale-pack` PASS (third-party `ja` locale pack); `test:all-locales` PASS 23/23. The official A+ O desktop host was not run for `.61` (pending user evidence). The first `test:isolated` attempt aborted early at `keyboard dialog move did not move right`; the same build re-ran the full suite PASS, recorded as a focus/timing flake rather than a refactor regression.
 - Coverage: branch 85.99% `store.js`, 88.20% `control-routes.js`, 89.11% `profile-registry.js`; full suite 93.94% lines / 85.42% branches / 90.34% functions.
 
 ## 0.4.0-beta.60 (multiple profiles, 2026-11-10)
