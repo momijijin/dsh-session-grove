@@ -65,6 +65,36 @@ page.on('console', (msg) => {
   if (msg.type() === 'error') console.error(`PAGE_CONSOLE: ${msg.text()}`)
 })
 
+// ---------------------------------------------------------------------------
+// Real preview-geometry thresholds (SPEC §8.1, T3.1).
+//
+// Hard-coded from the shipped stylesheet/runtime, not from measured output:
+// - `.dsg-dialog[data-kind="profile-preview"] { width: min(560px, calc(100vw - 24px)); }`
+//   in `src/client/css.js`: on the 1280px-wide test viewport the dialog must be
+//   at least 560px wide.
+// - DialogHost clamps the initial preview height with
+//   `Math.min(560, Math.max(0, innerHeight - 24))` and floors it at 320
+//   (`src/client/dialog-host.js`): no taller than 560px and never past the
+//   viewport minus the 24px margin; the 320px floor keeps a compact dialog.
+// - `.dsg-profile-preview-change + .dsg-profile-preview-change` only adds a 1px
+//   hairline (`src/client/css.js`), so the measured box gap between adjacent
+//   changes must stay within 1px.
+// - The narrow-layout gate above stores the sidebar width as 264px and reloads;
+//   `SIDEBAR_WIDTH_MIN = 264` (`src/client/sidebar-width.js`) is the narrow
+//   sidebar the preview must still fit inside.
+// - `.dsg-profile-preview-change-title/-detail { white-space: normal;
+//   overflow-wrap: anywhere }` and `.dsg-dialog-content { overflow-y: auto }`
+//   (`src/client/css.js`) are what the wrapping/scroll assertions verify.
+// ---------------------------------------------------------------------------
+const PREVIEW_DIALOG_WIDTH_PX = 560
+const PREVIEW_DIALOG_MAX_HEIGHT_PX = 560
+const PREVIEW_DIALOG_MIN_HEIGHT_PX = 320
+const PREVIEW_VIEWPORT_MARGIN_PX = 24
+const PREVIEW_ROW_GAP_TOLERANCE_PX = 1
+const SIDEBAR_MIN_WIDTH_PX = 264
+/** Enough removed-group rows to overflow the 560px-capped preview body. */
+const PREVIEW_DIFF_GROUP_COUNT = 60
+
 const groupView = page.locator('[data-testid="session-groups-view"]')
 const screenshot = () => page.screenshot({ path: `${testHome}/isolated-failure.png`, fullPage: false }).catch(() => {})
 
@@ -1041,6 +1071,189 @@ try {
   await switchToProfile('default')
   await waitActive(page, 'default')
 
+  // -------------------------------------------------------------------------
+  // SPEC §8.1 real geometry gate (T3.1, appended after the profile-preview
+  // flow). The switch sequence above is proven; here the preview dialog geometry
+  // is asserted on a deliberately large structural diff so the body really
+  // overflows. This is the only place the preview is measured in real Chromium.
+  //
+  // Falsification steps (documented, NOT applied by this spec):
+  // 1. In `src/client/css.js`, temporarily remove
+  //    `.dsg-dialog[data-positioned="true"] .dsg-dialog-content { flex: 1 1 auto; }`
+  //    or change `.dsg-dialog-content { overflow-y: auto; }` to `overflow-y: hidden;`
+  //    → the body-scroll assertions below must fail;
+  // 2. also try `.dsg-profile-preview-change-title { white-space: nowrap; }`
+  //    → the horizontal-overflow assertions must fail;
+  // 3. restore the stylesheet and rerun this spec → all five gates pass again.
+  // This test never mutates the stylesheet.
+  // -------------------------------------------------------------------------
+  const geometryGroupPrefix = `Geometry ${suffix}`
+  await page.evaluate(async ({ count, prefix }) => {
+    const loaded = await fetch('/dsh-session-grove/load').then((response) => response.json())
+    const doc = loaded.doc
+    const longName = (index) => `${prefix} ${String(index).padStart(2, '0')} ${'W'.repeat(40)}`.slice(0, 80)
+    for (let index = 0; index < count; index += 1) {
+      doc.groups.push({
+        id: `geometry-${index}-${prefix.replace(/\s+/g, '-').toLowerCase()}`,
+        name: longName(index),
+        icon: 'hash',
+        parentId: null,
+        sessionIds: [],
+      })
+    }
+    const response = await fetch('/dsh-session-grove/commit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ baseRevision: loaded.revision, doc }),
+    })
+    if (!response.ok) {
+      throw new Error(`preview geometry commit failed: ${response.status} ${JSON.stringify(await response.json())}`)
+    }
+  }, { count: PREVIEW_DIFF_GROUP_COUNT, prefix: geometryGroupPrefix })
+  // Wait until the live client re-read the committed document: the preview diff
+  // is computed from the client store, so a stale doc would direct-switch
+  // instead of opening the dialog.
+  await page.waitForFunction(
+    (prefix) => document.body.innerText.includes(`${prefix} 00`),
+    geometryGroupPrefix,
+    { timeout: 10000 }
+  )
+
+  const geometryProfiles = await readProfiles()
+  const geometryTarget = geometryProfiles.profiles.find(
+    (profile) => profile.archived !== true && profile.id !== geometryProfiles.activeId
+  )
+  if (!geometryTarget) throw new Error('no target profile for the preview geometry gate')
+  await switchToProfile(geometryTarget.id, { preview: true })
+  await page.waitForFunction(
+    () => document.querySelectorAll('.dsg-profile-preview-change').length >= 3,
+    null,
+    { timeout: 8000 }
+  )
+  await page.waitForFunction(
+    () =>
+      document.querySelector(
+        '[data-testid="session-groups-dialog"][data-kind="profile-preview"] .dsg-scroll-rail'
+      ) !== null,
+    null,
+    { timeout: 4000 }
+  )
+  const previewGeometry = await page.evaluate(() => {
+    const dialog = document.querySelector('[data-testid="session-groups-dialog"][data-kind="profile-preview"]')
+    const scrollArea = dialog
+      ? Array.from(dialog.children).find((child) => child.classList.contains('dsg-scroll-area'))
+      : null
+    const content = scrollArea?.querySelector('.dsg-dialog-content') ?? null
+    if (!dialog || !content) return null
+    const dialogRect = dialog.getBoundingClientRect()
+    const contentStyle = getComputedStyle(content)
+    // Block/flex boxes only: inline spans report a 0 clientWidth, which would
+    // make the horizontal-overflow check meaningless.
+    const textBoxes = Array.from(
+      dialog.querySelectorAll('.dsg-profile-preview-change-title, .dsg-profile-preview-change-detail')
+    ).slice(0, 40)
+    const rows = Array.from(
+      dialog.querySelectorAll('.dsg-profile-preview-list .dsg-profile-preview-change')
+    ).slice(0, 4)
+    const rowRects = rows.map((row) => row.getBoundingClientRect())
+    const gaps = rowRects.slice(1).map((rect, index) => rect.top - rowRects[index].bottom)
+    // Proves the container is really scrollable, not merely clipped.
+    content.scrollTop = 24
+    const scrolled = content.scrollTop
+    content.scrollTop = 0
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      dialog: {
+        width: dialogRect.width,
+        height: dialogRect.height,
+        left: dialogRect.left,
+        top: dialogRect.top,
+        right: dialogRect.right,
+        bottom: dialogRect.bottom,
+      },
+      content: {
+        scrollHeight: content.scrollHeight,
+        clientHeight: content.clientHeight,
+        scrollWidth: content.scrollWidth,
+        clientWidth: content.clientWidth,
+        overflowY: contentStyle.overflowY,
+        scrolled,
+      },
+      hasScrollRail: scrollArea?.querySelector('.dsg-scroll-rail') !== null,
+      sidebarWidth: document.querySelector('.dsg-root')?.getBoundingClientRect().width ?? null,
+      gaps,
+      textOverflows: textBoxes
+        .filter((element) => element.scrollWidth > element.clientWidth + 1)
+        .map((element) => ({
+          className: element.className,
+          scrollWidth: element.scrollWidth,
+          clientWidth: element.clientWidth,
+        })),
+      textBoxCount: textBoxes.length,
+    }
+  })
+  if (!previewGeometry) throw new Error('profile preview dialog missing for the geometry gate')
+  // 1) Width ≥ the 560px CSS expectation; height stays inside the DialogHost cap.
+  if (!(previewGeometry.dialog.width >= PREVIEW_DIALOG_WIDTH_PX - 1)) {
+    throw new Error(
+      `preview dialog narrower than ${PREVIEW_DIALOG_WIDTH_PX}px: ${JSON.stringify(previewGeometry.dialog)}`
+    )
+  }
+  const maxDialogHeight = Math.min(
+    PREVIEW_DIALOG_MAX_HEIGHT_PX,
+    previewGeometry.viewport.height - PREVIEW_VIEWPORT_MARGIN_PX
+  )
+  if (!(previewGeometry.dialog.height <= maxDialogHeight + 1)) {
+    throw new Error(
+      `preview dialog higher than its ${maxDialogHeight}px clamp: ${JSON.stringify(previewGeometry.dialog)}`
+    )
+  }
+  if (!(previewGeometry.dialog.height >= PREVIEW_DIALOG_MIN_HEIGHT_PX - 1)) {
+    throw new Error(
+      `preview dialog below its ${PREVIEW_DIALOG_MIN_HEIGHT_PX}px floor: ${JSON.stringify(previewGeometry.dialog)}`
+    )
+  }
+  // 2) The body overflows and scrolls: scrollHeight > clientHeight, overflow-y
+  //    auto, a real scroll rail and a programmatic scroll that sticks.
+  if (!(previewGeometry.content.scrollHeight > previewGeometry.content.clientHeight + 1)) {
+    throw new Error(`preview body does not overflow: ${JSON.stringify(previewGeometry.content)}`)
+  }
+  if (previewGeometry.content.overflowY !== 'auto') {
+    throw new Error(`preview body is not scrollable (overflow-y: ${previewGeometry.content.overflowY})`)
+  }
+  if (!previewGeometry.hasScrollRail) throw new Error('preview body is missing its scroll rail')
+  if (!(previewGeometry.content.scrolled > 0)) throw new Error('preview body scrollTop did not move')
+  // 3) Long change titles/paths wrap instead of overflowing horizontally.
+  if (previewGeometry.textBoxCount === 0) throw new Error('preview rendered no change rows to measure')
+  if (previewGeometry.textOverflows.length > 0) {
+    throw new Error(`preview change rows overflow horizontally: ${JSON.stringify(previewGeometry.textOverflows)}`)
+  }
+  if (!(previewGeometry.content.scrollWidth <= previewGeometry.content.clientWidth + 1)) {
+    throw new Error(`preview scroll body overflows horizontally: ${JSON.stringify(previewGeometry.content)}`)
+  }
+  // 4) Adjacent change rows keep one consistent box gap (hairline only).
+  if (previewGeometry.gaps.length < 2) {
+    throw new Error(`preview needs two adjacent changes to measure gaps: ${JSON.stringify(previewGeometry.gaps)}`)
+  }
+  const gapSpread = Math.max(...previewGeometry.gaps) - Math.min(...previewGeometry.gaps)
+  if (!(gapSpread <= PREVIEW_ROW_GAP_TOLERANCE_PX)) {
+    throw new Error(`preview row gaps are inconsistent: ${JSON.stringify(previewGeometry.gaps)}`)
+  }
+  // 5) At the 264px sidebar minimum the dialog still fits inside the viewport.
+  if (!(Math.abs(previewGeometry.sidebarWidth - SIDEBAR_MIN_WIDTH_PX) <= 4)) {
+    throw new Error(`expected the ${SIDEBAR_MIN_WIDTH_PX}px narrow sidebar, got ${previewGeometry.sidebarWidth}px`)
+  }
+  const geometryRect = previewGeometry.dialog
+  if (!(
+    geometryRect.left >= -1 &&
+    geometryRect.top >= -1 &&
+    geometryRect.right <= previewGeometry.viewport.width + 1 &&
+    geometryRect.bottom <= previewGeometry.viewport.height + 1
+  )) {
+    throw new Error(`preview dialog escapes the viewport: ${JSON.stringify(previewGeometry)}`)
+  }
+  await cancelPreview()
+
   // Session actions must preserve the official core set: no no-op pin item,
   // plus fork/copy ID and a hover archive control.
   const sessionRow = page.locator('[data-testid="session-groups-session"]').first()
@@ -1186,7 +1399,7 @@ try {
     await reconnectPage.close().catch(() => {})
   }
 
-  console.log('PASS: isolated onboarding, search, archive filter, drag auto-expand, group edges, dialog geometry, status buttons, head insertion, collapse/expand, 264px, dark, host rail, external SSE refresh, workspace round-trip refresh, rapid revision convergence, multi-window SSE, concurrent CAS, forced reconnect, profiles (save-as, preview, undo, rename/archive, dual-window active/409, scoped collapse, limit 20), session actions, clipboard copy, search, first-layer settings, localized title, option details, live diagnostics HUD, switch interaction and destructive confirmation')
+  console.log('PASS: isolated onboarding, search, archive filter, drag auto-expand, group edges, dialog geometry, status buttons, head insertion, collapse/expand, 264px, dark, host rail, external SSE refresh, workspace round-trip refresh, rapid revision convergence, multi-window SSE, concurrent CAS, forced reconnect, profiles (save-as, preview, undo, rename/archive, dual-window active/409, scoped collapse, limit 20), preview geometry (SPEC §8.1), session actions, clipboard copy, search, first-layer settings, localized title, option details, live diagnostics HUD, switch interaction and destructive confirmation')
 } catch (error) {
   await screenshot()
   console.error(`FAIL: ${error instanceof Error ? error.message : String(error)}`)
