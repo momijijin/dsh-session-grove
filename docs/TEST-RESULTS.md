@@ -90,7 +90,7 @@ A+ 使用独立 `DSH_HOME`、隔离端口和临时 profile（community `sg-e2e` 
 ## 运行方式
 
 ```powershell
-cd C:\Users\Momiji\Projects\dsh-session-groups
+cd <repo-path>
 npm test
 npm run check:core
 npm run check:coverage

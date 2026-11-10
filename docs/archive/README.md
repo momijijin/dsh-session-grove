@@ -4,8 +4,8 @@ The repository no longer carries the full historical process/design documents.
 On 2026-11-05 they were moved to a local maintainer archive outside Git:
 
 ```text
-C:\Users\Momiji\Projects\dsh-session-groups-archive-20261105-160722
-C:\Users\Momiji\Projects\dsh-session-groups-archive-superpowers-20261105-2344
+%USERPROFILE%\Projects\dsh-session-groups-archive-20261105-160722
+%USERPROFILE%\Projects\dsh-session-groups-archive-superpowers-20261105-2344
 ```
 
 Archived content includes:
