@@ -12,15 +12,19 @@
 
 ### Deduplication
 
-- Added `shared/profile-limits.js` (`MAX_PROFILES` 20 / `MAX_PROFILE_NAME` 40 single definition, re-exported by `host/constants.js`; client fallbacks now import it) and `shared/profile-name.js` (shared display-name validation and duplicate check for the registry and the profile policy). `PROFILE_NAME_MAX` stays an exported alias; all request bodies use the one `readJsonBody`.
+- Added `shared/profile-limits.js` (`MAX_PROFILES` 20 / `MAX_PROFILE_NAME` 40 single definition, re-exported by `host/constants.js`; client fallbacks now import it) and `shared/profile-name.js` (shared display-name validation and duplicate check for the registry and the profile policy). `PROFILE_NAME_MAX` stays an exported alias. HTTP request-body primitives and validators are centralized in `host/http/wire.js`: the profile routes use the shared `readJsonBody` (moved out of `profile-routes.js`), while `/commit`, `/diagnostics` and the control routes keep their own bounded readers with unchanged error codes and copy.
 - CSS split (SPEC §7.4 conditional item) closed without splitting: the six proposed domains are not contiguous in `css.js`, the SPEC-listed order would break byte equality, and a truly single-responsibility split would need about 11 fragments. The stylesheet is unchanged (sha256 `c47bd3be…`, 68368 bytes).
-- No behavior, API, storage-format, locale or UX changes; 331 locale keys unchanged; no dependency changes.
+- No public API, storage-format, locale or UX changes; 331 locale keys unchanged; no dependency changes. The only visible behavior touch is the incidental failed-unarchive toast fix below.
+
+### Incidental fix (non-regression)
+
+- `createActions` is now created after mount with the mounted translator (it used to be created at `createPlugin()` module-load time when `t` was the identity). A failed session unarchive toast now shows the translated `toast.unarchiveFailed` copy instead of the raw i18n key; the rename failure path is unchanged (its visible toast already came from the dialog handler). This corrects an existing wrong message; it is not a feature and no API/UX contract changed.
 
 ### Tests
 
 - Unit/contract tests: 699 → 726 (+12 store serialization/degraded-write, +6 control idempotency/degraded/status-matrix, +9 profile-registry corruption/degradation); UI runtime 39/39 (module smoke now 24 client modules).
 - Added five real-geometry preview assertions to `e2e/isolated.spec.mjs` (dialog width/height caps, body scroll, wrapping without horizontal overflow, adjacent-row gap consistency, 264px-sidebar viewport containment) with documented falsification steps. **These are pending user-local `test:isolated` verification** on an isolated DSH host; the offline mock validation is not a release claim.
-- Coverage: branch 85.99% `store.js`, 88.20% `control-routes.js`, 89.11% `profile-registry.js`; full suite 93.96% lines / 85.44% branches / 90.34% functions.
+- Coverage: branch 85.99% `store.js`, 88.20% `control-routes.js`, 89.11% `profile-registry.js`; full suite 93.94% lines / 85.42% branches / 90.34% functions.
 
 ## 0.4.0-beta.60 (multiple profiles, 2026-11-10)
 
