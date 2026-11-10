@@ -41,24 +41,18 @@ import {
   PROFILES_RENAME_PATH,
 } from './constants.js'
 import { isProfileId } from './profile-registry.js'
+import { readJsonBody, sendJson, sendMethodNotAllowed } from './http/wire.js'
 import {
-  contentTypeOf,
-  isObject,
-  normalizeProfileNameInput,
   previewStaleResponse,
-  previewTokenFor,
   profileFailureResponse,
   profileHealth,
   profileListEntry,
-  profileNameTaken,
   profileTargetFailure,
   profileWire,
   profileWriteFailure,
-  readBoundedBody,
   registryUnhealthyResponse,
-  sendJson,
-  sendMethodNotAllowed,
-} from './route-contract.js'
+} from './http/respond.js'
+import { normalizeProfileNameInput, previewTokenFor, profileNameTaken } from './profile-policy.js'
 
 const queryParam = (url, name) => {
   try {
@@ -90,45 +84,6 @@ const invalidBody = (message) => ({ ok: false, code: 'invalid', message })
  */
 export const registerProfileRoutes = ({ register, profileManager, fenceDenied, publishActive }) => {
   const registry = profileManager.registry
-
-  const readJsonBody = async (req, res) => {
-    if (contentTypeOf(req) !== 'application/json') {
-      sendJson(res, 415, {
-        ok: false,
-        code: 'unsupported-media-type',
-        message: 'content-type must be application/json',
-      })
-      return null
-    }
-    let text
-    try {
-      const read = await readBoundedBody(req)
-      if (read.tooLarge === true) {
-        sendJson(res, 413, { ok: false, code: 'payload-too-large', message: 'request body is too large' })
-        return null
-      }
-      text = read.text
-    } catch (error) {
-      sendJson(res, 400, {
-        ok: false,
-        code: 'bad-request',
-        message: `request body unreadable: ${error instanceof Error ? error.message : String(error)}`,
-      })
-      return null
-    }
-    let body
-    try {
-      body = JSON.parse(text)
-    } catch {
-      sendJson(res, 422, invalidBody('body is not valid JSON'))
-      return null
-    }
-    if (!isObject(body)) {
-      sendJson(res, 422, invalidBody('body must be a JSON object'))
-      return null
-    }
-    return body
-  }
 
   const sendWriteFailure = (res, result) => {
     const { status, body } = profileWriteFailure(result)

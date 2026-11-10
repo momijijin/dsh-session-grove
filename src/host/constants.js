@@ -65,11 +65,12 @@ export const PROFILES_DIR_NAME = 'profiles'
 /** Fixed id of the default profile; its document stays at the storages root. */
 export const DEFAULT_PROFILE_ID = 'default'
 
-/** Upper bound of unarchived profiles, default included (SPEC 4.3). */
-export const MAX_PROFILES = 20
-
-/** Maximum profile display-name length after trimming. */
-export const MAX_PROFILE_NAME = 40
+/**
+ * Upper bound of unarchived profiles, default included (SPEC 4.3), and the
+ * display-name length cap: defined once in `src/shared/profile-limits.js` and
+ * re-exported here for the existing host importers.
+ */
+export { MAX_PROFILE_NAME, MAX_PROFILES } from '../shared/profile-limits.js'
 
 /** Wire body ceiling from the contract: 256 KiB. */
 export const MAX_BODY_BYTES = 256 * 1024

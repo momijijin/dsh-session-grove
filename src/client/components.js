@@ -30,7 +30,7 @@ import { SessionRow, GroupNode } from './components-rows.js'
 import { UngroupedSection } from './components-ungrouped.js'
 import { ResizeHandle } from './components-resize-handle.js'
 import { OnboardingCard, Header, Banner, Rail, FlatFallback, ErrorBoundary } from './components-header.js'
-import { createProfileHandlers } from './components-profiles.js'
+import { createProfileHandlers } from './profile-switch.js'
 import { createProfileDialogHandlers } from './components-profile-dialogs.js'
 const h = createElement
 // ---------------------------------------------------------------------------

@@ -13,15 +13,16 @@
  */
 import { createElement } from 'react'
 import { clientRuntime as rt } from '../adapters/client-runtime.js'
+import { MAX_PROFILE_NAME, MAX_PROFILES } from '../shared/profile-limits.js'
 import { DEFAULT_PROFILE_ID } from './state.js'
-import { readProfilePreviewDisabled, writeProfilePreviewDisabled } from './components-profiles.js'
+import { readProfilePreviewDisabled, writeProfilePreviewDisabled } from './profile-storage.js'
 
 const h = createElement
 
-/** Mirrors the host's profile name cap (SPEC §4.4). */
-const PROFILE_NAME_MAX = 40
+/** Mirrors the shared host profile name cap (SPEC §4.4); exported alias kept. */
+const PROFILE_NAME_MAX = MAX_PROFILE_NAME
 /** Fallback cap when a legacy host omits `limits` (SPEC §5.3). */
-const DEFAULT_PROFILE_LIMIT = 20
+const DEFAULT_PROFILE_LIMIT = MAX_PROFILES
 
 const dispatch = (action, payload) => rt()?.store?.dispatch?.(action, payload)
 

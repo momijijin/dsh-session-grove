@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.4.0-beta.61 (refactor, 2026-11-10)
+
+### Module split
+
+- Client plugin split into a composition root plus controllers: `plugin.js` keeps adapter creation, bridge/SSE wiring and mount ordering; document reads/commits moved to `plugin-document.js`, the profile domain to `plugin-profiles.js`, and slot/host actions/dialog orchestration/mount wiring to `plugin-host.js` (state follows the writing controller; dependency direction `document ← profiles ← host`).
+- `components-profiles.js` split into `profile-switcher.js` (chevron/popover/recovery), `profile-preview.js` (diff body/footer) and `profile-switch.js` (preview/activate/undo/recover flow), with preview-preference storage in `profile-storage.js`; the module graph is acyclic.
+- The profile half of `dialog-host.js` moved to `dialog-profile.js` (four form bodies, client-first name validation, footer actions, write submission); `DialogHost` props and the group/session dialog bodies are unchanged.
+- Host contract split: `route-contract.js` became `host/http/wire.js` (primitives + body parsing, now including the shared `readJsonBody`), `host/http/respond.js` (frozen response shapes) and `host/profile-policy.js` (profile-scoped plan hash, control-target resolution, doctor storage report, preview token, display-name policy); the legacy single-store adapter moved to `host/legacy-profile-manager.js` and the `routes.js` re-export bridge was removed.
+- `client/state.js` is a barrel over `state/persistence.js` (storage keys/read-write/normalization) and `state/external-change.js` (SSE revision/active routing); `createStore` and the existing importer paths are unchanged.
+
+### Deduplication
+
+- Added `shared/profile-limits.js` (`MAX_PROFILES` 20 / `MAX_PROFILE_NAME` 40 single definition, re-exported by `host/constants.js`; client fallbacks now import it) and `shared/profile-name.js` (shared display-name validation and duplicate check for the registry and the profile policy). `PROFILE_NAME_MAX` stays an exported alias. HTTP request-body primitives and validators are centralized in `host/http/wire.js`: the profile routes use the shared `readJsonBody` (moved out of `profile-routes.js`), while `/commit`, `/diagnostics` and the control routes keep their own bounded readers with unchanged error codes and copy.
+- CSS split (SPEC §7.4 conditional item) closed without splitting: the six proposed domains are not contiguous in `css.js`, the SPEC-listed order would break byte equality, and a truly single-responsibility split would need about 11 fragments. The stylesheet is unchanged (sha256 `c47bd3be…`, 68368 bytes).
+- No public API, storage-format, locale or UX changes; 331 locale keys unchanged; no dependency changes. The only visible behavior touch is the incidental failed-unarchive toast fix below.
+
+### Incidental fix (non-regression)
+
+- `createActions` is now created after mount with the mounted translator (it used to be created at `createPlugin()` module-load time when `t` was the identity). A failed session unarchive toast now shows the translated `toast.unarchiveFailed` copy instead of the raw i18n key; the rename failure path is unchanged (its visible toast already came from the dialog handler). This corrects an existing wrong message; it is not a feature and no API/UX contract changed.
+
+### CI hardening
+
+- Pinned GitHub Actions to immutable commit SHAs in both `.github/workflows/ci.yml` and `.github/workflows/release.yml`: `actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0`, `actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0`.
+- Added a production dependency audit gate (`npm audit --omit=dev --audit-level=high`): an `ubuntu-24.04`-only CI step right after install, and the first command of the release `Verify release` block; runtime dependencies only, install keeps `--no-audit --no-fund`.
+- Local audit: `found 0 vulnerabilities` (all severities; a first attempt hit a transient `registry.npmjs.org` TLS disconnect and the retry passed). This hardening changes no runtime/API/storage behavior.
+
+### Docs & repo hygiene
+
+- Removed maintainer-machine absolute paths from the public docs: `docs/TEST-RESULTS.md` run instructions now use `cd <repo-path>` and `docs/archive/README.md` archive pointers use `%USERPROFILE%\Projects\...`.
+- `.gitignore` also ignores `SHA256SUMS` / `*.sha256` and documents that local packaging must write into a temp directory (a root tarball is historical leftover and never tracked); both READMEs' development checklists now use `npm pack --pack-destination "$env:TEMP\dsh-grove-pack"` and note that official artifacts come from the tag-triggered release workflow.
+- Refreshed stale README dev-tree numbers: 699 → 726 unit/contract tests, 21 → 24 client modules, coverage about 94% lines / 85% branches / 90% functions (the historical `.60` paragraphs keep 699).
+
+### Tests
+
+- Unit/contract tests: 699 → 726 (+12 store serialization/degraded-write, +6 control idempotency/degraded/status-matrix, +9 profile-registry corruption/degradation); UI runtime 39/39 (module smoke now 24 client modules).
+- Added five real-geometry preview assertions to `e2e/isolated.spec.mjs` (dialog width/height caps, body scroll, wrapping without horizontal overflow, adjacent-row gap consistency, narrow-sidebar viewport containment) with documented falsification steps.
+- Real isolated-host evidence on 2026-11-10 (locally installed community DSH Desktop host; tarball `dsh-session-grove-0.4.0-beta.61.tgz` built from this branch — `.61` is still unreleased): `test:isolated` PASS on the full suite, with the new geometry measured as dialog 560×560px, narrow sidebar 252px, body scroll 3492>466px, row gaps [0,0,0]; `test:ui-browser` PASS on a separate fresh host (`bundleEntries` 1, `executedBytes` 2461374, `executedRatio` 1); `test:locale-pack` PASS (third-party `ja` locale pack); `test:all-locales` PASS 23/23. The official A+ O host also PASSed the same `.61` tarball on 2026-11-10 (official DeepSeek Harness 0.2.2.0 / `0.2.2-rc.1` isolated host): `test:isolated` full-suite PASS with preview geometry measured as dialog 560×560px, narrow sidebar 256px, body scroll 3659>466px, row gaps [0,0,0] (the official vs community host inset differs: 256 vs 252px, which the narrow-layout band assertion accepts by design); `test:ui-browser` PASS on a separate fresh official host (`bundleEntries` 1, `executedBytes` 3096507, `executedRatio` 1). The first `test:isolated` attempt aborted early at `keyboard dialog move did not move right`; the same build re-ran the full suite PASS, recorded as a focus/timing flake rather than a refactor regression.
+- Coverage: branch 85.99% `store.js`, 88.20% `control-routes.js`, 89.11% `profile-registry.js`; full suite 93.94% lines / 85.42% branches / 90.34% functions.
+
 ## 0.4.0-beta.60 (multiple profiles, 2026-11-10)
 
 ### Multiple group profiles

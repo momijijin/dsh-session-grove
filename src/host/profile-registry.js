@@ -23,10 +23,9 @@
 import { randomBytes } from 'node:crypto'
 import { copyFile, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
-import { hasControlChars } from '../shared/model.js'
+import { normalizeProfileName, profileNameTaken } from '../shared/profile-name.js'
 import {
   DEFAULT_PROFILE_ID,
-  MAX_PROFILE_NAME,
   MAX_PROFILES,
   PROFILES_DIR_NAME,
   REGISTRY_VERSION,
@@ -100,36 +99,11 @@ const isProfileId = (value) => typeof value === 'string' && PROFILE_ID_RE.test(v
 /** Registry `dir` value derived from the id ('.' for default, forward slashes). */
 const profileDirFor = (id) => (id === DEFAULT_PROFILE_ID ? '.' : `${PROFILES_DIR_NAME}/${id}`)
 
-/**
- * Validate a profile display name. The stored form is the trimmed string.
- * @param {unknown} name
- * @returns {{ ok: true, name: string } | { ok: false, reason: string }}
- */
-const normalizeProfileName = (name) => {
-  if (typeof name !== 'string') return { ok: false, reason: 'name-required' }
-  const text = name.trim()
-  if (text.length === 0) return { ok: false, reason: 'name-required' }
-  if (text.length > MAX_PROFILE_NAME) return { ok: false, reason: 'name-too-long' }
-  if (hasControlChars(text)) return { ok: false, reason: 'name-control-chars' }
-  return { ok: true, name: text }
-}
-
+/** Registry validation wrapper: `null` is allowed only for the default profile. */
 const profileNameError = (name, { allowNull = false } = {}) => {
   if (name === null && allowNull) return null
   const result = normalizeProfileName(name)
   return result.ok ? null : result.reason
-}
-
-/** Case-insensitive duplicate check over the unarchived profiles. */
-const nameTaken = (registry, name, exceptId) => {
-  const key = name.trim().toLowerCase()
-  return registry.profiles.some(
-    (profile) =>
-      profile.archivedAt === null &&
-      profile.id !== exceptId &&
-      typeof profile.name === 'string' &&
-      profile.name.trim().toLowerCase() === key,
-  )
 }
 
 /** In-memory default registry used when the file is absent (never written). */
@@ -639,7 +613,7 @@ const createProfileRegistry = (options = {}) => {
         }
         const unarchived = draft.profiles.filter((profile) => profile.archivedAt === null)
         if (unarchived.length >= MAX_PROFILES) return { ok: false, kind: 'profile-limit' }
-        if (nameTaken(draft, cleaned.name, null)) return { ok: false, kind: 'profile-name-duplicate' }
+        if (profileNameTaken(draft, cleaned.name, null)) return { ok: false, kind: 'profile-name-duplicate' }
         const stamp = new Date(now()).toISOString()
         draft.profiles.push({
           id,
@@ -663,7 +637,7 @@ const createProfileRegistry = (options = {}) => {
         const profile = draft.profiles.find((candidate) => candidate.id === id)
         if (profile === undefined) return { ok: false, kind: 'profile-missing' }
         if (profile.archivedAt !== null) return { ok: false, kind: 'profile-archived' }
-        if (nameTaken(draft, cleaned.name, id)) return { ok: false, kind: 'profile-name-duplicate' }
+        if (profileNameTaken(draft, cleaned.name, id)) return { ok: false, kind: 'profile-name-duplicate' }
         profile.name = cleaned.name
         profile.updatedAt = new Date(now()).toISOString()
         return { ok: true, registry: draft }
