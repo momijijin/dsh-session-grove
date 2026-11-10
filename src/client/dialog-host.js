@@ -15,15 +15,13 @@ import { ICON_GROUPS, renderGlyph, renderIcon } from './icons.js'
 import { ScrollArea } from './scroll-area.js'
 import { ProfilePreviewActions, ProfilePreviewBody } from './profile-preview.js'
 import {
-  ProfileArchiveBody,
-  ProfileManageBody,
-  ProfileRenameBody,
-  ProfileSaveAsBody,
-  confirmArchive,
-  confirmRename,
-  confirmSaveAs,
-  validateProfileName,
-} from './components-profile-dialogs.js'
+  isProfileDialogKind,
+  isProfileFormKind,
+  profileDialogActions,
+  profileDialogBody,
+  profileDialogNameError,
+  runProfileDialogAction,
+} from './dialog-profile.js'
 
 const h = createElement
 const dispatch = (action, payload) => rt()?.store.dispatch(action, payload)
@@ -44,16 +42,11 @@ export const DialogHost = ({ store, props, sessionsById }) => {
   const t = rt()?.t
   const dialogKind = dialog?.kind ?? ''
   const isProfilePreview = dialogKind === 'profile-preview'
-  const isProfileSaveAs = dialogKind === 'profile-save-as'
-  const isProfileManage = dialogKind === 'profile-manage'
-  const isProfileRename = dialogKind === 'profile-rename'
-  const isProfileArchive = dialogKind === 'profile-archive'
-  const isProfileForm = isProfileSaveAs || isProfileRename
   const needsNameInput =
     dialogKind === 'new-group' ||
     dialogKind === 'rename-group' ||
     dialogKind === 'rename-session' ||
-    isProfileForm
+    isProfileFormKind(dialogKind)
   // Seed from the dialog descriptor when the host is first created (tests call
   // the component directly); the effect below still re-seeds on every dialog
   // change, which is the production path.
@@ -460,12 +453,7 @@ export const DialogHost = ({ store, props, sessionsById }) => {
     : t(dialog.titleKey)
   // SPEC §9.4: save-as/rename validate the name client-first (the host re-checks
   // under CAS); the error is inline and also blocks the confirm button.
-  const profileNameError = isProfileForm
-    ? validateProfileName(value, {
-        list: (store?.profiles?.list ?? []).filter((profile) => profile?.archived !== true),
-        exceptId: isProfileRename ? dialog.profileId : null,
-      })
-    : null
+  const profileNameError = profileDialogNameError({ kind: dialogKind, value, store, dialog })
   const changeProfileName = (next) => {
     setValue(next)
     if (dialog.error) dispatch('dialog', { dialog: { ...dialog, error: null, errorParams: null } })
@@ -473,45 +461,23 @@ export const DialogHost = ({ store, props, sessionsById }) => {
   const submitProfileForm = (event) => {
     if (event?.key !== 'Enter' || profileBusy || profileNameError !== null) return
     event.preventDefault()
-    if (isProfileSaveAs) void runProfileAction('save-as')
-    else if (isProfileRename) void runProfileAction('rename')
+    void runProfileAction()
   }
   const optionCheck = () => h('span', { class: 'dsg-dialog-option-check', 'aria-hidden': 'true' }, renderGlyph(h, 'check', 16))
   const bodyNodes = []
   if (isProfilePreview) {
     bodyNodes.push(h(ProfilePreviewBody, { store, t, byId: sessionsById }))
   }
-  if (isProfileSaveAs) {
-    bodyNodes.push(
-      h(ProfileSaveAsBody, {
-        store,
-        t,
-        dialog,
-        value,
-        onValueChange: changeProfileName,
-        onKeyDown: submitProfileForm,
-        inputRef,
-      })
-    )
-  }
-  if (isProfileRename) {
-    bodyNodes.push(
-      h(ProfileRenameBody, {
-        t,
-        dialog,
-        value,
-        onValueChange: changeProfileName,
-        onKeyDown: submitProfileForm,
-        inputRef,
-      })
-    )
-  }
-  if (isProfileArchive) {
-    bodyNodes.push(h(ProfileArchiveBody, { t, dialog }))
-  }
-  if (isProfileManage) {
-    bodyNodes.push(h(ProfileManageBody, { store, t }))
-  }
+  const profileBody = profileDialogBody({
+    store,
+    t,
+    dialog,
+    value,
+    onValueChange: changeProfileName,
+    onKeyDown: submitProfileForm,
+    inputRef,
+  })
+  if (profileBody !== null) bodyNodes.push(profileBody)
   if (dialog.kind === 'delete-group') {
     const options = deleteGroupOptions(store.doc, dialog.groupId)
     bodyNodes.push(
@@ -748,86 +714,29 @@ export const DialogHost = ({ store, props, sessionsById }) => {
   const canConfirm = needsInput ? value.trim().length > 0 : selectable ? selectionIsValid(dialog, selection, store.doc) : true
   // SPEC §9.4/§9.5 footer: Create/Rename/Archive carry the request loading guard
   // and the client-side name error; none of them is the initial focus target.
-  const runProfileAction = async (kind) => {
+  const runProfileAction = async () => {
     if (profileBusy) return
     setProfileBusy(true)
     try {
-      if (kind === 'save-as') await confirmSaveAs({ store, t }, { name: value })
-      else if (kind === 'rename') await confirmRename({ store, t }, { profileId: dialog.profileId, name: value })
-      else if (kind === 'archive') await confirmArchive({ store, t }, { profileId: dialog.profileId })
+      await runProfileDialogAction({
+        kind: dialog.kind,
+        store,
+        t,
+        name: value,
+        profileId: dialog.profileId,
+      })
     } finally {
       setProfileBusy(false)
     }
   }
-  const profileCancel = (testId) =>
-    h(
-      'button',
-      { type: 'button', class: 'dsg-dialog-cancel', 'data-testid': testId, onClick: close },
-      t('dialog.cancel')
-    )
-  const profileSubmit = (testId, label, disabled, onClick) =>
-    h(
-      'button',
-      {
-        type: 'button',
-        class: 'dsg-dialog-confirm',
-        'data-testid': testId,
-        ...(disabled ? { disabled: true } : {}),
-        onClick,
-      },
-      label
-    )
-  const profileActions = isProfileManage
-    ? [
-        h(
-          'button',
-          {
-            key: 'close',
-            type: 'button',
-            class: 'dsg-dialog-cancel',
-            'data-testid': 'session-groups-profile-manage-close',
-            onClick: close,
-          },
-          t('dialog.cancel')
-        ),
-      ]
-    : isProfileSaveAs
-      ? [
-          profileCancel('session-groups-profile-save-as-cancel'),
-          profileSubmit(
-            'session-groups-profile-save-as-confirm',
-            t('profiles.create'),
-            profileBusy || profileNameError !== null,
-            () => {
-              void runProfileAction('save-as')
-            }
-          ),
-        ]
-      : isProfileRename
-        ? [
-            profileCancel('session-groups-profile-rename-cancel'),
-            profileSubmit(
-              'session-groups-profile-rename-confirm',
-              t('profiles.rename'),
-              profileBusy || profileNameError !== null,
-              () => {
-                void runProfileAction('rename')
-              }
-            ),
-          ]
-        : isProfileArchive
-          ? [
-              profileCancel('session-groups-profile-archive-cancel'),
-              profileSubmit(
-                'session-groups-profile-archive-confirm',
-                t('profiles.archive'),
-                profileBusy,
-                () => {
-                  void runProfileAction('archive')
-                }
-              ),
-            ]
-          : null
+  const profileActions = profileDialogActions({
+    kind: dialog.kind,
+    t,
+    busy: profileBusy,
+    nameError: profileNameError,
+    onClose: close,
+    onRun: runProfileAction,
+  })
   return h(
     'div',
     {
@@ -911,7 +820,7 @@ export const DialogHost = ({ store, props, sessionsById }) => {
                 'div',
                 {
                   class: 'dsg-dialog-error',
-                  ...(isProfileForm || isProfileArchive || isProfileManage
+                  ...(isProfileDialogKind(dialog.kind)
                     ? { 'data-testid': 'session-groups-profile-dialog-error' }
                     : {}),
                 },
