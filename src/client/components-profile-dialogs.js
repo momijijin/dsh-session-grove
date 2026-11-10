@@ -14,7 +14,7 @@
 import { createElement } from 'react'
 import { clientRuntime as rt } from '../adapters/client-runtime.js'
 import { DEFAULT_PROFILE_ID } from './state.js'
-import { readProfilePreviewDisabled, writeProfilePreviewDisabled } from './components-profiles.js'
+import { readProfilePreviewDisabled, writeProfilePreviewDisabled } from './profile-storage.js'
 
 const h = createElement
 
