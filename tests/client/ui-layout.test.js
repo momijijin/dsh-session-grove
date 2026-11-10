@@ -22,9 +22,19 @@ const componentUngrouped = readFileSync(new URL('../../src/client/components-ung
 const componentResize = readFileSync(new URL('../../src/client/components-resize-handle.js', import.meta.url), 'utf8')
 const componentSearch = readFileSync(new URL('../../src/client/components-search-box.js', import.meta.url), 'utf8')
 const componentHeader = readFileSync(new URL('../../src/client/components-header.js', import.meta.url), 'utf8')
-const componentProfiles = readFileSync(new URL('../../src/client/components-profiles.js', import.meta.url), 'utf8')
+const componentProfiles = [
+  readFileSync(new URL('../../src/client/profile-switcher.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../src/client/profile-preview.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../src/client/profile-switch.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../src/client/profile-storage.js', import.meta.url), 'utf8'),
+].join('\n')
 const componentProfileDialogs = readFileSync(new URL('../../src/client/components-profile-dialogs.js', import.meta.url), 'utf8')
 const dialogHost = readFileSync(new URL('../../src/client/dialog-host.js', import.meta.url), 'utf8')
+// Profile form bodies/validation/actions live in dialog-profile.js; the shell
+// keeps the generic modal chrome and the `dialog.kind` dispatch, so the
+// profile-dialog assertions read both files.
+const dialogProfile = readFileSync(new URL('../../src/client/dialog-profile.js', import.meta.url), 'utf8')
+const dialogHostProfile = [dialogHost, dialogProfile].join('\n')
 const groupsViewWidth = readFileSync(new URL('../../src/client/groups-view-width.js', import.meta.url), 'utf8')
 const groupsViewState = readFileSync(new URL('../../src/client/groups-view-state.js', import.meta.url), 'utf8')
 const groupsViewMenu = readFileSync(new URL('../../src/client/groups-view-menu-handlers.js', import.meta.url), 'utf8')
@@ -48,8 +58,20 @@ const components = [
 const sessionMenu = readFileSync(new URL('../../src/client/session-menu.js', import.meta.url), 'utf8')
 const scrollArea = readFileSync(new URL('../../src/client/scroll-area.js', import.meta.url), 'utf8')
 const groupPicker = readFileSync(new URL('../../src/client/group-list-picker.js', import.meta.url), 'utf8')
+/**
+ * The plugin family is split across the composition root (`plugin.js`) and the
+ * three controllers it wires (document / profiles / host). Source-text
+ * assertions read the concatenation of all four, plus the small mount adapters.
+ */
+const pluginFamily = () =>
+  [
+    readFileSync(new URL('../../src/client/plugin.js', import.meta.url), 'utf8'),
+    readFileSync(new URL('../../src/client/plugin-document.js', import.meta.url), 'utf8'),
+    readFileSync(new URL('../../src/client/plugin-profiles.js', import.meta.url), 'utf8'),
+    readFileSync(new URL('../../src/client/plugin-host.js', import.meta.url), 'utf8'),
+  ].join('\n')
 const plugin = [
-  readFileSync(new URL('../../src/client/plugin.js', import.meta.url), 'utf8'),
+  pluginFamily(),
   readFileSync(new URL('../../src/client/plugin-settings.js', import.meta.url), 'utf8'),
   readFileSync(new URL('../../src/client/plugin-workspace-chrome.js', import.meta.url), 'utf8'),
 ].join('\n')
@@ -487,7 +509,7 @@ test('0.2.15 group palette: twelve distinct ids, color-token rules and a menu co
   assert.match(block('.dsg-color-swatch {'), /background:|width:\s*16px/)
   assert.match(block('.dsg-color-option[data-selected="true"] {'), /border-color:\s*var\(--dsw-alias-label-primary/)
   // The plugin applies the choice through the shared model setter.
-  const plugin = readFileSync(new URL('../../src/client/plugin.js', import.meta.url), 'utf8')
+  const plugin = pluginFamily()
   assert.match(plugin, /case 'group-color'/)
   assert.match(plugin, /setGroupColor\(latest, dialog\.groupId, payload\.color\)/)
 })
@@ -647,7 +669,7 @@ test('0.2.7 hash default icon and custom color precedence helpers', () => {
   assert.match(colorCore, /groupColorHex\(group\) \?\? `var\(--dsg-color-\$\{groupColor\(group\)\}\)`/)
   assert.match(components, /style: \{ '--dsg-group-color': groupColorCss\(group\) \}/)
   // The host stores the custom hex alongside the legacy palette id.
-  const plugin = readFileSync(new URL('../../src/client/plugin.js', import.meta.url), 'utf8')
+  const plugin = pluginFamily()
   assert.match(plugin, /setGroupColorHex\(latest, dialog\.groupId, payload\.colorHex\)/)
 })
 
@@ -661,7 +683,7 @@ test('0.2.7 right-click/keyboard menu wiring and clamped anchors', () => {
   assert.match(components, /if \(dragRef\.current\) return/)
   // The mounted menu re-clamps with its real rect.
   assert.match(sessionMenu, /clampMenuPosition\(\{/)
-  const plugin = readFileSync(new URL('../../src/client/plugin.js', import.meta.url), 'utf8')
+  const plugin = pluginFamily()
   assert.match(plugin, /'scroll', closeMenuOnViewportChange, true/)
   assert.match(plugin, /'resize', closeMenuOnViewportChange/)
 })
@@ -753,7 +775,7 @@ test('0.2.9 delete group: destination picker, empty direct path and move-and-del
   // Empty leaf: no dialog, direct runtime commit + toast.
   assert.match(components, /deleteGroupNeedsDialog\(store\.doc, groupId\)/)
   assert.match(components, /deleteGroupDirect\?\.\(groupId\)/)
-  const plugin = readFileSync(new URL('../../src/client/plugin.js', import.meta.url), 'utf8')
+  const plugin = pluginFamily()
   assert.match(plugin, /const deleteGroupDirect = async \(groupId\)/)
   assert.match(plugin, /'toast\.groupDeleted'/)
   assert.match(plugin, /deleteGroupTo\(latest, dialog\.groupId, payload\.destinationId \?\? null\)/)
@@ -810,7 +832,7 @@ test('0.2.14 dialog options use roomy padding and standard depth indent', () => 
 })
 
 test('0.3.0-beta.3 move dialogs insert at the target group head', () => {
-  const plugin = readFileSync(new URL('../../src/client/plugin.js', import.meta.url), 'utf8')
+  const plugin = pluginFamily()
   assert.match(plugin, /actions\.moveSession\(dialog\.sessionId, payload\.groupId \?\? null, 0\)/)
   assert.match(plugin, /moveGroup\(latest, dialog\.groupId, payload\.groupId \?\? null, 0\)/)
 })
@@ -1114,14 +1136,14 @@ test('0.4.0 profiles: save-as/manage footer and dialogs reuse the dialog chrome'
   assert.match(plugin, /profile-name-duplicate'\) return 'profiles\.nameDuplicate'/)
   assert.match(plugin, /profile-name-invalid'\) return 'profiles\.nameInvalid'/)
   // DialogHost owns the new kinds, the wide manage rect and the shared Escape.
-  assert.match(dialogHost, /'profile-save-as'/)
-  assert.match(dialogHost, /'profile-manage'/)
-  assert.match(dialogHost, /'profile-rename'/)
-  assert.match(dialogHost, /'profile-archive'/)
-  assert.match(dialogHost, /ProfileSaveAsBody/)
-  assert.match(dialogHost, /ProfileManageBody/)
-  assert.match(dialogHost, /dialog\.returnTo === 'profile-manage'/)
-  assert.match(dialogHost, /dialog\.kind === 'profile-manage'/)
+  assert.match(dialogHostProfile, /'profile-save-as'/)
+  assert.match(dialogHostProfile, /'profile-manage'/)
+  assert.match(dialogHostProfile, /'profile-rename'/)
+  assert.match(dialogHostProfile, /'profile-archive'/)
+  assert.match(dialogHostProfile, /ProfileSaveAsBody/)
+  assert.match(dialogHostProfile, /ProfileManageBody/)
+  assert.match(dialogHostProfile, /dialog\.returnTo === 'profile-manage'/)
+  assert.match(dialogHostProfile, /dialog\.kind === 'profile-manage'/)
   // The shell facade registers every open/confirm entry.
   assert.match(components, /createProfileDialogHandlers\(\{ t \}\)/)
   // S6 review carry #3: unique keys for the stale preview section and notice.
@@ -1142,7 +1164,7 @@ test('0.4.0 profiles: save-as echo is local and archive refresh is forced', () =
   assert.match(plugin, /let createInFlight = false/)
   assert.match(plugin, /createInFlight = true/)
   assert.match(plugin, /createInFlight = false/)
-  assert.match(plugin, /isLocalSwitch: \(activeId\) =>\s*createInFlight \|\|/)
+  assert.match(plugin, /const isLocalSwitch = \(activeId\) =>\s*createInFlight \|\|/)
   assert.match(plugin, /if \(info\.local\) return/)
   // Forced list reads bypass the in-flight slot and drop the older response,
   // so the manage list cannot be repopulated by a read started before archive.

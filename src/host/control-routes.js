@@ -21,7 +21,7 @@ import {
 } from './constants.js'
 import { buildControlCatalog } from '../core/catalog.js'
 import { applyControlOperations, buildControlState, CONTROL_PROTOCOL, resolveGroupPath } from '../core/control.js'
-import { controlPlanHash, resolveControlProfile, withProfileStorage } from './route-contract.js'
+import { controlPlanHash, resolveControlProfile, withProfileStorage } from './profile-policy.js'
 
 export const registerControlRoutes = (deps) => {
   const {

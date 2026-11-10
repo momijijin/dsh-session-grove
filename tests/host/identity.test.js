@@ -28,7 +28,7 @@ test('host paths and client namespaces use grove, not the legacy prefix', () => 
   assert.match(host, /CONTROL_TOKEN_FILE_NAME = 'dsh-session-grove\.control-token'/)
   assert.match(host, /DIAGNOSTICS_FILE_NAME = 'dsh-session-grove\.diagnostics\.ndjson'/)
 
-  const state = read('src', 'client', 'state.js')
+  const state = read('src', 'client', 'state', 'persistence.js')
   assert.match(state, /VIEW_MODE_KEY = 'dsh-session-grove\.view\.v1'/)
   assert.match(state, /ARCHIVE_FILTER_KEY = 'dsh-session-grove\.archive\.v1'/)
 

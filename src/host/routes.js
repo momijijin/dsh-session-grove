@@ -31,54 +31,10 @@ import { registerProfileRoutes } from './profile-routes.js'
 import { COMMIT_PATH, DEBUG_PATH, DIAGNOSTICS_PATH, LOAD_PATH, MAX_BODY_BYTES, MAX_CONTROL_BODY_BYTES, MAX_DIAGNOSTICS_BODY_BYTES, MAX_DIAGNOSTICS_FILE_BYTES, SKILL_REPAIR_PATH, DEFAULT_PROFILE_ID } from './constants.js'
 import { fenceRequest, probeConnection } from './fence.js'
 import { logInfo, logWarn } from './log.js'
+import { createLegacyProfileManager, isProfileManager } from './legacy-profile-manager.js'
 
-import { sendJson, sendEmpty, sendMethodNotAllowed, contentTypeOf, readBoundedBody, unexpectedControlField, loadResponse, commitResponse, parseCommitBody, parseDiagnosticsBody, profileFailureResponse, profileChangedResponse, registryUnhealthyResponse, profileHealth } from './route-contract.js'
-export { loadResponse, commitResponse, parseCommitBody, parseDiagnosticsBody } from './route-contract.js'
-
-const isProfileManager = (value) =>
-  value !== null &&
-  typeof value === 'object' &&
-  typeof value.loadRegistry === 'function' &&
-  typeof value.storeFor === 'function' &&
-  typeof value.peekFor === 'function' &&
-  typeof value.entryFor === 'function'
-
-/**
- * Minimal manager over a single legacy store (direct-route tests and the
- * frozen integration harness pass only a store). The active profile is always
- * `default`; no registry file is read or written.
- */
-const createLegacyProfileManager = (store) => {
-  const defaultEntry = () => ({ id: DEFAULT_PROFILE_ID, name: null, dir: '.', archivedAt: null })
-  const assertDefault = (id) => {
-    if (id !== DEFAULT_PROFILE_ID) {
-      throw Object.assign(new Error(`unknown profile: ${String(id)}`), { code: 'invalid-profile-id' })
-    }
-  }
-  return {
-    // Informational only: the legacy adapter's routes never derive artifacts
-    // from a profile path, and synthetic test stores may omit `path`.
-    storageDir: typeof store?.path === 'string' && store.path.length > 0 ? dirname(store.path) : null,
-    activeId: async () => DEFAULT_PROFILE_ID,
-    activeStore: async () => store,
-    storeFor: (id) => {
-      assertDefault(id)
-      return store
-    },
-    peekFor: (id) => {
-      assertDefault(id)
-      return store.peek()
-    },
-    entryFor: async (id) => (id === DEFAULT_PROFILE_ID ? defaultEntry() : null),
-    loadRegistry: async () => ({
-      kind: 'ok',
-      registry: { version: 1, revision: 0, activeId: DEFAULT_PROFILE_ID, profiles: [defaultEntry()] },
-      revision: 0,
-      exists: false,
-      degraded: false,
-    }),
-  }
-}
+import { sendJson, sendEmpty, sendMethodNotAllowed, contentTypeOf, readBoundedBody, unexpectedControlField, parseCommitBody, parseDiagnosticsBody } from './http/wire.js'
+import { loadResponse, commitResponse, profileFailureResponse, profileChangedResponse, registryUnhealthyResponse, profileHealth } from './http/respond.js'
 
 export const registerRoutes = (ctx, store, options = {}) => {
   if (typeof ctx?.webServer?.register !== 'function') {

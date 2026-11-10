@@ -19,12 +19,8 @@ import {
   RECORD_FILE_NAME,
   SKILL_REPAIR_PATH,
 } from '../../src/host/constants.js'
-import {
-  commitResponse,
-  loadResponse,
-  parseCommitBody,
-  parseDiagnosticsBody,
-} from '../../src/host/routes.js'
+import { commitResponse, loadResponse } from '../../src/host/http/respond.js'
+import { parseCommitBody, parseDiagnosticsBody } from '../../src/host/http/wire.js'
 import { createChangeHub } from '../../src/host/change-hub.js'
 import { createStore } from '../../src/host/store.js'
 import {
