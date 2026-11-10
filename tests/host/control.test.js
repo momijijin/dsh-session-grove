@@ -15,7 +15,7 @@ import {
   PROFILES_DIR_NAME,
   RECORD_FILE_NAME,
 } from '../../src/host/constants.js'
-import { controlPlanHash } from '../../src/host/route-contract.js'
+import { controlPlanHash } from '../../src/host/profile-policy.js'
 import {
   FIXED_TIMESTAMP,
   PROFILE_ID,

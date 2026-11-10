@@ -32,8 +32,8 @@ import { COMMIT_PATH, DEBUG_PATH, DIAGNOSTICS_PATH, LOAD_PATH, MAX_BODY_BYTES, M
 import { fenceRequest, probeConnection } from './fence.js'
 import { logInfo, logWarn } from './log.js'
 
-import { sendJson, sendEmpty, sendMethodNotAllowed, contentTypeOf, readBoundedBody, unexpectedControlField, loadResponse, commitResponse, parseCommitBody, parseDiagnosticsBody, profileFailureResponse, profileChangedResponse, registryUnhealthyResponse, profileHealth } from './route-contract.js'
-export { loadResponse, commitResponse, parseCommitBody, parseDiagnosticsBody } from './route-contract.js'
+import { sendJson, sendEmpty, sendMethodNotAllowed, contentTypeOf, readBoundedBody, unexpectedControlField, parseCommitBody, parseDiagnosticsBody } from './http/wire.js'
+import { loadResponse, commitResponse, profileFailureResponse, profileChangedResponse, registryUnhealthyResponse, profileHealth } from './http/respond.js'
 
 const isProfileManager = (value) =>
   value !== null &&

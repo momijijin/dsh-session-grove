@@ -21,7 +21,7 @@ import {
 } from '../core/control.js'
 import { buildControlCatalog } from '../core/catalog.js'
 import { DEFAULT_PROFILE_ID } from './constants.js'
-import { controlPlanHash, resolveControlProfile, withProfileStorage } from './route-contract.js'
+import { controlPlanHash, resolveControlProfile, withProfileStorage } from './profile-policy.js'
 
 export const TOOL_NAME = 'session_grove_control'
 
