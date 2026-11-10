@@ -24,10 +24,10 @@ jobs:
         os: [ubuntu-24.04, windows-latest, macos-latest]
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '24.x'
 
@@ -35,6 +35,14 @@ jobs:
       # zero-dependency reference plugin, dependencies must be installed.
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
+
+      # Runtime dependencies are audited explicitly: `npm ci` keeps
+      # `--no-audit` above so install stays offline-friendly and the audit is a
+      # visible, separate gate (high/critical only). Dev dependencies are out of
+      # scope because they never ship with the plugin bundle.
+      - name: Production dependency audit
+        if: matrix.os == 'ubuntu-24.04'
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Style check
         run: npm run check:style
