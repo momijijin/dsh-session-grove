@@ -9,12 +9,12 @@
 - 会话标题、归档状态只在用户主动操作或开启 `controlSessions` 时由受控接口改变；
 - 不写入 `workspace.json`。
 
-当前版本：**0.4.0-beta.60**  
+当前版本：**0.4.0-beta.62**  
 主要支持：**DSH core/API `@deepseek-ai/dsh` 0.2.1-rc.2 与 0.2.1-rc.5**（`engines.dsh: >=0.2.0-rc.2 <0.3.0`）  
-已验证桌面壳：**社区版 DSH Desktop Stable 2.0.18**（rc.2）与**官方 DeepSeek Harness 桌面版 0.2.1.0**（rc.5，隔离运行时 A+）  
+已验证桌面壳：**社区版 DSH Desktop Stable 2.0.18**（rc.2）与**官方 DeepSeek Harness 桌面版 0.2.2.0**（rc.1，隔离运行时 A+）  
 不官方支持、不承诺兼容：**社区版 DSH Desktop Beta**、**社区版 DSH NEXT（`-next` 通道）**
 
-分发：`0.4.0-beta.60` 为当前发布版本（2026-11-10；GitHub Release 附件 `.tgz` + `SHA256SUMS`，共 2 个），并已上架 **dshmarket**；`0.4.0-beta.59`（2026-11-09）为上一版。GitHub Release 附件与本地 tarball 仅维护者/调试路径。多配置（profiles）与切换预览布局修复随 `.60` 发布；`.60` 之后的 `dev` 进入下一个开发线。
+分发：`0.4.0-beta.61` 为最近发布版本（2026-11-10；GitHub Release 附件 `.tgz` + `SHA256SUMS`，共 2 个）；`0.4.0-beta.60`（2026-11-10）为上一版，并已上架 **dshmarket**。GitHub Release 附件与本地 tarball 仅维护者/调试路径。多配置（profiles）与切换预览布局修复随 `.60` 发布，模块拆分随 `.61` 发布；`.62`（分组归档）是未发布的 `dev` 批次，因此上面的“当前版本”指 dev 树，而不是已发布版本。
 
 本地化：已打包**英文、中文、日文、韩文、德文、法文、西班牙文、巴西葡萄牙文、意大利文、荷兰文、波兰文、土耳其文、越南文、泰文、印度尼西亚文、俄文、印地文、繁体中文、阿拉伯文**字典；locale id 按基础语言解析（`ja-JP` → `ja`、`zh-Hant`/`zh-TW` → `zh-Hant`、`pt-BR` → `pt`），未支持语言回退英文。阿拉伯文会把插件根节点切到 RTL，并带核心列表/header/弹窗的 RTL 覆盖。会话数量与展开标签使用 CLDR 复数模板；分组配置切换器、切换预览与管理弹窗在 19 份字典中均已本地化。插件会把所有字典注册到 Host，但不会主动向 Host 语言目录添加语言。
 
@@ -43,7 +43,7 @@
 | 桌面端 | 状态 |
 |---|---|
 | 社区版 DSH Desktop **Stable** 2.0.18 | 已验证（rc.2） |
-| 官方 DeepSeek Harness 桌面版 0.2.1.0 | 已验证（rc.5，隔离 A+ + 维护者桌面窗口验收） |
+| 官方 DeepSeek Harness 桌面版 0.2.2.0 | 已验证（rc.1，隔离 A+；`.60` 在 0.2.1.0 的验证另含维护者桌面窗口验收） |
 | 社区版 DSH Desktop **Beta** | 不官方支持；不承诺兼容 |
 | 社区版 DSH **NEXT**（`-next` 通道） | 不官方支持；不承诺兼容 |
 
@@ -74,6 +74,14 @@ Beta 和 NEXT 即使能加载插件，也不构成发布门禁，不扩大支持
 - 归档只从切换列表隐藏，配置文档、备份与会话都保留
 - 切换成功的 toast 提供 5 秒“撤销”，可切回上一个配置
 
+### 分组归档
+
+- 归档一个分组会让整棵递归子树变成结构只读：标题、图标、颜色、父级、同级顺序、会话与子组都不能改；归档开关本身始终可切，且不会级联到会话或子组；
+- 归档分组内的会话仍可打开（自身未归档时）、重命名、切换自身归档、复制 ID；拖拽、换序、换组与 fork 会禁用并给出原因；
+- 分组归档与会话归档是两套独立三态（隐藏 / 显示全部 / 仅归档）；`only` 下显示归档分组和通往它们的组头路径，搜索与头部状态计数遵循同一可见性；
+- 归档分组只在最外层变暗一次，`pathOnly` 祖先保持可读，组菜单/表单会说明结构锁原因；
+- 当前过滤下不可见的合法结果仍会执行，并给出“显示全部分组”的显式动作，而不是静默切换过滤器。
+
 ### 分组
 
 - 新建根分组与子分组（最多 8 层）
@@ -101,7 +109,7 @@ Beta 和 NEXT 即使能加载插件，也不构成发布门禁，不扩大支持
 - 搜索会话标题、工作区、分组路径
 - 选中后展开祖先、滚动并高亮
 - 归档结果置灰不可打开
-- 归档三态：隐藏 / 显示全部 / 仅归档
+- 会话与分组两套独立归档三态（隐藏 / 显示全部 / 仅归档）
 
 ### 头部状态
 
@@ -135,7 +143,7 @@ Beta 和 NEXT 即使能加载插件，也不构成发布门禁，不扩大支持
 
 右上角“视图选项”包含：
 
-- 归档三态
+- 会话归档与分组归档两套三态（同一 popover 内两个带标题的分段）
 - **恢复默认布局**：恢复侧栏宽度、全部展开、清除弹窗位置尺寸；不动分组数据
 - 版本与作用范围说明
 
@@ -192,12 +200,14 @@ dsh-session-grove
 - 归档配置只写 `archivedAt` 标记：文档、备份与会话都留在磁盘上，不删除任何文件
 - 已有的单配置安装就是 `default` 配置；升级不会迁移、重命名或复制 `dsh-session-grove.json`；registry 在第一次写配置时创建（save-as/create 或 rename/archive/activate），而 `profiles/` 只在首次保存命名配置（save-as/create）时创建
 - 不支持配置的旧版本只读 default 文档、忽略 registry；重新升级后配置仍在
+- 分组文档保持 `DOC_VERSION` 1；`0.4.0-beta.62` 的分组级 `archived` 是 additive 字段（缺失按 `false` 读取，无迁移），备份恢复可能回到归档前状态
 - 不写官方工作区与会话数据
 
 本地 UI 偏好与可选诊断/性能开关（localStorage）：
 
 - `dsh-session-grove.view.v1`
 - `dsh-session-grove.archive.v1`
+- `dsh-session-grove.archive.groups.v1`（分组归档三态，`.62`）
 - `dsh-session-grove.collapsed.v1`（值已改为 `{[profileId]: {[groupId]: true}}`；旧的扁平值按 default 配置读取，并在下一次写入时升级）
 - `dsh-session-grove.width.v1`
 - `dsh-session-grove.onboarded.v1`
@@ -383,7 +393,7 @@ node scripts/session-grove-control.mjs doctor
 - 搜索最多返回 20 条，只匹配标题/工作区/组路径。
 - 宽度覆盖依赖 DSH 左侧栏 DOM；宿主大改布局时 fail-soft，分组功能不受影响。
 - 对话框移动/缩放已有键盘支持；全量 axe/对比度审计和整棵树的键盘拖拽仍为 deferred。
-- `0.4.0-beta.60` 以 **699 项单元/契约测试 + 39 个 UI runtime case + 1 个浏览器 runtime spec** 验证；上一版 `0.4.0-beta.59` 为 529 项单元/契约测试 + 15 个 UI runtime case；手工证据不是每个候选版本的 CI 产物：配置 UI 流程已于 2026-11-09 在社区版隔离宿主通过（`test:isolated`、`test:ui-browser`、`test:locale-pack`、`test:all-locales` 23/23）；官方 A+ O 的配置证据已于 2026-11-10 PASS（官方 DeepSeek Harness 桌面版 0.2.1.0 / DSH 0.2.1-rc.5 隔离宿主，`.60` tarball：`test:isolated` + `test:ui-browser`，`executedRatio` 1；见 [docs/TEST-MATRIX.md](docs/TEST-MATRIX.md)）；all-locales / locale-pack 最新证据仍为 2026-11-09 的 `.59` 23/23，`.60` 未复跑；用户桌面验收日期为 2026-11-10；`e2e/groups.spec.mjs` 是历史手工脚本，不进入默认门禁，当前脚本化 A+ 为 `e2e/isolated.spec.mjs`（需手工对隔离宿主运行，不在 CI 内）。`npm run check:release` 是 release workflow 强制的发布结构门禁（版本一致、tag 匹配、release note、客户端版本戳、打包路径）；A+ 和 all-locales 是手工本地证据，不是 CI 产物。
+- `0.4.0-beta.62` dev 树以 **907 项单元/契约测试 + 41 个 UI runtime case + 1 个浏览器 runtime spec** 和 385 个 locale key 验证（`.61` dev 树：726 + 39；`.60` 发布：699 + 39；`.59`：529 + 15）；手工证据不是每个候选版本的 CI 产物：`.62` 批次**尚未跑新的 A+**——`test:isolated`、`test:ui-browser`、`test:locale-pack`、`test:all-locales` 均为手工待跑，不得写成已通过。最近的真实宿主证据仍是 2026-11-10 的 `.61` 运行（社区版与官方隔离宿主：两边 `test:isolated` PASS、两边 `test:ui-browser` `executedRatio` 1、`test:locale-pack` PASS、`test:all-locales` 23/23（331-key 字典）；见 [docs/TEST-MATRIX.md](docs/TEST-MATRIX.md)）。`e2e/groups.spec.mjs` 是历史手工脚本，不进入默认门禁，当前脚本化 A+ 为 `e2e/isolated.spec.mjs`（需手工对隔离宿主运行，不在 CI 内）。`npm run check:release` 是 release workflow 强制的发布结构门禁（版本一致、tag 匹配、release note、客户端版本戳、打包路径）；A+ 和 all-locales 是手工本地证据，不是 CI 产物。
 
 ## 文档
 
@@ -393,7 +403,7 @@ node scripts/session-grove-control.mjs doctor
 - [兼容策略](docs/COMPATIBILITY.md)
 - [架构](docs/ARCHITECTURE.md)
 - [发布与验证](docs/RELEASE.md)
-- [历史测试结果（0.4.0-beta.13 快照）](docs/TEST-RESULTS.md)
+- [本地测试结果 + 0.4.0-beta.13 历史快照](docs/TEST-RESULTS.md)
 
 历史 V1/V1.1 契约与计划单独索引，不代表当前行为。
 
@@ -413,12 +423,12 @@ npm pack --pack-destination "$env:TEMP\dsh-grove-pack"
 
 正式产物由 tag 触发的 release workflow 在 CI 生成；本地包仅供自测——请输出到临时目录（不要留在仓库根目录），安装前先核对 manifest / `package.json` 版本。
 
-- `npm test`：726 项单元/契约测试
+- `npm test`：907 项单元/契约测试
 - `npm run check:style`: zero-dependency style guard (tabs/trailing whitespace/final newline)
 - `npm run check:lib`: rebuild and verify lib/ is current with src/
 - `npm run test:ui-browser`: real-browser UI runtime coverage (isolated host; manual)
-- `npm run check:ui`：UI runtime smoke（39 个 UI runtime case：1 个模块加载 + 38 个组件测试，覆盖 17 个组件、24 个客户端模块；不并入逻辑 coverage）
-- `npm run check:coverage`：Node 内置 coverage 报告（当前约 94% lines / 85% branches / 90% functions；每次运行有百分之几的波动）
+- `npm run check:ui`：UI runtime smoke（41 个 UI runtime case：1 个模块加载 + 40 个组件测试，覆盖 18 个组件、24 个客户端模块；不并入逻辑 coverage）
+- `npm run check:coverage`：Node 内置 coverage 报告（当前约 94.58% lines / 86.66% branches / 91.36% functions；每次运行有百分之几的波动）
 - `npm run check:release`：release workflow 发布门禁；校验 `package.json` / `dsh.plugin.json` / `src/shared/constants.js` / `package-lock.json` 版本一致；设置了 `GITHUB_REF_NAME` 时要求 tag 等于 `v<version>`；并检查 release note、`lib/client.js` 版本戳和 `package.json.files` 的全部路径
 - 分层：`src/core` 纯函数核心，`src/adapters` 承载 DSH 版本适配；见 `docs/ARCHITECTURE.md`
 - `npm run check:all`：全文件语法检查 + 测试
@@ -432,15 +442,15 @@ npm pack --pack-destination "$env:TEMP\dsh-grove-pack"
   - 必须先启动独立 web，取得 `web.json` 的 URL 和 testHome
   - Playwright 拒绝真实 43120 端口和真实 `~/.dsh`
 - 构建产物：`lib/client.js`
-- 发布包：`dsh-session-grove-0.4.0-beta.60.tgz`
+- 发布包：`dsh-session-grove-0.4.0-beta.62.tgz`
 - 详细发布步骤见 `docs/RELEASE.md`
-- 历史测试快照见 `docs/TEST-RESULTS.md`（0.4.0-beta.13；当前状态以 `docs/TEST-MATRIX.md` 为准）
+- 本地测试结果与 `0.4.0-beta.13` 历史快照见 `docs/TEST-RESULTS.md`（当前状态以 `docs/TEST-MATRIX.md` 为准）
 
 ## 交流群
 
 DSH Session Grove 用户交流 QQ 群（暂无微信群）：
 
-![dsh-session-grove QQ 群二维码](assets/qrcode_1794236242994.jpg)
+![dsh-session-grove QQ 群二维码](assets/qrcode-qq-group.jpg)
 
 ## 许可
 
