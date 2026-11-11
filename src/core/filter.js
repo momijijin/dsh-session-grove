@@ -82,6 +82,7 @@ export const isArchived = (archivedSessionIds, sessionId) =>
  * @param {{
  *   archivedSessionIds?: string[],
  *   filter?: 'hidden'|'all'|'only',
+ *   groupFilter?: 'hidden'|'all'|'only',
  *   currentSessionId?: string|null,
  *   statuses?: Map<string, object>|null,
  *   subagentCounts?: Map<string, number>|null,
@@ -91,6 +92,7 @@ export const buildVisibleTree = (doc, sessionsById = {}, workspaces = [], option
   buildRenderTree(doc, sessionsById, workspaces, {
     archivedSessionIds: Array.isArray(options.archivedSessionIds) ? options.archivedSessionIds : [],
     filter: ARCHIVE_FILTERS.includes(options.filter) ? options.filter : 'hidden',
+    groupFilter: ARCHIVE_FILTERS.includes(options.groupFilter) ? options.groupFilter : 'hidden',
     currentSessionId: typeof options.currentSessionId === 'string' ? options.currentSessionId : null,
     statuses: options.statuses instanceof Map ? options.statuses : null,
     subagentCounts: options.subagentCounts instanceof Map ? options.subagentCounts : null,

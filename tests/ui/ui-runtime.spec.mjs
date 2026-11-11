@@ -210,6 +210,61 @@ test('GroupNode renders header metadata and wires click/menu handlers', async ()
   assert.deepEqual(calls.map((entry) => entry[0]), ['onGroupClick', 'openGroupMenu'])
 })
 
+test('GroupNode marks archived, path-only and ancestor groups structurally locked', async () => {
+  installClientRuntime({ t: (key) => 'T:' + key, capabilities: { archive: false, unarchive: false } })
+  const { GroupNode, SessionRow } = await import(new URL('../../src/client/components-rows.js', import.meta.url))
+  const handlers = new Proxy({}, { get: () => () => {} })
+  const doc = {
+    groups: [
+      { id: 'frozen', name: 'Frozen', icon: 'folder', color: 'blue', parentId: null, sessionIds: ['s1'], archived: true },
+      { id: 'ancestor', name: 'Ancestor', icon: 'folder', color: 'blue', parentId: null, sessionIds: [] },
+      { id: 'child', name: 'Child', icon: 'folder', color: 'blue', parentId: 'ancestor', sessionIds: [], archived: true },
+    ],
+    ungrouped: [],
+  }
+  const store = { doc, collapsed: {}, dropTarget: null, draggedGroupId: null, currentSessionId: null }
+  const renderGroup = (node) => GroupNode({ node, depth: 0, props: {}, handlers, store })
+
+  // Effective-archived group: full dim + lock badge, no structural drag.
+  const frozenTree = renderGroup({ group: doc.groups[0], children: [], visibleCount: 0, emptyVisible: true, effectiveArchived: true })
+  const frozenRow = byTestId(frozenTree, 'session-groups-group')
+  assert.equal(frozenRow.props['data-archived'], 'true')
+  assert.equal(frozenRow.props['data-path-only'], 'false')
+  assert.equal(frozenRow.props['data-contains-archived'], 'false')
+  assert.equal(frozenRow.props.draggable, 'false')
+  assert.ok(byTestId(frozenTree, 'session-groups-group-archived'))
+  assert.equal(byTestId(frozenTree, 'session-groups-group-contains-archived'), undefined)
+  assert.equal(byTestId(frozenTree, 'session-groups-group-add').props['aria-disabled'], 'true')
+
+  // pathOnly ancestor: header only, no dim, but a "contains archived" hint and
+  // a structural drag lock because moving it would move the frozen subtree.
+  const pathTree = renderGroup({ group: doc.groups[1], children: [], visibleCount: 0, emptyVisible: true, pathOnly: true, effectiveArchived: false })
+  const pathRow = byTestId(pathTree, 'session-groups-group')
+  assert.equal(pathRow.props['data-archived'], 'false')
+  assert.equal(pathRow.props['data-path-only'], 'true')
+  assert.equal(pathRow.props['data-contains-archived'], 'true')
+  assert.equal(pathRow.props.draggable, 'false')
+  assert.equal(byTestId(pathTree, 'session-groups-group-archived'), undefined)
+  assert.ok(byTestId(pathTree, 'session-groups-group-contains-archived'))
+
+  // A session inside a frozen group reports the container lock, not its own
+  // archived flag (§5.4: data-archived means "this session is archived").
+  const sessionTree = SessionRow({
+    sessionNode: { session: { id: 's1', updatedAt: Date.now(), blank: false }, archived: false, status: null },
+    depth: 1,
+    groupId: 'frozen',
+    structuralLocked: true,
+    props: {},
+    handlers,
+    store: { currentSessionId: null },
+  })
+  const sessionRow = byTestId(sessionTree, 'session-groups-session')
+  assert.equal(sessionRow.props['data-structural-locked'], 'true')
+  assert.equal(sessionRow.props['data-archived'], 'false')
+  assert.equal(sessionRow.props.draggable, 'false')
+  assert.match(sessionRow.props['aria-label'], /T:session\.structuralLocked/)
+})
+
 
 test('MenuPopover renders a group menu and dispatches an item through handlers', async () => {
   const calls = []
@@ -266,7 +321,7 @@ test('Header renders title/status counts/options and wires new-group/toggle', as
   const { Header } = await import(new URL('../../src/client/components-header.js', import.meta.url))
   const handlers = new Proxy({}, { get: (_target, prop) => (...args) => calls.push([String(prop), ...args]) })
   const tree = expand(Header({
-    store: { archiveFilter: 'hidden', viewMode: 'groups' },
+    store: { archiveFilter: 'hidden', groupArchiveFilter: 'hidden', viewMode: 'groups' },
     handlers,
     sessionsById: {},
     workspaces: [],
@@ -280,11 +335,55 @@ test('Header renders title/status counts/options and wires new-group/toggle', as
   assert.equal(byTestId(tree, 'session-groups-running-button').props['data-count'], '2')
   assert.equal(byTestId(tree, 'session-groups-blocked-button').props['data-count'], '0')
   assert.equal(byTestId(tree, 'session-groups-view-options').props['data-filter'], 'hidden')
+  assert.equal(byTestId(tree, 'session-groups-view-options').props['data-group-filter'], 'hidden')
   byTestId(tree, 'session-groups-new-group').props.onClick({ stopPropagation() {} })
   byTestId(tree, 'session-groups-toggle').props.onClick({ stopPropagation() {} })
   assert.equal(calls[0][0], 'openNewGroup')
   assert.equal(calls[0][2], null)
   assert.equal(calls[1], 'toggle')
+})
+
+test('ArchiveFilterPopover renders both tri-state segments with active checks', async () => {
+  installClientRuntime({ t: (key) => 'T:' + key })
+  const { ArchiveFilterPopover } = await import(new URL('../../src/client/components-header.js', import.meta.url))
+  const picks = []
+  const tree = expand(ArchiveFilterPopover({
+    filter: 'all',
+    groupFilter: 'only',
+    t: (key) => 'T:' + key,
+    onPick: (value) => picks.push(['sessions', value]),
+    onPickGroup: (value) => picks.push(['groups', value]),
+    onResetLayout: () => picks.push('reset'),
+  }))
+  const popover = byTestId(tree, 'session-groups-view-options-popover')
+  assert.ok(popover)
+  assert.equal(popover.props.role, 'menu')
+  const radios = flatten(tree).filter((node) => node.props?.role === 'menuitemradio')
+  assert.equal(radios.length, 6, 'two segments x three tri-state rows')
+  const sessionRows = flatten(tree).filter((node) => node.props?.['data-testid'] === 'session-groups-archive-filter')
+  const groupRows = flatten(tree).filter((node) => node.props?.['data-testid'] === 'session-groups-group-archive-filter')
+  assert.equal(sessionRows.length, 3)
+  assert.equal(groupRows.length, 3)
+  assert.deepEqual(sessionRows.map((row) => row.props['data-filter']), ['hidden', 'all', 'only'])
+  assert.deepEqual(groupRows.map((row) => row.props['data-group-filter']), ['hidden', 'all', 'only'])
+  assert.deepEqual(sessionRows.map((row) => row.props['aria-checked']), ['false', 'true', 'false'])
+  assert.deepEqual(groupRows.map((row) => row.props['aria-checked']), ['false', 'false', 'true'])
+  assert.deepEqual(sessionRows.map((row) => row.props['data-active']), ['false', 'true', 'false'])
+  assert.deepEqual(groupRows.map((row) => row.props['data-active']), ['false', 'false', 'true'])
+  const sections = childrenOf(popover).filter((child) => child?.props?.role === 'group')
+  assert.equal(sections.length, 2)
+  assert.deepEqual(sections.map((section) => section.props['aria-label']), ['T:archive.section.sessions', 'T:archive.section.groups'])
+  const checkOf = (row) => childrenOf(row).find((child) => child?.props?.class === 'dsg-view-option-check')
+  assert.ok(checkOf(sessionRows[1]).props.children, 'active session row paints a check')
+  assert.equal(checkOf(sessionRows[0]).props.children, null, 'inactive session row paints no check')
+  assert.ok(checkOf(groupRows[2]).props.children, 'active group row paints a check')
+  assert.equal(checkOf(groupRows[1]).props.children, null, 'inactive group row paints no check')
+  // Picks are the only side effect; the popover has no local close state, so
+  // both segments can be driven in one visit (§10).
+  sessionRows[2].props.onClick({ stopPropagation() {} })
+  groupRows[1].props.onClick({ stopPropagation() {} })
+  byTestId(tree, 'session-groups-reset-layout').props.onClick({ stopPropagation() {} })
+  assert.deepEqual(picks, [['sessions', 'only'], ['groups', 'all'], 'reset'])
 })
 
 test('SessionRow renders current/running/archived data attributes', async () => {

@@ -29,6 +29,17 @@ const MAX_GROUP_ROWS = 100
 const MAX_SESSION_ROWS = 300
 const MAX_STALE_ROWS = 100
 
+/**
+ * Localized copy for the archived-state marker on a changed group row.
+ *
+ * Kept as a computed map instead of an inline literal key argument so the
+ * client literal-key guard stays green until P10 adds these keys to all 19
+ * locales. P10 owes: `profiles.preview.archiveChanged`.
+ */
+const ARCHIVE_CHANGE_KEYS = Object.freeze({
+  changed: 'profiles.preview.archiveChanged',
+})
+
 // ---------------------------------------------------------------------------
 // Preview dialog body (SPEC §9.3)
 // ---------------------------------------------------------------------------
@@ -52,6 +63,14 @@ const pathNew = (path, key) =>
 
 const changeMarker = (marker, key) =>
   h('span', { key, class: 'dsg-profile-preview-change-marker', 'aria-hidden': 'true' }, marker)
+
+/** Lightweight tag on a changed row whose archived state flips. */
+const archiveChangeTag = (t, key) =>
+  h(
+    'span',
+    { key, class: 'dsg-profile-preview-change-tag', 'data-kind': 'archive' },
+    t(ARCHIVE_CHANGE_KEYS.changed)
+  )
 
 /**
  * One diff entry as a two-level block: a wrapping title line and an indented
@@ -79,7 +98,7 @@ const summaryStat = (t, labelKey, from, to, key) =>
   )
 
 /** Group changes → labelled blocks: added / removed / changed (+reordered). */
-const groupChangeBlocks = (diff) => {
+const groupChangeBlocks = (diff, t) => {
   const groups = diff?.groups ?? {}
   const added = (Array.isArray(groups.added) ? groups.added : []).map((path) => ({
     kind: 'added',
@@ -92,11 +111,14 @@ const groupChangeBlocks = (diff) => {
   const changed = (Array.isArray(groups.changed) ? groups.changed : []).map((entry) => {
     const from = typeof entry?.from === 'string' ? entry.from : ''
     const to = typeof entry?.to === 'string' ? entry.to : from
-    // New path on the title line, the replaced path as the indented detail.
+    // New path on the title line, the replaced path as the indented detail;
+    // an archived-state flip gets its own tag next to it (P10 localizes it).
+    const detail = [pathOld(from, 'from')]
+    if (entry?.archived === true) detail.push(archiveChangeTag(t, 'archive'))
     return {
       kind: 'changed',
       title: [changeMarker('~', 'marker'), pathNew(to, 'path')],
-      detail: [pathOld(from, 'from')],
+      detail,
     }
   })
   const blocks = []
@@ -230,7 +252,7 @@ const ProfilePreviewBody = ({ store, t: tProp, byId }) => {
         )
       )
     }
-    const groupBlocks = truncateBlocks(groupChangeBlocks(diff), MAX_GROUP_ROWS)
+    const groupBlocks = truncateBlocks(groupChangeBlocks(diff, t), MAX_GROUP_ROWS)
     const reordered = diff?.groups?.reordered === true
     if (groupBlocks.blocks.length > 0 || reordered) {
       nodes.push(

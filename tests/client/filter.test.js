@@ -8,7 +8,7 @@ import {
   isArchived,
   sessionTitle,
 } from '../../src/core/filter.js'
-import { assignSession, createGroup, emptyDoc } from '../../src/shared/model.js'
+import { assignSession, createGroup, emptyDoc, setGroupArchived } from '../../src/shared/model.js'
 
 const sessionsById = {
   s1: { id: 's1', displayTitle: 'alpha', blank: false, origin: undefined },
@@ -132,4 +132,39 @@ test('unknown archive filters fall back to hidden and isArchived uses the host a
   assert.equal(isArchived(['a'], 'a'), true)
   assert.equal(isArchived(['a'], 'b'), false)
   assert.equal(isArchived('a', 'a'), false)
+})
+
+test('buildVisibleTree forwards the group archive filter and defaults to hidden', () => {
+  let doc = emptyDoc()
+  doc = createGroup(doc, { name: 'Live' })
+  const live = doc.groups[0].id
+  doc = createGroup(doc, { name: 'Archived' })
+  const archived = doc.groups[1].id
+  doc = assignSession(doc, 's1', live)
+  doc = assignSession(doc, 's2', archived)
+  doc = assignSession(doc, 'u1', null)
+  doc = setGroupArchived(doc, archived, true)
+  const rows = {
+    s1: { id: 's1', displayTitle: 'live' },
+    s2: { id: 's2', displayTitle: 'archived group row' },
+    u1: { id: 'u1', displayTitle: 'loose' },
+  }
+
+  const implicit = buildVisibleTree(doc, rows, [], { filter: 'all' })
+  assert.deepEqual(implicit.groups.map((node) => node.group.id), [live], 'default group filter is hidden')
+  assert.deepEqual(implicit.ungrouped.map((node) => node.session.id), ['u1'])
+
+  const explicit = buildVisibleTree(doc, rows, [], { filter: 'all', groupFilter: 'hidden' })
+  assert.deepEqual(implicit, explicit)
+  const bogus = buildVisibleTree(doc, rows, [], { filter: 'all', groupFilter: 'bogus' })
+  assert.deepEqual(bogus, explicit, 'an out-of-vocabulary group filter is treated as "hidden"')
+
+  const all = buildVisibleTree(doc, rows, [], { filter: 'all', groupFilter: 'all' })
+  assert.deepEqual(all.groups.map((node) => node.group.id), [live, archived])
+  assert.equal(all.groups[1].effectiveArchived, true)
+
+  const only = buildVisibleTree(doc, rows, [], { filter: 'all', groupFilter: 'only' })
+  assert.deepEqual(only.groups.map((node) => node.group.id), [archived])
+  assert.deepEqual(only.groups[0].children.map((node) => node.session.id), ['s2'])
+  assert.deepEqual(only.ungrouped, [], 'N1: only hides ungrouped')
 })

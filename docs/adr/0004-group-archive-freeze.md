@@ -1,0 +1,21 @@
+# ADR-004：分组归档使用 additive `archived` 字段与 before-state 冻结不变量
+
+- 状态：Accepted（2026-11-11，`0.4.0-beta.62`）
+- 背景：分组需要一层“整棵子树只读”的归档能力，但不能破坏已有 GroupDoc（`DOC_VERSION` 1）、旧客户端和备份恢复路径。会话归档 flag 一直由 host 的 workspace snapshot 持有，GroupDoc 不存会话 flag；本批新增的是**分组级** flag，属于 additive contract extension。冻结历史契约 `docs/CONTRACTS.md` 不改，由本 ADR 记录扩展。
+- 决策：
+  - **数据模型**：`Group.archived?: boolean`，缺失读作 `false`，非 boolean 由 `validateDoc` 以 `group-archived-type:<id>` 拒绝。`DOC_VERSION` 保持 1，无迁移脚本；flag 按 profile 隔离，不写 registry。host 写盘把它归一化为显式 `true|false`，与 `color` 一样保留而不是丢弃。
+  - **effective 继承**：`effectiveArchived = own || 任一祖先 effective`；`archivedBy` 是最近的归档祖先 id（自身归档时即自身），纯派生、不落盘；上溯带 seen 集合防御损坏文档里的 cycle。
+  - **可见性**：会话归档 `hidden|all|only` 与分组归档 `hidden|all|only` 是两个独立三态（存储 key `dsh-session-grove.archive.v1` / `dsh-session-grove.archive.groups.v1`）。`hidden` 剪掉归档子树但保留非归档祖先；`all` 全渲染；`only` 只渲染 `full`（effective 归档）与 `pathOnly`（自身不归档、但有 full 后代的祖先，只显示组头，不显示自身会话或无关子组）；`only` 下 ungrouped 隐藏，无归档组时视图为空。`assigned` 必须从完整 doc 计算，搜索/状态与渲染共用 `computeGroupVisibility`，避免三套判定漂移。
+  - **递归结构锁**：before 中 effective 归档的组，其标题/图标/颜色/colorHex/父级/同级 index/`sessionIds` 顺序/直接子组 id 顺序全部冻结；删除、移动、插入、换序、换父都拒绝。归档开关本身**始终**可切（不级联，不影响子组或会话的 `archived`）。归档组内的会话仍可打开（自身未归档时）、重命名、切换自身归档、复制 ID，但不能拖拽、上移下移、换组或 fork。
+  - **before-state 不变量**：比较“提交开始前的已确认 doc”与结果 doc，只允许冻结组自身的 `archived` flag 变化。`unarchive + 编辑` 必须拆成两笔提交；`archive + 编辑` 合法（before 尚未冻结）；比较一律归一化（`groupColor`/`colorHex`/图标/`archived === true`），禁止直接比原始字段，避免 host 补 `color` 导致的误报。
+  - **host 权威守卫**：`store.commit` 在锁内按 group id 继承入站缺失的 `archived`（旧客户端整份提交不会隐式取消归档），再 `validateForWrite`，最后用 current doc 作 before 跑同一个不变量；违反返回 `kind:'archive-frozen'`，不写文件、不 bump revision，HTTP 映射 409 `{ ok:false, code:'archive-frozen', reason:<op code>, groupId, field }`。
+  - **控制协议**：新增独立操作 `group.archive { groupId, archived }`；`group.update` 仍然只改 icon/color/colorHex。`state.groups[]` 暴露 `archived`（own）、`effectiveArchived`、`archivedBy`，不暴露视图态 `pathOnly`。归档状态冲突（`group-archived`/`group-contains-archived`/`group-destination-archived`/`group-position-locked`/`archive-frozen`）走 409，schema/类型/未知字段仍是 422；批量顺序执行后用**原始 doc**做整批终校验（失败 `operationIndex: -1`），同值 `group.archive` 为 `no-change`，不 bump revision。
+  - **不做会话归档级联**：归档分组不改任何会话的归档状态、不删除分组或会话、不停止运行中的会话；不会调用 `archiveSession`。会话自身的归档开关仍只影响会话三态下的显隐。
+  - **旧客户端兼容**：入站 group 缺少 `archived` 时由 host 从 current doc 按 id 继承；新组按 `false`。显式 `true/false` 优先。旧客户端会忽略该字段，但整份提交不会把归档组变回未归档，结构修改会被 host 守卫拒绝（旧客户端可能显示泛化错误，属于可接受降级）。新客户端 + 旧 host 时字段通常随整份 doc 保留，但旧 host 不校验不变量，必须依赖客户端 mutator 守卫。
+  - **备份 / save 例外**：`store.save()` 新建 profile 时没有 current doc，缺失按 `false`；`writeDoc(backup)` 的备份恢复路径按备份内容原样写回，可能回到归档前状态，这是明确的恢复语义例外，不触发 before-state 不变量。
+  - **降级 caveat**：从 `.62` 回退到不认识该字段的旧版本时，`archived` 仍留在 JSON 里，但旧版本既不展示归档态也不执行结构锁；升级回 `.62` 后归档状态与锁自动恢复，无需迁移。`DOC_VERSION` 不变，不因新字段拒绝旧文档。
+- 后果：
+  - 归档子树的数据完整性由 host 单点兜底，裸 HTTP、第二窗口和旧客户端都绕不过；UI 预览和提交共享 `checkSessionDrop`/`checkGroupDrop` 判定，避免“预览允许、提交失败”。
+  - `only` 视图引入 `pathOnly` 概念，搜索、状态计数和空态都必须消费同一份 group visibility；新增可见性逻辑集中在 `src/shared/archive.js`。
+  - 分组归档不是“批量归档会话”的快捷方式，产品语义明确为“结构只读 + 整树变暗/筛选”；需要归档会话时仍用会话自身的归档动作。
+  - 备份恢复可能把文档恢复成归档前状态；UI 在恢复后以最新 doc 重新计算，不保留旧的锁状态。

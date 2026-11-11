@@ -166,6 +166,27 @@ test('commit 409 profile-changed is a recognizable non-conflict error', async ()
   assert.equal(result.registryRevision, 4)
 })
 
+test('commit 409 archive-frozen keeps the structured reason/groupId/field (0.4.0-beta.62 §6.4)', async () => {
+  const fetchImpl = fakeFetch(() =>
+    response(409, {
+      ok: false,
+      code: 'archive-frozen',
+      reason: 'group-archived',
+      groupId: 'g-1',
+      field: 'name',
+      message: 'group-archived',
+    }),
+  )
+  const result = await createApi({ fetchImpl, baseURI: 'http://x/' }).commit(doc, 3, 'default')
+  assert.equal(result.ok, false)
+  assert.equal(result.code, 'archive-frozen')
+  assert.equal(result.conflict, undefined, 'an archive freeze is not a revision conflict')
+  assert.equal(result.reason, 'group-archived')
+  assert.equal(result.groupId, 'g-1')
+  assert.equal(result.field, 'name')
+  assert.equal(result.message, 'group-archived')
+})
+
 test('listProfiles gets the registry summary and forwards archived opt-in', async () => {
   const fetchImpl = fakeFetch((url) => {
     if (url.endsWith('?includeArchived=1')) {

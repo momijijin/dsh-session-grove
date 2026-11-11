@@ -6,8 +6,18 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
-import { UNGROUPED_ID, buildSearchIndex, matchSessions, revealSession } from '../../src/core/search.js'
+import {
+  UNGROUPED_ID,
+  buildSearchIndex,
+  matchSessions,
+  revealSession,
+  splitSearchResultsByVisibility,
+} from '../../src/core/search.js'
+
+const searchBoxSource = readFileSync(new URL('../../src/client/components-search-box.js', import.meta.url), 'utf8')
+const searchRevealSource = readFileSync(new URL('../../src/client/groups-view-search.js', import.meta.url), 'utf8')
 
 /**
  * Index fixture:
@@ -99,7 +109,7 @@ test('index excludes subagent rows and keeps every other session (archived, ungr
   assert.equal(entries.some((entry) => entry.sessionId === 'sub' || entry.sessionId === 'sub2'), false)
 })
 
-test('index entries expose the exact Entry fields: title, workspace, groupPath, groupIds, archived, aliases', () => {
+test('index entries expose the exact Entry fields: sessionId, title, workspace, groupPath, groupIds, groupId, archived, aliases', () => {
   const byId = indexedById()
   assert.deepEqual(byId.s1, {
     sessionId: 's1',
@@ -107,6 +117,7 @@ test('index entries expose the exact Entry fields: title, workspace, groupPath, 
     workspace: 'Bridge',
     groupPath: 'Alpha',
     groupIds: ['g-a'],
+    groupId: 'g-a',
     archived: false,
     aliases: [],
   })
@@ -116,6 +127,7 @@ test('index entries expose the exact Entry fields: title, workspace, groupPath, 
     workspace: 'Docs',
     groupPath: 'Alpha / Alpha One',
     groupIds: ['g-a', 'g-a1'],
+    groupId: 'g-a1',
     archived: false,
     aliases: [],
   })
@@ -125,6 +137,7 @@ test('index entries expose the exact Entry fields: title, workspace, groupPath, 
     workspace: 'Docs',
     groupPath: 'Alpha / Alpha One / Alpha One X',
     groupIds: ['g-a', 'g-a1', 'g-a1x'],
+    groupId: 'g-a1x',
     archived: false,
     aliases: [],
   })
@@ -134,6 +147,7 @@ test('index entries expose the exact Entry fields: title, workspace, groupPath, 
     workspace: 'Docs',
     groupPath: '',
     groupIds: [],
+    groupId: null,
     archived: false,
     aliases: [],
   })
@@ -144,6 +158,7 @@ test('index entries expose the exact Entry fields: title, workspace, groupPath, 
     workspace: 'Docs',
     groupPath: '',
     groupIds: [],
+    groupId: null,
     archived: false,
     aliases: [],
   })
@@ -177,6 +192,7 @@ test('index tolerates missing, null or malformed inputs without throwing', () =>
     workspace: '',
     groupPath: '',
     groupIds: [],
+    groupId: null,
     archived: false,
     aliases: [],
   })
@@ -319,4 +335,200 @@ test('revealSession treats only the boolean true as collapsed (truthy values sta
   // A real `true` next to truthy noise is still removed and only that key.
   const mixed = { 'g-a': true, 'g-a1': 'yes', 'g-b': true }
   assert.deepEqual(revealSession(doc, mixed, 's1'), { 'g-a1': 'yes', 'g-b': true })
+})
+
+// ------------------------------------------- P2 group visibility (0.4.0-beta.62 §4.5)
+
+/**
+ * Group-visibility fixture:
+ *   g-live        sessions [live, live-archived]   (live-archived is individually archived)
+ *   g-arch        archived, sessions [archived]
+ *   g-path        sessions [path-own]              (has an archived child, so it is pathOnly under "only")
+ *     g-path-child archived, sessions [path-child]
+ *   g-empty       no sessions
+ *   ungrouped:    [loose]
+ */
+const visibilityFixture = () => ({
+  doc: {
+    version: 1,
+    revision: 0,
+    groups: [
+      { id: 'g-live', name: 'Live', icon: 'folder', parentId: null, sessionIds: ['live', 'live-archived'] },
+      { id: 'g-arch', name: 'Archived', icon: 'folder', parentId: null, sessionIds: ['archived'], archived: true },
+      { id: 'g-path', name: 'Path', icon: 'folder', parentId: null, sessionIds: ['path-own'] },
+      {
+        id: 'g-path-child',
+        name: 'Path child',
+        icon: 'folder',
+        parentId: 'g-path',
+        sessionIds: ['path-child'],
+        archived: true,
+      },
+      { id: 'g-empty', name: 'Empty', icon: 'folder', parentId: null, sessionIds: [] },
+    ],
+    ungrouped: ['loose'],
+  },
+  sessionsById: {
+    live: { id: 'live', displayTitle: 'Live row' },
+    'live-archived': { id: 'live-archived', displayTitle: 'Live archived row' },
+    archived: { id: 'archived', displayTitle: 'Archived row' },
+    'path-own': { id: 'path-own', displayTitle: 'Path own row' },
+    'path-child': { id: 'path-child', displayTitle: 'Path child row' },
+    loose: { id: 'loose', displayTitle: 'Loose row' },
+  },
+  workspaces: [],
+  archivedSessionIds: ['live-archived'],
+})
+
+const visibleIds = (source, groupFilter) => {
+  const entries = buildSearchIndex(source)
+  const split = splitSearchResultsByVisibility(source.doc, entries, groupFilter)
+  return {
+    visible: split.visible.map((entry) => entry.sessionId).sort(),
+    hidden: split.hidden.map((entry) => entry.sessionId).sort(),
+  }
+}
+
+test('index keeps grouped sessions regardless of their group archive state and tags each entry with its groupId', () => {
+  const source = visibilityFixture()
+  const entries = buildSearchIndex(source)
+  assert.equal(entries.length, 6, 'the index is a view-filter-agnostic projection')
+  const byId = Object.fromEntries(entries.map((entry) => [entry.sessionId, entry]))
+  assert.equal(byId.live.groupId, 'g-live')
+  assert.equal(byId.archived.groupId, 'g-arch', 'archived groups still own their indexed rows')
+  assert.equal(byId['path-own'].groupId, 'g-path')
+  assert.equal(byId['path-child'].groupId, 'g-path-child')
+  assert.equal(byId.loose.groupId, null)
+  assert.equal(byId['live-archived'].archived, true)
+})
+
+test('splitSearchResultsByVisibility=hidden hides archived subtrees but keeps individually archived rows of live groups', () => {
+  const split = visibleIds(visibilityFixture(), 'hidden')
+  assert.deepEqual(split.visible, ['live', 'live-archived', 'loose', 'path-own'])
+  assert.deepEqual(split.hidden, ['archived', 'path-child'], 'a live group keeps its own rows; pathOnly only applies under "only"')
+})
+
+test('splitSearchResultsByVisibility=all makes every grouped and ungrouped row visible', () => {
+  const split = visibleIds(visibilityFixture(), 'all')
+  assert.deepEqual(split.visible, ['archived', 'live', 'live-archived', 'loose', 'path-child', 'path-own'])
+  assert.deepEqual(split.hidden, [])
+})
+
+test('splitSearchResultsByVisibility=only shows full groups only: pathOnly own rows and ungrouped stay hidden', () => {
+  const split = visibleIds(visibilityFixture(), 'only')
+  assert.deepEqual(split.visible, ['archived', 'path-child'])
+  assert.deepEqual(split.hidden, ['live', 'live-archived', 'loose', 'path-own'])
+})
+
+test('splitSearchResultsByVisibility=only with no archived groups returns no visible rows', () => {
+  const source = visibilityFixture()
+  const plain = {
+    ...source,
+    doc: {
+      ...source.doc,
+      groups: source.doc.groups.filter((group) => group.archived !== true),
+    },
+  }
+  const split = visibleIds(plain, 'only')
+  assert.deepEqual(split.visible, [])
+  assert.equal(split.hidden.length, 6)
+})
+
+test('splitSearchResultsByVisibility defaults to hidden and tolerates malformed input', () => {
+  const source = visibilityFixture()
+  const entries = buildSearchIndex(source)
+  assert.deepEqual(
+    splitSearchResultsByVisibility(source.doc, entries, 'bogus'),
+    splitSearchResultsByVisibility(source.doc, entries, 'hidden'),
+    'an out-of-vocabulary group filter is treated as "hidden"',
+  )
+  assert.deepEqual(splitSearchResultsByVisibility(null, null), { visible: [], hidden: [] })
+  // An entry without a groupId is ungrouped: visible under hidden, hidden under only.
+  const ungroupedEntry = { sessionId: 'x', title: 'x' }
+  assert.deepEqual(splitSearchResultsByVisibility(null, [ungroupedEntry], 'hidden'), {
+    visible: [ungroupedEntry],
+    hidden: [],
+  })
+  assert.deepEqual(splitSearchResultsByVisibility(null, [ungroupedEntry], 'only'), {
+    visible: [],
+    hidden: [ungroupedEntry],
+  })
+})
+
+test('matchSessions output feeds the group-visibility split (hidden hit count for the P9 hint)', () => {
+  const source = visibilityFixture()
+  const index = buildSearchIndex(source)
+  const matches = matchSessions(index, 'row')
+  const hiddenSplit = splitSearchResultsByVisibility(source.doc, matches, 'hidden')
+  assert.deepEqual(hiddenSplit.visible.map((entry) => entry.sessionId).sort(), [
+    'live',
+    'live-archived',
+    'loose',
+    'path-own',
+  ])
+  assert.deepEqual(hiddenSplit.hidden.map((entry) => entry.sessionId).sort(), ['archived', 'path-child'])
+  const onlySplit = splitSearchResultsByVisibility(source.doc, matches, 'only')
+  assert.deepEqual(onlySplit.visible.map((entry) => entry.sessionId).sort(), ['archived', 'path-child'])
+})
+
+// ------------------------------------ P9 search UI wiring (0.4.0-beta.62 §4.5)
+
+test('hidden matches never consume the visible search limit (split-before-limit contract)', () => {
+  const source = visibilityFixture()
+  const index = buildSearchIndex(source)
+  const matches = matchSessions(index, 'row', 1000)
+  const split = splitSearchResultsByVisibility(source.doc, matches, 'hidden')
+  assert.equal(split.hidden.length, 2)
+  assert.equal(split.visible.slice(0, 3).length, 3, 'visible rows are capped after the visibility split')
+  assert.equal(split.visible.length + split.hidden.length, matches.length, 'every match is reported')
+})
+
+test('search box splits by group visibility before capping and only renders visible rows', () => {
+  assert.match(
+    searchBoxSource,
+    /import \{ buildSearchIndex, matchSessions, splitSearchResultsByVisibility \} from '\.\.\/core\/search\.js'/
+  )
+  const budget = searchBoxSource.indexOf('matchSessions(index, query, SEARCH_MATCH_BUDGET)')
+  const split = searchBoxSource.indexOf('splitSearchResultsByVisibility(')
+  const slice = searchBoxSource.indexOf('split.visible.slice(')
+  assert.ok(budget >= 0, 'full match set is requested for the hidden count')
+  assert.ok(split > budget, 'visibility split runs on the full match set')
+  assert.ok(slice > split, 'the visible limit applies after the split')
+  assert.match(searchBoxSource, /const hiddenCount = split\.hidden\.length/)
+  // Result rows are built from the limited visible list only.
+  assert.match(searchBoxSource, /results\.map\(\(entry, position\) => \{/)
+})
+
+test('search hidden matches render a count and an explicit show-archived action (no auto switch)', () => {
+  assert.match(searchBoxSource, /'data-testid': 'session-groups-search-hidden'/)
+  assert.match(searchBoxSource, /'data-testid': 'session-groups-search-show-archived'/)
+  assert.match(searchBoxSource, /hiddenCount > 0/)
+  assert.match(searchBoxSource, /t\(hiddenMessageKey, \{ n: hiddenCount \}\)/)
+  // The group filter only changes in the explicit action helper, which is only
+  // reachable from the hidden-result button.
+  const dispatch = searchBoxSource.indexOf("'group-archive-filter'")
+  assert.ok(dispatch >= 0, 'the hidden-result action switches the group filter')
+  const helper = searchBoxSource.indexOf('const revealHiddenMatches = () => {')
+  assert.ok(helper >= 0 && dispatch > helper, 'the switch lives in the explicit action helper')
+  assert.equal(searchBoxSource.split("'group-archive-filter'").length - 1, 1, 'exactly one group-filter write')
+  assert.match(searchBoxSource, /onClick: \(event\) => \{\s*event\.stopPropagation\(\)\s*revealHiddenMatches\(\)/)
+})
+
+test('a filtered-out search target offers an explicit switch instead of auto switching the group filter', () => {
+  assert.match(
+    searchRevealSource,
+    /splitSearchResultsByVisibility\(live\?\.doc, \[probe\], live\?\.groupArchiveFilter \?\? 'hidden'\)/
+  )
+  assert.match(searchRevealSource, /sessionContainer\(live\?\.doc, entry\.sessionId\)\.groupId/)
+  assert.match(searchRevealSource, /search\.hiddenTarget/)
+  const dispatch = searchRevealSource.indexOf("dispatch('group-archive-filter', { filter: 'all' })")
+  const action = searchRevealSource.lastIndexOf('action: {', dispatch)
+  assert.ok(dispatch >= 0, 'the explicit toast action switches the group filter')
+  assert.ok(action >= 0 && action < dispatch, 'the switch is deferred to the toast action callback')
+  // The existing session-archive behavior (list but not open) is unchanged: an
+  // archived row is rejected before the group-visibility reveal.
+  assert.ok(
+    searchRevealSource.indexOf('entry.archived === true') <
+      searchRevealSource.indexOf('const split = splitSearchResultsByVisibility')
+  )
 })

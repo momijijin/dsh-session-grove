@@ -163,6 +163,18 @@ test('0.2.39 dialog restores the compact 0.2.30 chrome with theme tokens', () =>
   assert.equal(CSS.includes('.dsg-dialog-close'), false)
   assert.equal(block('.dsg-dialog-backdrop {').includes('backdrop-filter'), false)
   assert.match(CSS, /\.dsg-dialog-resizer\[data-dir="se"\]::after/)
+
+  // 0.4.0-beta.62 UI patch: the archive-group confirm owns the opt-out row.
+  // The checkbox starts unchecked on every open and only the archive-group
+  // confirm payload carries it; cancel/failure never write the preference.
+  assert.match(dialogHost, /const \[dontAskAgain, setDontAskAgain\] = useState\(false\)/)
+  assert.match(dialogHost, /setDontAskAgain\(false\)/)
+  assert.match(dialogHost, /class: 'dsg-dialog-check'/)
+  assert.match(dialogHost, /'data-testid': 'session-groups-dialog-archive-dont-ask'/)
+  assert.match(dialogHost, /t\('dialog\.archiveGroupDontAsk'\)/)
+  assert.match(dialogHost, /\{ dontAskAgain \}/)
+  assert.match(CSS, /\.dsg-dialog-check \{ display:\s*flex; align-items:\s*center;/)
+  assert.match(CSS, /\.dsg-dialog-check input \{ flex:\s*none; width:\s*14px; height:\s*14px;/)
 })
 
 test('dialog natural height uses the complete flex layout', () => {
@@ -214,9 +226,278 @@ test('0.2.31 dialogs are draggable/resizable and backdrop clicks do not close', 
 })
 
 test('0.2.30 visible tree is memoized behind the narrow snapshot compare', () => {
-  assert.match(components, /const tree = useMemo/)
-  assert.match(components, /buildVisibleTree\(store\.doc, byId, workspaceItems/)
-  assert.match(components, /\[store\?\.doc, store\?\.archiveFilter, byId, workspaceItems, archivedSessionIds, highlightCurrent, statuses, subagentCounts\]/)
+  // P5 moved the tree builder out of components.js; assert the owning module.
+  assert.match(groupsViewState, /const tree = useMemo/)
+  assert.match(groupsViewState, /buildVisibleTree\(store\.doc, byId, workspaceItems/)
+  assert.match(groupsViewState, /groupFilter: store\.groupArchiveFilter/)
+  assert.match(
+    groupsViewState,
+    /\[store\?\.doc, store\?\.archiveFilter, store\?\.groupArchiveFilter, byId, workspaceItems, archivedSessionIds, highlightCurrent, statuses, subagentCounts\]/,
+  )
+})
+
+test('0.4.0-beta.62 group visibility feeds both the tree and the header counters', () => {
+  // SPEC §4.5: the tree and the running/blocked/unread counters must share one
+  // group tri-state; wiring only one of them would drift the sidebar silently.
+  assert.match(groupsViewState, /buildVisibleTree\(store\.doc, byId, workspaceItems/)
+  assert.match(groupsViewState, /groupFilter: store\.groupArchiveFilter,/)
+  assert.match(
+    groupsViewState,
+    /\[store\?\.doc, store\?\.archiveFilter, store\?\.groupArchiveFilter, byId, workspaceItems, archivedSessionIds, highlightCurrent, statuses, subagentCounts\]/,
+  )
+  assert.match(groupsViewState, /statusSectionsByGroup\(\s*store\?\.doc,/)
+  assert.match(groupsViewState, /store\?\.groupArchiveFilter,/)
+  assert.match(
+    groupsViewState,
+    /\[store\?\.doc, sessions\?\.byId, statuses, workspaces\?\.archivedSessionIds, subagentCounts, store\?\.groupArchiveFilter\]/,
+  )
+  // Both memos must list the new dependency, not just one.
+  assert.equal((groupsViewState.match(/groupArchiveFilter/g) ?? []).length, 4)
+})
+
+test('0.4.0-beta.62 view options expose both archive tri-states and keep the popover open', () => {
+  // The shipped session segment keeps its testid, data attribute and copy keys.
+  assert.match(componentHeader, /'data-testid': 'session-groups-archive-filter'/)
+  assert.match(componentHeader, /'data-filter': value/)
+  assert.match(componentHeader, /ARCHIVE_FILTER_LABEL_KEYS\[value\]/)
+  // Additive group segment: own testid, data attribute and label namespace.
+  assert.match(componentHeader, /'data-testid': 'session-groups-group-archive-filter'/)
+  assert.match(componentHeader, /'data-group-filter': value/)
+  assert.match(componentHeader, /GROUP_ARCHIVE_FILTER_LABEL_KEYS\[value\]/)
+  for (const key of [
+    'archive.group.hidden',
+    'archive.group.all',
+    'archive.group.only',
+    'archive.section.sessions',
+    'archive.section.groups',
+  ]) {
+    assert.equal(componentHeader.includes(key), true, `view options must reference ${key}`)
+  }
+  // One popover, two labelled groups, each mapping the same tri-state values.
+  assert.equal((componentHeader.match(/class: 'dsg-view-options-section'/g) ?? []).length, 2)
+  assert.equal((componentHeader.match(/role: 'group'/g) ?? []).length, 2)
+  assert.equal((componentHeader.match(/ARCHIVE_FILTERS\.map\(/g) ?? []).length, 2)
+  assert.match(componentHeader, /'aria-label': t\('view\.options'\)/)
+  // The header reads the store value into both the button and the popover.
+  assert.match(componentHeader, /const groupFilter = store\.groupArchiveFilter \?\? 'hidden'/)
+  assert.match(componentHeader, /data: \{ 'data-filter': filter, 'data-group-filter': groupFilter \}/)
+  assert.match(componentHeader, /onPickGroup: \(value\) => handlers\.setGroupArchiveFilter\(value\)/)
+
+  // §10: picking a row keeps the popover open; only reset layout closes it.
+  const popoverUse = componentHeader.indexOf('h(ArchiveFilterPopover, {')
+  assert.ok(popoverUse !== -1)
+  const resetAt = componentHeader.indexOf('onResetLayout: () => {', popoverUse)
+  assert.ok(resetAt > popoverUse)
+  const pickBlock = componentHeader.slice(popoverUse, resetAt)
+  assert.doesNotMatch(pickBlock, /setOptionsOpen\(false\)/)
+  assert.match(pickBlock, /handlers\.setArchiveFilter\(value\)/)
+  assert.match(pickBlock, /handlers\.setGroupArchiveFilter\(value\)/)
+  const resetBlock = componentHeader.slice(resetAt)
+  assert.match(resetBlock, /setOptionsOpen\(false\)/)
+
+  // 0.4.0-beta.62 UI patch: "restore default display" uses the return-arrow
+  // `restore` glyph instead of the refresh/X-like glyph; label and testid stay.
+  const resetRowAt = componentHeader.indexOf("'data-testid': 'session-groups-reset-layout'")
+  assert.ok(resetRowAt !== -1)
+  const resetRow = componentHeader.slice(resetRowAt, resetRowAt + 600)
+  assert.match(resetRow, /t\('about\.resetLayout'\)/)
+  assert.match(resetRow, /renderGlyph\(h, 'restore', 16\)/)
+  assert.doesNotMatch(resetRow, /renderGlyph\(h, 'refresh'/)
+  assert.doesNotMatch(resetRow, /renderGlyph\(h, 'close'/)
+  assert.equal(typeof UI_GLYPHS.restore, 'string')
+  assert.notEqual(UI_GLYPHS.restore, UI_GLYPHS.close, 'restore must not reuse the X/close path')
+
+  // The confirm-skip preference only bypasses the dialog; the strict commit and
+  // failure handling are unchanged, the preference is written on success only,
+  // and reset-layout re-arms the confirmation.
+  assert.match(plugin, /readArchiveConfirmSkip, writeArchiveConfirmSkip/)
+  const skipGuardAt = plugin.indexOf(
+    'if (shouldConfirmGroupArchive(archiveNeedsConfirm(groupId), readArchiveConfirmSkip())) {'
+  )
+  assert.ok(skipGuardAt !== -1, 'archiveGroup must gate the dialog on the skip preference')
+  const directCommitAt = plugin.indexOf('const result = await commitGroupArchive(groupId, true)', skipGuardAt)
+  assert.ok(directCommitAt > skipGuardAt, 'skipping the dialog must fall through to the same strict commit')
+  const archiveCaseAt = plugin.indexOf("case 'archive-group':")
+  assert.ok(archiveCaseAt !== -1)
+  const archiveCase = plugin.slice(archiveCaseAt, plugin.indexOf("case 'archive-running':", archiveCaseAt))
+  const failureAt = archiveCase.indexOf('if (!result.ok) {')
+  const writeAt = archiveCase.indexOf('writeArchiveConfirmSkip(payload.dontAskAgain === true)')
+  assert.ok(failureAt !== -1 && writeAt > failureAt, 'only the success branch writes the skip preference')
+  assert.match(archiveCase.slice(0, writeAt), /failDialog\(/)
+  const resetLayoutAt = plugin.indexOf('const resetLayout = () => {')
+  assert.ok(resetLayoutAt !== -1)
+  assert.match(plugin.slice(resetLayoutAt, resetLayoutAt + 700), /writeArchiveConfirmSkip\(false\)/)
+  // components.js needs no edit: the Header receives the store snapshot through
+  // the `viewState` spread, so `groupArchiveFilter` is already present.
+  assert.match(componentsSource, /const viewState = \{\s*\.\.\.store,/)
+})
+
+// ---------------------------------------------------------------------------
+// 0.4.0-beta.62 archive freeze: rows, menus, drop checks (P8)
+// ---------------------------------------------------------------------------
+test('0.4.0-beta.62 archived group rows expose structure state, lock drag and the plus', () => {
+  assert.match(componentRows, /const effectiveArchived = node\.effectiveArchived === true/)
+  assert.match(componentRows, /const pathOnly = node\.pathOnly === true/)
+  assert.match(componentRows, /const containsArchived = !effectiveArchived && hasArchivedDescendant\(store\.doc, group\.id\)/)
+  // Both the container wrapper and the group header row carry the triple state.
+  assert.equal((componentRows.match(/'data-archived': effectiveArchived/g) ?? []).length, 2)
+  assert.equal((componentRows.match(/'data-path-only': pathOnly/g) ?? []).length, 2)
+  assert.equal((componentRows.match(/'data-contains-archived': containsArchived/g) ?? []).length, 2)
+  assert.match(componentRows, /draggable: effectiveArchived \|\| containsArchived \? 'false' : 'true'/)
+  assert.match(componentRows, /session-groups-group-archived/)
+  assert.match(componentRows, /session-groups-group-contains-archived/)
+  assert.match(componentRows, /\(archiveReason === null \? \{\} : \{ 'aria-label'/)
+  // Archived groups keep the plus visible but disabled with a reason; pathOnly
+  // ancestors stay usable (their result may be invisible → P9 toast).
+  assert.match(componentRows, /disabled: effectiveArchived,/)
+  assert.match(componentRows, /disabledReason: effectiveArchived \? archiveReason : null,/)
+  // The group menu meta carries the derived flags for session-menu's policy.
+  assert.match(componentRows, /const menuMeta = \{ archived: effectiveArchived, containsArchived \}/)
+  assert.match(componentRows, /handlers\.onGroupContextMenu\(event, group, menuMeta\)/)
+  assert.match(componentRows, /handlers\.openGroupMenuAtRow\(rowElement, group, menuMeta\)/)
+  assert.match(componentRows, /handlers\.openGroupMenu\(event, group, menuMeta\)/)
+})
+
+test('0.4.0-beta.62 archived empty groups show a locked hint and pathOnly wins', () => {
+  // pathOnly is decided before the emptyVisible/empty-group branch, so a path
+  // ancestor is never painted as an empty locked group (P2 carry-over).
+  const pathGuard = componentRows.indexOf('if (!pathOnly && node.visibleCount === 0')
+  assert.ok(pathGuard !== -1, 'pathOnly must gate the empty box')
+  const lockedBox = componentRows.indexOf('locked: effectiveArchived', pathGuard)
+  assert.ok(lockedBox > pathGuard, 'the empty box must render the locked variant')
+  assert.match(componentRows, /GROUP_ROW_KEYS\.archivedEmpty/)
+  assert.match(componentRows, /active: !effectiveArchived && emptyDropActive/)
+  // The locked hint is a read-only surface, not an active drop box.
+  assert.match(componentPrimitives, /'data-locked': locked \? 'true' : 'false'/)
+  assert.match(componentPrimitives, /locked \? renderIcon\(h, 'lock', 14\) : renderGlyph\(h, 'plus', 14\)/)
+})
+
+test('0.4.0-beta.62 session rows use a structural lock separate from own archive', () => {
+  assert.match(componentRows, /structuralLocked = false,/)
+  assert.match(componentRows, /'data-structural-locked': structuralLocked \? 'true' : 'false'/)
+  assert.match(componentRows, /draggable: structuralLocked \? 'false' : 'true'/)
+  // The own-archive attribute keeps its meaning; the container lock never sets it.
+  assert.match(componentRows, /'data-archived': archived \? 'true' : 'false'/)
+  assert.doesNotMatch(componentRows, /'data-archived': structuralLocked/)
+  // GroupNode hands the containing group's effective state down to the rows.
+  assert.match(componentRows, /structuralLocked: effectiveArchived,/)
+  // Menus receive the lock separately from the session's own archive flag.
+  assert.match(componentRows, /handlers\.onSessionContextMenu\(event, sessionNode, structuralLocked\)/)
+  assert.match(componentRows, /handlers\.openSessionMenuAtRow\(rowElement, sessionNode, structuralLocked\)/)
+  assert.match(componentRows, /handlers\.openSessionMenu\(event, sessionNode, structuralLocked\)/)
+  // Opening/toggling the container lock stays legal; only the own flag toasts.
+  assert.match(componentRows, /if \(archived\) \{\s*toast\('error', rt\(\)\?\.t\('session\.archivedBadge'\)\)/)
+  // Both click and Enter/Space keep the own-archive refusal.
+  assert.equal((componentRows.match(/toast\('error', rt\(\)\?\.t\('session\.archivedBadge'\)\)/g) ?? []).length, 2)
+})
+
+test('0.4.0-beta.62 menus disable frozen actions with a visible reason', () => {
+  assert.match(sessionMenu, /groupMenuLockReason\(menu, action\)/)
+  assert.match(sessionMenu, /sessionMenuLockReason\(menu, action\)/)
+  assert.match(sessionMenu, /'aria-disabled': 'true'/)
+  assert.match(sessionMenu, /title: disabledReason/)
+  assert.match(sessionMenu, /toast\('info', disabledReason\)/)
+  for (const action of ['new-session', 'new-subgroup', 'rename', 'icon', 'color', 'move', 'delete']) {
+    assert.match(sessionMenu, new RegExp(`groupLockedExtra\\('${action}'\\)`), action)
+  }
+  assert.match(sessionMenu, /sessionLockedExtra\('fork'\)/)
+  assert.match(sessionMenu, /sessionLockedExtra\('move'\)/)
+  assert.match(sessionMenu, /sessionMenuLockReason\(menu, key\)/)
+  // Rename / archive toggle / copy id are never routed through a lock check.
+  assert.doesNotMatch(sessionMenu, /sessionLockedExtra\('rename'\)/)
+  assert.doesNotMatch(sessionMenu, /sessionLockedExtra\('archive'\)/)
+  assert.doesNotMatch(sessionMenu, /sessionLockedExtra\('copy-id'\)/)
+})
+
+test('0.4.0-beta.62 drag preview and commit share the archive drop checks', () => {
+  assert.match(componentsSource, /import \{ applyGroupDrop, checkGroupDrop \} from '\.\.\/core\/archive-drop\.js'/)
+  assert.match(componentsSource, /import \{ effectiveArchived, hasArchivedDescendant \} from '\.\.\/shared\/archive\.js'/)
+  assert.match(componentsSource, /const verdict = checkSessionDrop\(store\.doc, source, target\)/)
+  assert.match(componentsSource, /const result = applyDrop\(currentDoc, source, target, visibleUngrouped\)/)
+  assert.match(componentsSource, /const verdict = checkGroupDrop\(store\.doc, draggedId, target\)/)
+  assert.match(componentsSource, /const result = applyGroupDrop\(latest, draggedId, target\)/)
+  // A rejected commit reports the stable reason instead of writing the doc.
+  assert.match(componentsSource, /if \(!verdict\.ok\) \{\s*toast\('error', dropReasonText\(t, verdict\.reason\)\)/)
+  // Forbidden group previews keep the existing surface, never a placeholder.
+  assert.match(componentsSource, /setDropTargetTracked\(\{ \.\.\.viewTarget, kind: 'group-forbidden' \}\)/)
+  assert.match(componentsSource, /rejectSessionDragOver\(event, verdict\.reason, \{ kind: 'group-forbidden', targetId: groupId \}\)/)
+  // Archived bodies keep the reject handler and stop the bubble.
+  assert.match(componentsSource, /if \(!effectiveArchived\(store\.doc, groupId\)\) return/)
+  assert.match(componentsSource, /checkSessionDrop\(store\.doc, drag, \{ kind: 'group-head', groupId: parentId \}\)/)
+  // Defense-in-depth source guards behind draggable=false.
+  assert.match(componentsSource, /location\.groupId !== null && effectiveArchived\(store\.doc, location\.groupId\)/)
+  assert.match(componentsSource, /if \(hasArchivedDescendant\(store\.doc, group\.id\)\) \{/)
+  // Auto-expand is scheduled only after the drop check allows the target.
+  const overGroup = componentsSource.slice(componentsSource.indexOf('onDragOverGroup:'), componentsSource.indexOf('onDropGroup:'))
+  const checkAt = overGroup.indexOf('checkSessionDrop')
+  const expandAt = overGroup.indexOf('scheduleAutoExpand(groupId)')
+  assert.ok(checkAt !== -1 && expandAt > checkAt, 'auto-expand must follow the drop check')
+  // SPEC §4.2/N1: the only group filter hides the ungrouped section.
+  assert.match(componentsSource, /store\.groupArchiveFilter === 'only'/)
+})
+
+test('0.4.0-beta.62 IconButton supports a focusable disabled reason', () => {
+  assert.match(componentPrimitives, /'aria-disabled': disabled \? 'true' : undefined/)
+  assert.match(componentPrimitives, /'data-disabled': disabled \? 'true' : 'false'/)
+  assert.match(componentPrimitives, /disabledReason/)
+  assert.match(componentPrimitives, /if \(disabled\) \{/)
+})
+
+// ---------------------------------------------------------------------------
+// 0.4.0-beta.62 archive freeze: visual states (P10)
+// ---------------------------------------------------------------------------
+test('0.4.0-beta.62 archived groups dim once while pathOnly stays at full opacity', () => {
+  // §5.6: only the outermost archived group owns the shipped .62 dim.
+  assert.match(block('.dsg-group[data-archived="true"] {'), /opacity:\s*\.62/)
+  // Nested archived groups and own-archived session rows reset so `.62` is
+  // never composited twice; the parent dim still applies once.
+  assert.match(CSS, /\.dsg-group\[data-archived="true"\] \.dsg-group\[data-archived="true"\] \{ opacity:\s*1; \}/)
+  assert.match(CSS, /\.dsg-group\[data-archived="true"\] \.dsg-session-row\[data-archived="true"\] \{ opacity:\s*1; \}/)
+  // A live parent keeps full opacity, so only the archived child subtree dims.
+  assert.match(CSS, /\.dsg-group\[data-path-only="true"\] \{ opacity:\s*1; \}/)
+  assert.match(CSS, /\.dsg-group\[data-path-only="true"\] > \.dsg-group-row \.dsg-group-name \{ color:\s*var\(--dsw-alias-label-secondary/)
+  // Own-archived session rows outside any frozen group keep the shipped dim.
+  assert.match(CSS, /\.dsg-session-row\[data-archived="true"\] \{ opacity:\s*\.62; \}/)
+})
+
+test('0.4.0-beta.62 badges, locked drop boxes and disabled rows stay readable', () => {
+  const badge = block('.dsg-group-badge {')
+  assert.match(badge, /display:\s*inline-flex/)
+  assert.match(badge, /color:\s*var\(--dsw-alias-label-tertiary/)
+  // Icons only plus the row gap: no physical side margin/alignment to mirror.
+  assert.doesNotMatch(badge, /margin-(left|right)|text-align/)
+  assert.match(CSS, /\.dsg-group-badge-contains \{ opacity:\s*\.7; \}/)
+  // The archived empty group swaps the plus for a lock (component) and keeps a
+  // neutral, non-active surface even with a stale drop flag.
+  assert.match(componentPrimitives, /locked \? renderIcon\(h, 'lock', 14\) : renderGlyph\(h, 'plus', 14\)/)
+  assert.match(CSS, /\.dsg-empty-dropbox\[data-locked="true"\][^}]*cursor:\s*default/s)
+  assert.match(CSS, /\.dsg-empty-dropbox\[data-locked="true"\]\[data-drop-active="true"\]/)
+  // Structural lock is a cursor hint; the row stays clickable/focusable.
+  assert.match(CSS, /\.dsg-session-row\[data-structural-locked="true"\] \{ cursor:\s*default; \}/)
+  assert.doesNotMatch(CSS, /structural-locked[^{]*\{[^}]*pointer-events/s)
+  // Disabled icon/menu entries are muted but never pointer-events-blocked.
+  assert.match(CSS, /\.dsg-icon-button\[aria-disabled="true"\][^}]*opacity:\s*\.45/s)
+  assert.match(CSS, /\.dsg-menu-item\[aria-disabled="true"\][^}]*cursor:\s*default/s)
+  assert.doesNotMatch(CSS, /(icon-button|menu-item)\[(aria-|data-)disabled[^{]*\{[^}]*pointer-events/s)
+})
+
+test('0.4.0-beta.62 view-options sections are labelled and scrollable', () => {
+  assert.match(componentHeader, /class: 'dsg-view-options-section-title'/)
+  assert.equal((componentHeader.match(/class: 'dsg-view-options-section'/g) ?? []).length, 2)
+  assert.match(CSS, /\.dsg-view-options-section \{ display:\s*flex; flex-direction:\s*column; gap:\s*2px; min-width:\s*0; \}/)
+  assert.match(CSS, /\.dsg-view-options-section-title \{[^}]*font-size:\s*var\(--dsg-font-11[^}]*color:\s*var\(--dsw-alias-label-secondary/s)
+  const popover = block('.dsg-view-options-popover {')
+  assert.match(popover, /max-height:\s*min\(70vh, 420px\)/)
+  assert.match(popover, /overflow-y:\s*auto/)
+  // RTL headings align with the row text; badges rely on flex order only.
+  assert.match(CSS, /\.dsg-root\[dir="rtl"\] \.dsg-view-options-section-title \{ text-align:\s*right; \}/)
+})
+
+test('0.4.0-beta.62 archive preview tag is neutral while stale stays danger', () => {
+  assert.match(CSS, /\.dsg-profile-preview-change-tag \{ color:\s*var\(--dsw-alias-state-danger/)
+  assert.match(CSS, /\.dsg-profile-preview-change-tag\[data-kind="archive"\] \{ color:\s*var\(--dsw-alias-label-secondary, CanvasText\); \}/)
+  assert.match(componentProfiles, /'data-kind': 'archive'/)
+  assert.equal(en['profiles.preview.archiveChanged'], 'Archive state changed')
 })
 
 test('0.2.29 status aggregation is one pass and subscriptions compare visible fields', () => {
@@ -619,7 +900,7 @@ test('0.2.8 empty drop box matches DropPlaceholder and never doubles a body plac
   assert.match(active, /border-color:\s*var\(--dsw-alias-state-business-primary/)
   assert.match(active, /background:\s*var\(--dsw-alias-state-business-primary-fade/)
   assert.match(active, /color:\s*var\(--dsw-alias-state-business-primary/)
-  assert.match(components, /class: 'dsg-empty-dropbox'/)
+  assert.match(components, /classNames\('dsg-empty-dropbox'/)
   assert.match(components, /class: 'dsg-empty-dropbox-plus'/)
   assert.match(components, /renderGlyph\(h, 'plus', 14\)/)
   assert.match(components, /class: 'dsg-empty-dropbox-label'/)
@@ -870,7 +1151,9 @@ test('0.2.20 session rows are memoized behind a stable handler facade', () => {
 })
 
 test('0.2.19 active-session highlight receives the live view store', () => {
-  const calls = components.split('\n').filter((line) => line.includes('h(SessionRow, {'))
+  // The group call is multi-line since the archive freeze added
+  // `structuralLocked`; match the whole element instead of one source line.
+  const calls = [...components.matchAll(/h\(SessionRow, \{[\s\S]*?\}\)/g)].map((match) => match[0])
   assert.equal(calls.length, 2)
   for (const call of calls) assert.match(call, /\bstore\b/)
 })

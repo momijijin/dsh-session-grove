@@ -11,6 +11,12 @@
  * than one profile is unarchived; this CLI checks `/profiles` first so the user
  * gets the `profile-required` hint without sending a doomed plan. There is no
  * activate/switch command and doctor never takes a profile id.
+ *
+ * Operations (including 0.4.0-beta.62 `group.archive`) travel unchanged inside
+ * the plan/apply body; the CLI is a transport and does not rewrite them.
+ * Archive conflicts come back as the server's 409 body
+ * (`code`, `groupId`, `field`, `operationIndex`) and are printed as-is with a
+ * non-zero exit code, exactly like other control failures.
  */
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'

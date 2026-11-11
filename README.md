@@ -9,12 +9,12 @@ A free-form grouping layer over the shipped DSH Desktop workspace/session sideba
 - session titles and archive state change only through explicit user actions or the opt-in `controlSessions` API;
 - `workspace.json` is never written.
 
-Current version: **0.4.0-beta.60**  
+Current version: **0.4.0-beta.62**  
 Primary support: **DSH core/API `@deepseek-ai/dsh` 0.2.1-rc.2 and 0.2.1-rc.5** (`engines.dsh: >=0.2.0-rc.2 <0.3.0`)  
-Verified shells: **community DSH Desktop Stable 2.0.18** (rc.2) and **official DeepSeek Harness desktop 0.2.1.0** (rc.5, isolated runtime A+)  
+Verified shells: **community DSH Desktop Stable 2.0.18** (rc.2) and **official DeepSeek Harness desktop 0.2.2.0** (rc.1, isolated runtime A+)  
 Not supported or promised: **community DSH Desktop Beta** and **community DSH NEXT (`-next` channel)**
 
-Distribution: `0.4.0-beta.60` is the current release (2026-11-10; GitHub Release assets: `.tgz` + `SHA256SUMS`, two assets) and is listed in **dshmarket**; `0.4.0-beta.59` (2026-11-09) is the previous release. The GitHub Release assets and the local tarball are maintainer/debug paths. Multiple group profiles and the profile switch-preview layout fix ship in `.60`; `dev` after `.60` is the next development line.
+Distribution: `0.4.0-beta.61` is the latest published release (2026-11-10; GitHub Release assets: `.tgz` + `SHA256SUMS`, two assets); `0.4.0-beta.60` (2026-11-10) is the previous release and is listed in **dshmarket**. The GitHub Release assets and the local tarball are maintainer/debug paths. Multiple group profiles and the profile switch-preview layout fix shipped in `.60`, and the module split shipped in `.61`; `.62` (group archive) is an unreleased `dev` batch, so the **Current version** line above names the dev tree, not a published release.
 
 Localization: **English, Chinese, Japanese, Korean, German, French, Spanish, Brazilian Portuguese, Italian, Dutch, Polish, Turkish, Vietnamese, Thai, Indonesian, Russian, Hindi, Traditional Chinese and Arabic** dictionaries are packaged. Locale ids resolve by base language (`ja-JP` → `ja`, `zh-Hant`/`zh-TW` → `zh-Hant`, `pt-BR` → `pt`); unsupported languages fall back to English. Arabic switches the plugin root to RTL and includes the core list/header/dialog RTL overrides. Session count and expand labels use CLDR plural templates. The profile switcher, switch preview and management dialogs are localized in all 19 dictionaries. The plugin registers every dictionary with the host, but does not add languages to the host catalog itself.
 
@@ -43,7 +43,7 @@ Supported desktop scope:
 | Desktop | Status |
 |---|---|
 | community DSH Desktop **Stable** 2.0.18 | verified (rc.2) |
-| official DeepSeek Harness desktop 0.2.1.0 | verified (rc.5, isolated A+ and maintainer desktop-window acceptance) |
+| official DeepSeek Harness desktop 0.2.2.0 | verified (rc.1, isolated A+; the `.60` run on 0.2.1.0 also included maintainer desktop-window acceptance) |
 | community DSH Desktop **Beta** | not supported; no compatibility promise |
 | community DSH **NEXT** (`-next` channel) | not supported; no compatibility promise |
 
@@ -74,6 +74,14 @@ A profile is a named group configuration: its own group tree and session assignm
 - archived profiles hide from the switch list but keep their document, backups and sessions;
 - the success toast offers **Undo** for 5 seconds to switch back.
 
+### Group archive
+
+- archive a group to make its whole recursive subtree structurally read-only: title, icon, color, parent, sibling order, sessions and child groups cannot change; the archive switch itself stays available and never cascades to sessions or child groups;
+- sessions inside an archived group can still be opened (when not archived themselves), renamed, toggled archived and have their ID copied; drag, reorder, move-to-group and fork are disabled with a visible reason;
+- group and session archive are independent tri-states in the view options: **hidden** / **all** / **archived only** each; `only` shows archived groups plus the header path that leads to them, and search/status counts respect the same visibility;
+- archived groups dim once at the outermost level, `pathOnly` ancestors stay readable, and the group menu/form explain why structural actions are locked;
+- legal results hidden by the current filter still execute and offer an explicit "show all groups" action instead of silently changing the filter.
+
 ### Groups
 
 - create root groups and up to 8 nested levels;
@@ -101,7 +109,7 @@ A profile is a named group configuration: its own group tree and session assignm
 - search session titles, workspaces and group paths;
 - selecting a result expands ancestors, scrolls to the row and highlights it;
 - archived results are dimmed and cannot be opened;
-- archive tri-state: hidden / all / archived only.
+- two independent archive tri-states: sessions and groups (hidden / all / archived only).
 
 ### Header status
 
@@ -129,7 +137,7 @@ A one-time card explains that groups only change display placement and how to cr
 
 The top-right view options contain:
 
-- archive tri-state;
+- session and group archive tri-states (two labelled segments in one popover);
 - **Reset layout**: restores sidebar width, expansion and dialog geometry without touching group data;
 - version and scope information.
 
@@ -186,12 +194,14 @@ Profile metadata and additional profile documents:
 - archiving a profile writes only its `archivedAt` marker: the document, backups and sessions stay on disk and no file is deleted;
 - an existing single-profile installation is the `default` profile; upgrading does not migrate, rename or copy `dsh-session-grove.json`; the registry appears on the first profile write (save-as/create or rename/archive/activate), while `profiles/` appears only when a named profile is first saved (save-as/create);
 - a build without profile support reads the default document and ignores the registry; the profiles are still there after upgrading again;
+- group documents keep `DOC_VERSION` 1; the `0.4.0-beta.62` group-level `archived` flag is additive (missing reads as `false`, no migration) and backups may restore a pre-archive state;
 - official workspace and session data are never written.
 
 Local UI preferences and opt-in trace flags (localStorage):
 
 - `dsh-session-grove.view.v1`
 - `dsh-session-grove.archive.v1`
+- `dsh-session-grove.archive.groups.v1` (group archive tri-state; `.62`)
 - `dsh-session-grove.collapsed.v1` (value is now `{[profileId]: {[groupId]: true}}`; legacy flat values are treated as the default profile and upgraded on the next write)
 - `dsh-session-grove.width.v1`
 - `dsh-session-grove.onboarded.v1`
@@ -368,7 +378,7 @@ Only while `diagnostics` is on. It contains drag events, ids and timings, never 
 - dialog move/resize has keyboard support; a full automated axe/contrast audit and keyboard drag for the whole tree remain deferred;
 - writes use an in-process queue plus a short-lived `<record>.lock` file for cross-process serialization; stale locks are reclaimed after the owner PID dies or the lock is 30 seconds old;
 - large-list lazy rendering remains deferred; the current Ungrouped list is virtualized, but a collapsed subtree is still built by `buildRenderTree`;
-- the `0.4.0-beta.60` release was validated with **699 unit/contract tests + 39 UI runtime cases + 1 browser runtime spec**; the previous `0.4.0-beta.59` release used 529 unit/contract tests + 15 UI runtime cases; manual evidence is not a per-candidate CI artifact: profile UI flows passed on 2026-11-09 against a community isolated host (`test:isolated`, `test:ui-browser`, `test:locale-pack`, `test:all-locales` 23/23); official A+ O profile evidence PASSED on 2026-11-10 against the `.60` tarball on the official DeepSeek Harness desktop 0.2.1.0 / DSH 0.2.1-rc.5 isolated host (`test:isolated` and `test:ui-browser`, `executedRatio` 1; see [docs/TEST-MATRIX.md](docs/TEST-MATRIX.md)); the latest all-locales / locale-pack evidence remains the 2026-11-09 `.59` 23/23 run and `.60` was not re-swept; user desktop acceptance is dated 2026-11-10; `e2e/groups.spec.mjs` is a historical manual script, while the default scripted A+ is `e2e/isolated.spec.mjs` (run manually against an isolated host, not in CI). `npm run check:release` is the release-workflow-enforced structural release gate (version consistency, tag match, release note, bundle stamp, packaged paths); A+ and all-locales runs are manual local evidence, not CI artifacts.
+- the `0.4.0-beta.62` dev tree was validated with **907 unit/contract tests + 41 UI runtime cases + 1 browser runtime spec** and 385 locale keys (`.61` dev tree: 726 + 39; `.60` release: 699 + 39; `.59`: 529 + 15); manual evidence is not a per-candidate CI artifact: the `.62` **community A+ C** run passed on 2026-11-11 (community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2` isolated host; `.62` tarball 829,055 bytes, sha256 `47DFB392…11B34`): `test:isolated` PASS (preview geometry dialog 560×560px, narrow sidebar 252px, body scroll 3659>466px, row gaps [0,0,0]), `test:ui-browser` PASS on a fresh host (`executedRatio` 1), `test:locale-pack` PASS and `test:all-locales` PASS 23/23 (19 languages + aliases, 385 keys). `test:ui-browser` needs a fresh isolated host: the first attempt reused the host right after `test:isolated`, hit the 20-profile limit and disabled Save-as (host state, not a code failure). **Official A+ O was not re-run for `.62`** — the latest official evidence is the 2026-11-10 `.61` run (official 0.2.2.0 / DSH `0.2.2-rc.1`: `test:isolated` PASS, `test:ui-browser` at `executedRatio` 1); no official `.62` or group-archive A+ claim is made. The `.62` group-archive A+ flows live in the historical manual `e2e/groups.spec.mjs` (updated in this batch but not run), while the default scripted A+ is `e2e/isolated.spec.mjs` (run manually against an isolated host, not in CI); see [docs/TEST-MATRIX.md](docs/TEST-MATRIX.md). `npm run check:release` is the release-workflow-enforced structural release gate (version consistency, tag match, release note, bundle stamp, packaged paths); A+ and all-locales runs are manual local evidence, not CI artifacts.
 
 ## Documentation
 
@@ -378,7 +388,7 @@ Only while `diagnostics` is on. It contains drag events, ids and timings, never 
 - [Compatibility policy](docs/COMPATIBILITY.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Release and verification](docs/RELEASE.md)
-- [Historical test results (0.4.0-beta.13 snapshot)](docs/TEST-RESULTS.md)
+- [Local test results + historical 0.4.0-beta.13 snapshot](docs/TEST-RESULTS.md)
 
 Historical V1/V1.1 contracts and plans are indexed separately and are not current behavior.
 
@@ -401,13 +411,13 @@ local package is for self-testing only — output it to a temporary directory
 (never the repo root) and check the manifest / `package.json` version before
 installing it.
 
-- `npm test`: 726 unit/contract tests;
+- `npm test`: 907 unit/contract tests;
 - `npm run check:style`: zero-dependency style guard (tabs/trailing whitespace/final newline)
 - `npm run check:lib`: rebuild and verify lib/ is current with src/
 - `npm run test:ui-browser`: real-browser UI runtime coverage (isolated host; manual)
-- `npm run check:ui`: UI runtime smoke (39 UI runtime cases (1 module-load + 38 component tests, covering 17 components across 24 client modules) + 1 browser runtime spec; separate from logic coverage);
+- `npm run check:ui`: UI runtime smoke (41 UI runtime cases (1 module-load + 40 component tests, covering 18 components across 24 client modules) + 1 browser runtime spec; separate from logic coverage);
 - `npm run test:all-locales`: all 19 packaged languages + aliases through the test-only locale pack (header, new-group dialog, group menu, settings and profile popover/preview; requires an isolated web instance; manual local evidence, not a CI gate);
-- `npm run check:coverage`: Node built-in coverage (currently about 94% lines / 85% branches / 90% functions; a few hundredths of a percent of per-run variance, `src/**` scope);
+- `npm run check:coverage`: Node built-in coverage (currently about 94.58% lines / 86.66% branches / 91.36% functions; a few hundredths of a percent of per-run variance, `src/**` scope);
 - `npm run check:release`: release-workflow release gate; checks version consistency across `package.json` / `dsh.plugin.json` / `src/shared/constants.js` / `package-lock.json`, requires `GITHUB_REF_NAME` to equal `v<version>` when set, checks the release note, the `lib/client.js` version stamp and every `package.json.files` path;
 - layers: `src/core` is the pure-function core and `src/adapters` holds DSH-version-specific adapters; see `docs/ARCHITECTURE.md`;
 - `npm run check:all`: syntax check plus the test suite;
@@ -416,15 +426,15 @@ installing it.
 - `scripts/qa/lifecycle-isolated.ps1`: isolated install → uninstall → reinstall with record hash preservation;
 - `scripts/qa/start-isolated-web.ps1` + `npm run test:isolated`: A+ isolated Playwright smoke, including two-window concurrent CAS and the profile create/switch/preview/save-as/rename/archive/limit flow plus returning to the default profile (manual local evidence; the release workflow does not run it); the unhealthy-active recovery strip is not covered by this script and remains manual/pending;
 - build artifact: `lib/client.js`;
-- package: `dsh-session-grove-0.4.0-beta.60.tgz`;
+- package: `dsh-session-grove-0.4.0-beta.62.tgz`;
 - release steps: `docs/RELEASE.md`;
-- historical test snapshot: `docs/TEST-RESULTS.md` (0.4.0-beta.13; current status is `docs/TEST-MATRIX.md`).
+- local test results and the historical `0.4.0-beta.13` snapshot: `docs/TEST-RESULTS.md` (current status is `docs/TEST-MATRIX.md`).
 
 ## Community
 
 QQ group for questions and feedback (there is no WeChat group yet):
 
-![dsh-session-grove QQ group QR code](assets/qrcode_1794236242994.jpg)
+![dsh-session-grove QQ group QR code](assets/qrcode-qq-group.jpg)
 
 ## License
 

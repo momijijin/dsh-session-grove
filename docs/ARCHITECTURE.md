@@ -1,10 +1,11 @@
 # 架构：纯函数核心 + DSH 适配器
 
-当前实现：**0.4.0-beta.61**  
+当前实现：**0.4.0-beta.62**  
 支持宿主：`@deepseek-ai/dsh` 0.2.1-rc.2 / 0.2.1-rc.5  
-已验证壳：社区版 DSH Desktop **Stable** 2.0.18（rc.2）；官方 DeepSeek Harness 桌面版 0.2.1.0（rc.5，隔离 A+ + 桌面窗口验收）  
+已验证壳：社区版 DSH Desktop **Stable** 2.0.18（rc.2）；官方 DeepSeek Harness 桌面版 0.2.2.0（rc.1，隔离 A+）；0.2.1.0（rc.5）为 `.60` 历史验证（隔离 A+ + 桌面窗口验收）  
 明确不支持：社区版 DSH Desktop Beta、社区版 DSH NEXT（`-next`）  
-分发状态：已上架 dshmarket；GitHub Release 附件与本地 beta tarball 仅维护者/调试路径。`.60` 发布包含 profiles 与切换预览布局修复。
+分发状态：`.60` 已上架 dshmarket；GitHub Release 附件与本地 beta tarball 仅维护者/调试路径。`.61` 是模块拆分最近发布版本；`.62` 是分组归档 + 双三态 + 结构锁的未发布 dev 批次。  
+测试基线（`.62` dev tree）：907/907 unit/contract、41/41 UI runtime（1 module-load + 40 component tests，18 components / 24 client modules）+ 1 browser spec；385 locale keys × 19 dictionaries。
 
 插件按洋葱圈分层，宿主升级时只改外圈。
 
@@ -39,6 +40,44 @@ src/index.js     Cordis host 入口
   - `host` 只能依赖 `host` / `core` / `shared`
   - `src/index.js` 是 composition root，可依赖 `host` / `core` / `shared` / `adapters`；`adapters` 只承载 DSH 版本相关能力检测，不向上依赖 client/host。
 - `npm run check:core` 独立加载全部核心模块，不启动 DSH。
+
+## 分组归档与子树冻结（0.4.0-beta.62）
+
+`src/shared/archive.js` 是分组归档的共享领域内核（只依赖 `constants.js`；`model.js` 从它导入，反向导入会成环）：
+
+- `isOwnArchived` / `normalizeGroupArchived`：只有 `group.archived === true` 才算归档；缺失按 `false` 读取，写盘归一化为显式 boolean。
+- `archivedInfo` / `effectiveArchived`：own 或任一祖先归档；`archivedBy` 是最近的归档祖先 id（自身归档时即自身），纯派生、不落盘、cycle-safe。
+- `hasArchivedDescendant`：递归子树含 effective 归档分组。
+- `computeGroupVisibility(doc, groupFilter)`：一次算出 `{ full, path, sessionGroups, ungroupedVisible }`。`full` 是 effective 归档集合；`path` 是 `only` 下通往 full 的组头祖先（`hidden`/`all` 为空）；`sessionGroups` 决定哪些组的自身会话可渲染；`only` 下 `ungroupedVisible=false`。渲染树、搜索、状态计数共用这一份结果，避免三套判定漂移。
+- `findArchiveViolation` / `assertArchiveInvariant`：before-state 指纹 = 归一化 name/icon/color/colorHex + `parentId` + 同级 index + `sessionIds` 顺序 + 直接子组 id 顺序 + 每个祖先的 `parentId`/同级 index（祖先元数据不比较）。冻结组自身唯一允许的变化是 `archived` 开关；`unarchive + 编辑` 必须拆两笔，`archive + 编辑` 合法。
+- `setGroupArchived`：只切 own flag，不级联；同值返回原 doc（控制层据此报 `no-change`，不 bump revision）。
+
+`src/shared/model.js` 的 `Group.archived?: boolean` 是 `DOC_VERSION` 1 的 additive 字段；`validateDoc` 只拒绝非 boolean（`group-archived-type:<id>`），缺失合法；现有 mutator 在生成 next doc 后调用 `assertArchiveInvariant`，失败抛结构化错误。
+
+拖拽/放置：
+
+- `src/core/drag.js` 的 `checkSessionDrop`：会话落入 effective archived 容器返回 `archived-destination`；预览与提交共用。
+- `src/core/archive-drop.js` 的 `checkGroupDrop` / `applyGroupDrop`：先复用 `src/core/group-drag.js` 的 `resolveGroupDrop` 按**完整 doc**解析坐标，再叠加 `archived-source`、`archived-source-subtree`、`archived-destination` 与 `archived-anchor`（插入会推动冻结锚点的同级 index）；预览与提交共用同一判定。部分剪枝的 `only` 视图里 slot 锚点仍用稳定 id + 完整 children，不用可见数组 index；归档组 body 保留拒绝 handler，不渲染 placeholder。
+
+Host 权威守卫：
+
+- `src/host/store.js` 的 `commit` 在锁内先按 group id 继承入站缺失的 `archived`（旧客户端整份提交不会隐式取消归档），再 `validateForWrite`，最后用 current doc 作 before 跑同一个不变量；违反返回 `kind:'archive-frozen'`，不写文件、不 bump revision。
+- `src/host/http/respond.js` 把该结果映射为 409 `{ ok:false, code:'archive-frozen', reason:<op code>, groupId, field }`；`reason` 是结构化操作码（`group-archived` 等），`message` 不作为用户文案直接展示。
+- `store.save()` 新建 profile 没有 current doc（缺失按 `false`），`writeDoc(backup)` 恢复路径按备份内容原样写回；两者是不变量的明确例外。
+
+控制协议：
+
+- 新增独立操作 `group.archive { groupId, archived }`；`group.update` 仍只改 icon/color/colorHex。
+- `state.groups[]` 增加 `archived`（own）、`effectiveArchived`、`archivedBy`，不暴露视图态 `pathOnly`。
+- `group.create/rename/update/move/delete/session.assign` 按归档状态守卫（源/目标/目的地/锚点）；`group.archive` 自身始终允许、不级联。
+- 批量顺序执行，最后用**原始 doc**做整批终校验（失败 `operationIndex: -1`）；归档冲突走 409，schema/类型/未知字段仍是 422。
+
+客户端：
+
+- 视图选项 popover 拆成两段独立三态：会话沿用 `archiveFilter` 与 `dsh-session-grove.archive.v1`；分组新增 `groupArchiveFilter`（默认 `hidden`）与 `dsh-session-grove.archive.groups.v1`。选择后保持展开，Escape/外部点击关闭；header 按钮同时镜像 `data-filter` 与 `data-group-filter`。
+- `src/client/groups-view-state.js` 把 `groupFilter` 同时接进 `buildVisibleTree` 与 `statusSectionsByGroup` 的 memo deps；树先按 `computeGroupVisibility` 剪枝，再在已渲染分组内套会话三态；搜索用同一 visibility 并在渲染前 split visible/hidden。
+- `SessionRow` 用 `data-structural-locked` 表示“容器归档导致的会话结构锁”，`data-archived` 只表示会话自身归档；`GroupNode` 用 `data-archived`（effective）/`data-path-only`/`data-contains-archived`；归档组只对最外层应用一次变暗，内部嵌套组/会话行重置 `opacity:1`，`pathOnly` 不变暗。
+- 归档/取消归档、不可见结果、`archive-frozen` 失败都有 toast/inline 本地化文案；`optimistic.js` 按 code 映射失败 key，409 后重新 load。
 
 ## 多配置（profiles）
 
@@ -75,7 +114,7 @@ src/index.js     Cordis host 入口
   - `src/client/profile-storage.js`：preview 偏好（localStorage 开关）读写；
   - `src/client/components-profile-dialogs.js`：save-as/rename/archive/manage 弹窗主体；
   - `src/client/dialog-profile.js`：DialogHost 的 profile 弹窗 body、名字校验与 footer 动作；group/session body 仍在壳内；
-  - `src/client/state.js`：`profiles`/`profilePreview`/`profileEpoch`/`profileSwitching`；切换成功或收到 active 事件时递增 epoch、清零 `latestSeenRevision`、清空 optimistic/doc 状态（存储适配在 `state/persistence.js`，SSE 变更判定在 `state/external-change.js`，`state.js` 保留 `createStore` 与 re-export）；
+  - `src/client/state.js`：`profiles`/`profilePreview`/`profileEpoch`/`profileSwitching`；切换成功或收到 active 事件时递增 epoch、清零 `latestSeenRevision`、清空 optimistic/doc 状态（存储适配在 `state/persistence.js`，SSE 变更判定在 `state/external-change.js`，`state.js` 保留 `createStore` 与 re-export）；`.62` 新增 `groupArchiveFilter`（持久化键 `dsh-session-grove.archive.groups.v1`）；
   - 折叠状态键不变，值变为 `{[profileId]: {[groupId]: true}}`；旧扁平值按 default 读取，下一次写入升级；
   - 旧 host（`/profiles` 404）→ `profiles.available=false`，不渲染 chevron。
 - `src/core/profile-diff.js`
@@ -128,12 +167,17 @@ src/index.js     Cordis host 入口
   - `estimatedTreeHeight`：虚拟列表首帧估算
 - `src/core/drag.js`
   - `hitTest` / `applyDrop` / sticky target / ungrouped target
+  - `checkSessionDrop`：会话放置的完整 doc 合法性（含 `archived-destination`）
+- `src/core/archive-drop.js`
+  - `checkGroupDrop` / `applyGroupDrop`：分组拖拽的归档子树合法性（源、源子树、目的地、冻结锚点位移），预览与提交共用
 - `src/core/tree.js`
   - 状态聚合、树扁平化、祖先展开、分组路径
+  - `statusSectionsByGroup`：按 group visibility 过滤 running/blocked/unread 计数
 - `src/core/filter.js`
-  - 可见树、归档过滤、标题/子代理判定
+  - 可见树、会话归档三态、分组归档三态（`buildVisibleTree` 的 `groupFilter`）、标题/子代理判定
 - `src/core/search.js`
   - 搜索索引、匹配与 reveal 折叠补丁
+  - 渲染前按 `computeGroupVisibility` 拆 visible/hidden 命中；`pathOnly` 祖先的自身会话不参与，`only` 下 ungrouped 不参与
 - `src/core/virtual-list.js`
   - 虚拟列表窗口与 spacer 算术
 - `src/core/group-drag.js`
@@ -151,6 +195,7 @@ src/index.js     Cordis host 入口
 - `src/core/control.js`
   - `resolveGroupPath`：完整根路径 → 唯一 ID；不存在/同名歧义/控制字符均结构化失败
   - AI 控制协议：catalog（共享图标/色板词表）、state、结构化 operation、plan/apply 候选 doc
+  - `group.archive` 独立操作；其余分组/会话操作按归档状态做源/目标/目的地/锚点守卫；批量语义顺序执行 + 原始 doc 终校验
   - 无 HTTP、无设置、无 revision/CAS、无审计；这些在 `src/host/routes.js` 与 `src/index.js`
   - 删除操作必须显式 `allowDestructive`，无 raw-doc 写入
   - 严格 operation schema：未知字段、错误类型、负数/非整数 index、未知 icon/color、非法 colorHex、color+colorHex 并用一律结构化拒绝，不做静默降级
@@ -175,6 +220,7 @@ src/index.js     Cordis host 入口
   - `change-hub` 在每次 commit 后广播 revision；浏览器通过 `/events` SSE 重新 load
   - 0.3.0-beta.79 拆分：`routes.js` 只保留注册编排；控制路由在 `control-routes.js`
   - 0.4.0-beta.61 再拆分：HTTP 原语/请求体解析在 `host/http/wire.js`，冻结响应形状在 `host/http/respond.js`，profile 策略（planHash/目标解析/doctor 存储报告/名称策略）在 `profile-policy.js`，legacy 单 store 适配器在 `legacy-profile-manager.js`
+  - 0.4.0-beta.62：`/commit` 的 `archive-frozen` 结果在 `respond.js` 固定为 409 `{ code, reason, groupId, field, message }`；`/control/apply` 的归档冲突由 `control-routes.js` 映射 409，schema/类型错误保持 422
 - `src/client/components.js` + `components-*.js`
   - `components.js` 只保留 GroupsView 编排；primitives、rows、ungrouped、resize-handle、search-box、header 分模块
   - DOM、testid、CSS 类与 props 契约不变
@@ -204,12 +250,14 @@ src/index.js     Cordis host 入口
 这些模块目前仍在原位置，但同样必须保持纯函数性质，后续可按同样方式迁入 `src/core`：
 
 - `src/shared/model.js`
+- `src/shared/archive.js`（分组归档投影/可见性/不变量/单组开关；只依赖 `constants.js`）
 
 ## 测试边界
 
 `tests/core/boundary.test.js` 会扫描 `src/core/**`，阻止 React/DSH/DOM 依赖倒灌进来。  
 `tests/core/shared-boundary.test.js` 对共享领域内核施加同样的约束。  
-`tests/core/session-row.test.js` 直接测试纯比较与文案策略。
+`tests/core/session-row.test.js` 直接测试纯比较与文案策略。  
+`tests/unit/archive.test.js` / `tests/core/archive-drop.test.js` / `tests/host/archive-guard.test.js` 覆盖归档指纹矩阵、可见性、拖拽合法性与 host 提交守卫。
 
 
 
