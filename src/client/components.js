@@ -13,14 +13,17 @@ import { useGroupsSearchReveal } from './groups-view-search.js'
 import { createMenuHandlers } from './groups-view-menu-handlers.js'
 import { createDialogHandlers } from './groups-view-dialog-handlers.js'
 import { clientRuntime as rt } from '../adapters/client-runtime.js'
-import { findGroup, moveGroup, workspaceOfSession } from '../shared/model.js'
+import { findGroup, workspaceOfSession } from '../shared/model.js'
 import { currentGroupIdOf } from '../core/dialog-selection.js'
 import { MenuPopover, Toast } from './session-menu.js'
 import { DialogHost } from './dialog-host.js'
 import { countTreeSessions, sessionTitle } from '../core/filter.js'
-import { applyDrop, hitTest, sameDropTarget, stickyDropTarget, ungroupedBodyTarget } from '../core/drag.js'
+import { applyDrop, checkSessionDrop, hitTest, sameDropTarget, sessionLocation, stickyDropTarget, ungroupedBodyTarget } from '../core/drag.js'
+import { applyGroupDrop, checkGroupDrop } from '../core/archive-drop.js'
+import { effectiveArchived, hasArchivedDescendant } from '../shared/archive.js'
+import { computeGroupVisibility } from '../shared/archive.js'
 import { diagContext, diagDragEnd, diagDragStart, diagDropState, diagEnabled, diagHandler, diagRender, diagTargetChange, diagTrace } from './diagnostics.js'
-import { GROUP_DRAG_MIME, groupHeaderZoneFromRect, isCurrentGroupPosition, resolveGroupDrop } from '../core/group-drag.js'
+import { GROUP_DRAG_MIME, groupHeaderZoneFromRect } from '../core/group-drag.js'
 import { perfDragOver, perfDropTarget, perfEnabled, perfMark, perfNow, perfRender, perfSample } from './perf.js'
 import { readOnboardingDone, writeOnboardingDone } from './state.js'
 import { SIDEBAR_WIDTH_MIN } from './sidebar-width.js'
@@ -33,6 +36,46 @@ import { OnboardingCard, Header, Banner, Rail, FlatFallback, ErrorBoundary } fro
 import { createProfileHandlers } from './profile-switch.js'
 import { createProfileDialogHandlers } from './components-profile-dialogs.js'
 const h = createElement
+
+/**
+ * Locale keys for the stable drag-rejection reasons returned by
+ * `checkSessionDrop`/`checkGroupDrop` (0.4.0-beta.62 §5.2). The map is computed
+ * rather than written as literal translation calls so the i18n guard stays green
+ * until P10 ships the 19-language resources.
+ */
+const DROP_REASON_KEYS = Object.freeze({
+  invalid: 'drag.invalidTarget',
+  self: 'drag.groupInvalid',
+  descendant: 'drag.groupInvalid',
+  'target-invalid': 'drag.groupInvalid',
+  'dragged-missing': 'drag.groupInvalid',
+  'target-missing': 'drag.groupInvalid',
+  'parent-missing': 'drag.groupInvalid',
+  'anchor-missing': 'drag.groupInvalid',
+  'doc-invalid': 'drag.groupInvalid',
+  'archived-container': 'drag.archivedContainer',
+  'archived-destination': 'drag.archivedDestination',
+  'archived-source': 'drag.archivedSource',
+  'archived-source-subtree': 'drag.archivedSourceSubtree',
+  'archived-anchor': 'drag.archivedAnchor',
+})
+
+/** Localized copy for one stable drop reason (`drag.dropRejected` is the fallback). */
+const dropReasonText = (t, reason) => t(DROP_REASON_KEYS[reason] ?? 'drag.dropRejected')
+
+/**
+ * Filter-aware empty-state copy (0.4.0-beta.62 §4.6). Computed map so the i18n
+ * literal-key guard stays green until P10 ships the 19-language resources.
+ */
+const EMPTY_STATE_KEYS = Object.freeze({
+  archivedHiddenTitle: 'empty.archivedHiddenTitle',
+  archivedHiddenBody: 'empty.archivedHiddenBody',
+  onlyEmptyTitle: 'empty.onlyNoArchivedTitle',
+  onlyEmptyBody: 'empty.onlyNoArchivedBody',
+  showArchived: 'empty.showArchivedGroups',
+  showAll: 'empty.showAllGroups',
+})
+
 // ---------------------------------------------------------------------------
 // Runtime bridge is installed by plugin.js through the DSH client adapter.
 // ---------------------------------------------------------------------------
@@ -64,10 +107,12 @@ const h = createElement
 // Header / banner / toast / dialogs / menus / rail / footer / flat fallback
 // ---------------------------------------------------------------------------
 /**
- * Three-row view-options popover (feedback item 3): the archive tri-state moves
- * out of the always-visible header into the official-style view menu. Each row
- * is 30px, carries the current check and dispatches the existing
- * `archive-filter` action before closing.
+ * View-options popover (feedback item 3, extended in 0.4.0-beta.62 §10): the
+ * session and group archive tri-states live in the official-style view menu,
+ * outside the always-visible header. Each row is 30px, carries the current
+ * check and dispatches `archive-filter` / `group-archive-filter` without
+ * closing the popover; `viewState` below spreads the store snapshot, so the
+ * header receives `groupArchiveFilter` unchanged.
  */
 export const GroupsView = (props) => {
   const store = useViewStore()
@@ -231,29 +276,64 @@ export const GroupsView = (props) => {
     draggedGroupId: dragState?.kind === 'group' ? dragState.groupId : null,
   }
   const treeEmpty = tree.groups.length === 0 && tree.ungrouped.length === 0
+  // §4.6: an empty tree can be the effect of the group filter, not an empty doc.
+  const groupVisibility = computeGroupVisibility(store.doc, store.groupArchiveFilter ?? 'hidden')
+  const archivedGroupsHidden = treeEmpty && store.groupArchiveFilter === 'hidden' && groupVisibility.full.size > 0
+  const onlyGroupsEmpty = treeEmpty && store.groupArchiveFilter === 'only' && groupVisibility.full.size === 0
+  const filterEmptyKind = archivedGroupsHidden ? 'archived-hidden' : onlyGroupsEmpty ? 'only-empty' : 'none'
   const commitDrop = async (source, target) => {
     perfMark('commitDrop:start', { kind: target?.kind ?? null })
+    setDropTargetTracked(null)
+    setDragState(null)
+    if (!source || !target || target.kind === 'invalid') return
+    // Preview and commit share `checkSessionDrop`: a rejected target is reported
+    // once here and never reaches the doc (SPEC §5.2 preview = commit).
+    const verdict = checkSessionDrop(store.doc, source, target)
     if (diagEnabled()) {
-      const accepted = Boolean(source && target && target.kind !== 'invalid')
-      diagTrace(accepted ? 'drop.accept' : 'drop.reject', {
+      diagTrace(verdict.ok ? 'drop.accept' : 'drop.reject', {
         dragKind: source?.kind ?? null,
         kind: target?.kind ?? null,
         sessionId: source?.sessionId ?? null,
         targetSessionId: target?.sessionId ?? null,
         groupId: target?.groupId ?? null,
+        reason: verdict.ok ? null : verdict.reason,
       })
-      diagDropState(accepted ? 'accepted' : 'invalid', { kind: target?.kind ?? null })
+      diagDropState(verdict.ok ? 'accepted' : 'invalid', { kind: target?.kind ?? null })
     }
-    setDropTargetTracked(null)
-    setDragState(null)
-    if (!source || !target || target.kind === 'invalid') return
+    if (!verdict.ok) {
+      toast('error', dropReasonText(t, verdict.reason))
+      return
+    }
+    if (verdict.noop) return
     const visibleUngrouped = tree.ungrouped.map((node) => node.session.id)
     try {
       // Optimistic (0.2.4): resolve against the current optimistic doc so the
       // row moves in this tick; the queue persists/coalesces/reconciles async.
-      await rt()?.commitOptimistic((currentDoc) => applyDrop(currentDoc, source, target, visibleUngrouped).doc)
+      // A race that changes the doc between preview and commit is re-judged by
+      // the same predicate inside the updater and reports its reason.
+      await rt()?.commitOptimistic((currentDoc) => {
+        const result = applyDrop(currentDoc, source, target, visibleUngrouped)
+        if (!result.applied) {
+          if (result.noop) throw GROUP_DROP_NOOP
+          const error = new Error(result.reason ?? 'invalid')
+          error.dropReason = result.reason ?? 'invalid'
+          throw error
+        }
+        return result.doc
+      })
     } catch (error) {
-      if (error?.reported === true) return
+      if (error === GROUP_DROP_NOOP) return
+      if (error?.reported === true) {
+        // §8: a host-level archive freeze means this view's confirmed doc is
+        // stale; re-read it once (the optimistic queue already rolled back and
+        // surfaced the precise reason).
+        if (error?.code === 'archive-frozen') rt()?.refreshRuntimeConfig?.()
+        return
+      }
+      if (error?.dropReason) {
+        toast('error', dropReasonText(t, error.dropReason))
+        return
+      }
       toast('error', t('toast.dropFailed'))
       if (globalThis.console?.warn) globalThis.console.warn('[dsh-session-grove] drop failed', error)
     }
@@ -261,42 +341,60 @@ export const GroupsView = (props) => {
   /**
    * Commit a group drag. The gesture stores only the stable target descriptor;
    * the numeric parent/index is resolved inside the queued updater against the
-   * latest confirmed doc (B5). A same-parent/current-position drop throws the
-   * no-op sentinel before the queue sends any request, so no revision is bumped.
+   * latest confirmed doc (B5). The preview predicate `checkGroupDrop` is shared
+   * here so an archived source/anchor/destination can never reach the invariant;
+   * a same-parent/current-position drop throws the no-op sentinel before the
+   * queue sends any request, so no revision is bumped.
    */
   const commitGroupDrop = async (draggedId, target) => {
     perfMark('commitGroupDrop:start', { kind: target?.kind ?? null })
+    setDropTargetTracked(null)
+    setDragState(null)
+    dragRef.current = null
+    rt()?.setFloatingLabel?.(null)
+    const verdict = checkGroupDrop(store.doc, draggedId, target)
     if (diagEnabled()) {
-      diagTrace('drop.accept', {
+      diagTrace(verdict.ok ? 'drop.accept' : 'drop.reject', {
         dragKind: 'group',
         kind: target?.kind ?? null,
         groupId: draggedId,
         targetId: target?.targetId ?? null,
         parentId: target?.parentId ?? null,
         beforeGroupId: target?.beforeGroupId ?? null,
+        reason: verdict.ok ? null : verdict.reason,
       })
-      diagDropState('accepted', { kind: target?.kind ?? null })
+      diagDropState(verdict.ok ? 'accepted' : 'invalid', { kind: target?.kind ?? null })
     }
-    setDropTargetTracked(null)
-    setDragState(null)
-    dragRef.current = null
-    rt()?.setFloatingLabel?.(null)
+    if (!verdict.ok) {
+      toast('error', dropReasonText(t, verdict.reason))
+      return
+    }
+    if (verdict.noop) return
     try {
       await rt()?.commitOptimistic((latest) => {
-        const resolved = resolveGroupDrop({ doc: latest, draggedId, target })
-        if (resolved.invalid) {
-          const error = new Error(resolved.reason)
+        const result = applyGroupDrop(latest, draggedId, target)
+        if (!result.applied) {
+          if (result.noop) throw GROUP_DROP_NOOP
+          const error = new Error(result.reason ?? 'invalid')
           error.groupDropInvalid = true
+          error.groupDropReason = result.reason ?? 'invalid'
           throw error
         }
-        if (isCurrentGroupPosition(latest, draggedId, resolved, target)) throw GROUP_DROP_NOOP
-        return moveGroup(latest, draggedId, resolved.parentId, resolved.index)
+        return result.doc
       })
     } catch (error) {
       if (error === GROUP_DROP_NOOP) return
-      if (error?.reported === true) return
+      if (error?.reported === true) {
+        // §8: mirror the session-drop archive-freeze recovery for group drops.
+        if (error?.code === 'archive-frozen') rt()?.refreshRuntimeConfig?.()
+        return
+      }
+      if (error?.groupDropReason) {
+        toast('error', dropReasonText(t, error.groupDropReason))
+        return
+      }
       if (error?.groupDropInvalid) {
-        toast('error', t('drag.groupInvalid'))
+        toast('error', dropReasonText(t, 'invalid'))
         return
       }
       if (error?.message === 'depth-exceeded') {
@@ -375,8 +473,9 @@ export const GroupsView = (props) => {
     }
   }
   /**
-   * Live indicator for a group drop. Invalid targets (self/descendant, missing
-   * anchors) render the forbidden state and never accept the drop.
+   * Live indicator for a group drop. `checkGroupDrop` is the same predicate the
+   * commit uses: self/descendant/anchor problems and every archive-frozen reason
+   * render the forbidden state with its localized reason and never accept.
    */
   const previewGroupDrop = (event, viewTarget, label) => {
     const draggedId = groupDragId()
@@ -387,15 +486,31 @@ export const GroupsView = (props) => {
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
       return
     }
-    const resolved = resolveGroupDrop({ doc: store.doc, draggedId, target: resolveTargetFor(viewTarget) })
-    if (resolved.invalid) {
+    const verdict = checkGroupDrop(store.doc, draggedId, resolveTargetFor(viewTarget))
+    if (!verdict.ok) {
+      // Keep a frozen slot/header from bubbling into a live ancestor's handler.
+      event.stopPropagation()
       setDropTargetTracked({ ...viewTarget, kind: 'group-forbidden' })
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
-      rt()?.setFloatingLabel?.(t('drag.groupInvalid'))
+      rt()?.setFloatingLabel?.(dropReasonText(t, verdict.reason))
       return
     }
     rowDragOver(event, viewTarget)
     rt()?.setFloatingLabel?.(label)
+  }
+  /**
+   * Reject one session dragover: no placeholder, no drop effect, and the stable
+   * reason in the floating label (§5.2). `forbiddenTarget` may paint the existing
+   * group-forbidden surface for header/line targets.
+   */
+  const rejectSessionDragOver = (event, reason, forbiddenTarget = null) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
+    // A rejected surface must never keep a pending 500ms auto-expand alive.
+    clearAutoExpand()
+    setDropTargetTracked(forbiddenTarget)
+    rt()?.setFloatingLabel?.(dropReasonText(t, reason))
   }
   /** Top/bottom edge zone of a group header; the middle 50% is invalid. */
   const groupHeaderZone = (row, clientY) => groupHeaderZoneFromRect(row?.getBoundingClientRect?.(), clientY)
@@ -416,6 +531,14 @@ export const GroupsView = (props) => {
     // dialog module but are exposed through the same facade.
     ...createProfileDialogHandlers({ t }),
     onDragStart: (sessionId) => {
+      // Defense in depth behind the row's `draggable=false` (§5.2: no
+      // "drag first, fail later"): a session inside an archived container never
+      // becomes a drag source.
+      const location = sessionLocation(store.doc, sessionId)
+      if (location.groupId !== null && effectiveArchived(store.doc, location.groupId)) {
+        toast('error', dropReasonText(t, 'archived-container'))
+        return
+      }
       const row = byId[sessionId]
       dragRef.current = {
         kind: 'session',
@@ -461,6 +584,18 @@ export const GroupsView = (props) => {
       const originIsButton = origin && typeof origin.closest === 'function' && origin.closest('button')
       if (fromButton || originIsButton) {
         event.preventDefault()
+        return
+      }
+      // Defense in depth behind `draggable=false` (§5.2): an archived group and
+      // any live ancestor of archived groups are never drag sources.
+      if (effectiveArchived(store.doc, group.id)) {
+        event.preventDefault()
+        toast('error', dropReasonText(t, 'archived-source'))
+        return
+      }
+      if (hasArchivedDescendant(store.doc, group.id)) {
+        event.preventDefault()
+        toast('error', dropReasonText(t, 'archived-source-subtree'))
         return
       }
       if (event.dataTransfer) {
@@ -564,6 +699,13 @@ export const GroupsView = (props) => {
         if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
         return
       }
+      const verdict = checkSessionDrop(store.doc, drag, target)
+      if (!verdict.ok) {
+        // Archived container/destination: forbidden feedback without a
+        // placeholder; stop here so the row never retargets an outer body.
+        rejectSessionDragOver(event, verdict.reason)
+        return
+      }
       rowDragOver(event, target)
       const label = groupId
         ? t('drag.sessionIntoGroup', { name: findGroup(store.doc, groupId)?.name ?? '' })
@@ -613,15 +755,25 @@ export const GroupsView = (props) => {
         const name = findGroup(store.doc, groupId)?.name ?? ''
         const zone = groupHeaderZone(event.currentTarget, event.clientY)
         if (zone === null) {
+          event.stopPropagation()
           setDropTargetTracked({ kind: 'group-forbidden', targetId: groupId })
           if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
-          rt()?.setFloatingLabel?.(t('drag.groupInvalid'))
+          rt()?.setFloatingLabel?.(dropReasonText(t, 'target-invalid'))
           return
         }
         previewGroupDrop(event, { kind: `group-${zone}`, targetId: groupId }, t(zone === 'before' ? 'drag.groupBefore' : 'drag.groupAfter', { name }))
         return
       }
-      rowDragOver(event, { kind: 'group-append', groupId })
+      const target = { kind: 'group-append', groupId }
+      const verdict = checkSessionDrop(store.doc, drag, target)
+      if (!verdict.ok) {
+        // An archived group header is not a session destination. The rejection
+        // helper also cancels auto-expand so a neighbouring live group's timer
+        // cannot open a frozen group (SPEC §5.2).
+        rejectSessionDragOver(event, verdict.reason, { kind: 'group-forbidden', targetId: groupId })
+        return
+      }
+      rowDragOver(event, target)
       scheduleAutoExpand(groupId)
       rt()?.setFloatingLabel?.(t('drag.sessionIntoGroup', { name: findGroup(store.doc, groupId)?.name ?? '' }))
     },
@@ -649,11 +801,26 @@ export const GroupsView = (props) => {
     },
     onDragOverGroupHead: (event, groupId) => {
       const drag = dragRef.current
-      if (!drag || drag.kind !== 'session') return
+      if (!drag) return
+      if (drag.kind === 'group') {
+        // A group body is not a group-drop surface; inside an archived group the
+        // event must stop here instead of bubbling to a live ancestor's body.
+        if (!effectiveArchived(store.doc, groupId)) return
+        rejectSessionDragOver(event, 'archived-destination')
+        return
+      }
       // The line also owns the tiny gaps between session rows. A gap is not a
       // "group head" drop zone: treating it as one made the placeholder jump to
       // the group top while the pointer slowly crossed a 2px gap. Only the area
       // above the first visible session is the group-head zone.
+      const target = { kind: 'group-head', groupId }
+      // Check first: an archived destination must show forbidden over the whole
+      // body (including row gaps), not just above the first row.
+      const verdict = checkSessionDrop(store.doc, drag, target)
+      if (!verdict.ok) {
+        rejectSessionDragOver(event, verdict.reason, { kind: 'group-forbidden', targetId: groupId })
+        return
+      }
       const firstRow = event.currentTarget?.querySelector?.('[data-session-id]')
       const firstRect = firstRow?.getBoundingClientRect?.()
       if (firstRect && Number.isFinite(firstRect.top) && event.clientY >= firstRect.top) {
@@ -662,12 +829,23 @@ export const GroupsView = (props) => {
         if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
         return
       }
-      rowDragOver(event, { kind: 'group-head', groupId })
+      rowDragOver(event, target)
       scheduleAutoExpand(groupId)
     },
     onDropGroupHead: (event, groupId) => {
       const drag = dragRef.current
-      if (!drag || drag.kind !== 'session') return
+      if (!drag) return
+      if (drag.kind === 'group') {
+        // Mirrors the dragover guard: a group body is never a group-drop target,
+        // and an archived body must not let the drop bubble to a live ancestor.
+        if (!effectiveArchived(store.doc, groupId)) return
+        event.preventDefault()
+        event.stopPropagation()
+        clearAutoExpand()
+        setDropTargetTracked(null)
+        rt()?.setFloatingLabel?.(null)
+        return
+      }
       event.preventDefault()
       event.stopPropagation()
       clearAutoExpand()
@@ -676,15 +854,38 @@ export const GroupsView = (props) => {
     },
     onDragOverGroupSlot: (event, parentId, beforeGroupId) => {
       const drag = dragRef.current
-      if (!drag || drag.kind !== 'group') return
-      const name = findGroup(store.doc, parentId)?.name ?? ''
-      previewGroupDrop(event, { kind: 'group-child', parentId, beforeGroupId }, t('drag.groupInto', { name }))
+      if (!drag) return
+      if (drag.kind === 'group') {
+        const name = findGroup(store.doc, parentId)?.name ?? ''
+        // checkGroupDrop inside the preview rejects a frozen parent with the
+        // `archived-destination` reason and paints the existing slot forbidden.
+        previewGroupDrop(event, { kind: 'group-child', parentId, beforeGroupId }, t('drag.groupInto', { name }))
+        return
+      }
+      // A slot is not a session target: let a live parent's body line own the
+      // drop. Inside an archived parent the shared check rejects and the handler
+      // stops the bubble so the live outer group cannot retarget it.
+      const verdict = checkSessionDrop(store.doc, drag, { kind: 'group-head', groupId: parentId })
+      if (verdict.ok) return
+      rejectSessionDragOver(event, verdict.reason)
     },
     onDropGroupSlot: (event, parentId, beforeGroupId) => {
       const drag = dragRef.current
-      // A session dragged across the slot keeps its existing group-head drop
-      // behaviour (event bubbles to the body line); only group drags land here.
-      if (!drag || drag.kind !== 'group') return
+      if (!drag) return
+      if (drag.kind !== 'group') {
+        // A session dragged across a live slot keeps its existing group-head drop
+        // behaviour (the event bubbles to the body line). An archived parent is a
+        // locked destination and must not reach the outer line.
+        const verdict = checkSessionDrop(store.doc, drag, { kind: 'group-head', groupId: parentId })
+        if (verdict.ok) return
+        event.preventDefault()
+        event.stopPropagation()
+        clearAutoExpand()
+        setDropTargetTracked(null)
+        rt()?.setFloatingLabel?.(null)
+        toast('error', dropReasonText(t, verdict.reason))
+        return
+      }
       event.preventDefault()
       event.stopPropagation()
       commitGroupDrop(drag.groupId, { kind: 'child', parentId, beforeGroupId })
@@ -703,7 +904,13 @@ export const GroupsView = (props) => {
         return
       }
       // Header only: this is the explicit "top of ungrouped" target.
-      rowDragOver(event, { kind: 'ungrouped' })
+      const target = { kind: 'ungrouped' }
+      const verdict = checkSessionDrop(store.doc, drag, target)
+      if (!verdict.ok) {
+        rejectSessionDragOver(event, verdict.reason)
+        return
+      }
+      rowDragOver(event, target)
       rt()?.setFloatingLabel?.(t('drag.sessionOut'))
     },
     /**
@@ -724,6 +931,11 @@ export const GroupsView = (props) => {
       }
       if (event.target?.closest?.('[data-session-id], .dsg-drop-placeholder')) return
       const target = ungroupedBodyTarget(ungroupedBodyRows(event.currentTarget), event.clientY)
+      const verdict = checkSessionDrop(store.doc, drag, target)
+      if (!verdict.ok) {
+        rejectSessionDragOver(event, verdict.reason)
+        return
+      }
       rowDragOver(event, target)
       rt()?.setFloatingLabel?.(t('drag.sessionOut'))
     },
@@ -831,14 +1043,38 @@ export const GroupsView = (props) => {
     !onboardingOpen && treeEmpty && store.docState !== 'loading'
       ? h(
           'div',
-          { class: 'dsg-empty-state', 'data-testid': 'session-groups-empty-state' },
-          h('div', { class: 'dsg-empty-state-title' }, t('empty.groupsTitle')),
-          h('div', { class: 'dsg-empty-state-body' }, t('empty.groupsBody')),
-          TextButton({
-            label: t('empty.createGroup'),
-            testId: 'session-groups-empty-create',
-            onClick: () => stableHandlers.openNewGroup(null, null),
-          })
+          {
+            class: 'dsg-empty-state',
+            'data-testid': 'session-groups-empty-state',
+            'data-filter-empty': filterEmptyKind,
+          },
+          archivedGroupsHidden
+            ? h('div', { class: 'dsg-empty-state-title' }, t(EMPTY_STATE_KEYS.archivedHiddenTitle))
+            : onlyGroupsEmpty
+              ? h('div', { class: 'dsg-empty-state-title' }, t(EMPTY_STATE_KEYS.onlyEmptyTitle))
+              : h('div', { class: 'dsg-empty-state-title' }, t('empty.groupsTitle')),
+          archivedGroupsHidden
+            ? h('div', { class: 'dsg-empty-state-body' }, t(EMPTY_STATE_KEYS.archivedHiddenBody))
+            : onlyGroupsEmpty
+              ? h('div', { class: 'dsg-empty-state-body' }, t(EMPTY_STATE_KEYS.onlyEmptyBody))
+              : h('div', { class: 'dsg-empty-state-body' }, t('empty.groupsBody')),
+          archivedGroupsHidden
+            ? TextButton({
+                label: t(EMPTY_STATE_KEYS.showArchived),
+                testId: 'session-groups-empty-show-archived',
+                onClick: () => stableHandlers.setGroupArchiveFilter('all'),
+              })
+            : onlyGroupsEmpty
+              ? TextButton({
+                  label: t(EMPTY_STATE_KEYS.showAll),
+                  testId: 'session-groups-empty-show-all',
+                  onClick: () => stableHandlers.setGroupArchiveFilter('all'),
+                })
+              : TextButton({
+                  label: t('empty.createGroup'),
+                  testId: 'session-groups-empty-create',
+                  onClick: () => stableHandlers.openNewGroup(null, null),
+                })
         )
       : null,
     store.docState === 'loading'
@@ -846,7 +1082,11 @@ export const GroupsView = (props) => {
       : h(
           'div',
           { class: 'dsg-tree', role: 'tree', 'aria-label': t('view.title') },
-          h(UngroupedSection, { node: tree.ungrouped, store: viewState, props, handlers: stableHandlers, virtualRef }),
+          // SPEC §4.2/N1: the `only` group filter hides the ungrouped section
+          // entirely; under hidden/all it keeps its normal session tri-state.
+          store.groupArchiveFilter === 'only'
+            ? null
+            : h(UngroupedSection, { node: tree.ungrouped, store: viewState, props, handlers: stableHandlers, virtualRef }),
           ...tree.groups.map((node) => h(GroupNode, { key: node.group.id, node, depth: 0, props, handlers: stableHandlers, store: viewState })),
           // Group dragged to the root end: a group-row-height placeholder after
           // the last group makes the insertion point unmistakable.

@@ -53,6 +53,7 @@ const FILTER_STATE = '[data-testid="session-groups-view-options"]';
 const VIEW_OPTIONS = '[data-testid="session-groups-view-options"]';
 const VIEW_OPTIONS_POPOVER = '[data-testid="session-groups-view-options-popover"]';
 const ARCHIVE_OPTION = '[data-testid="session-groups-archive-filter"]';
+const GROUP_ARCHIVE_OPTION = '[data-testid="session-groups-group-archive-filter"]';
 const FLAT_FALLBACK = '[data-testid="session-groups-flat-fallback"]';
 const RAIL = '[data-testid="session-groups-rail"]';
 const RAIL_EXPAND = '[data-testid="session-groups-rail-expand"]';
@@ -958,6 +959,10 @@ function makeUi(driver, helpers) {
     async filterState() {
       return await evaluate(`document.querySelector(${JSON.stringify(FILTER_STATE)})?.getAttribute('data-filter') ?? null`);
     },
+    /** Group archive tri-state, mirrored on the same view-options button. */
+    async groupFilterState() {
+      return await evaluate(`document.querySelector(${JSON.stringify(FILTER_STATE)})?.getAttribute('data-group-filter') ?? null`);
+    },
     async openViewOptions() {
       if (await ui.exists(VIEW_OPTIONS_POPOVER)) return true;
       await ui.click(VIEW_OPTIONS);
@@ -971,11 +976,16 @@ function makeUi(driver, helpers) {
       await ui.waitFor(`!document.querySelector(${JSON.stringify(VIEW_OPTIONS_POPOVER)})`, 'view options popover closed', 5000);
       return true;
     },
+    /**
+     * Session archive tri-state lives in the first view-options segment. Since
+     * 0.4.0-beta.62 §10 a pick no longer closes the popover (so both segments can
+     * be set in one visit), therefore this helper never waits for it to close
+     * after the click: it polls the button state and closes the popover
+     * explicitly with Escape before returning.
+     */
     async setFilter(target) {
-      // Archive tri-state now lives in the view-options popover; each row has a
-      // stable data-filter and closes the popover after dispatching.
       for (let attempt = 0; attempt < 4; attempt++) {
-        if ((await ui.filterState()) === target) return true;
+        if ((await ui.filterState()) === target) break;
         await ui.openViewOptions();
         const clicked = await evaluate(`(() => {
           const option = document.querySelector(${JSON.stringify(ARCHIVE_OPTION)} + '[data-filter="' + ${JSON.stringify(target)} + '"]');
@@ -985,14 +995,33 @@ function makeUi(driver, helpers) {
         })()`);
         if (!clicked) {
           await ui.closeViewOptions();
-          throw new Error(`archive option '${target}' not found in the view-options popover`);
+          throw new Error(`session archive option '${target}' not found in the view-options popover`);
         }
-        await ui.waitFor(`!document.querySelector(${JSON.stringify(VIEW_OPTIONS_POPOVER)})`, 'view options closed after archive pick', 5000);
+        // The popover deliberately stays open after a pick; only give the
+        // dispatch + rerender a beat, then re-check the button state.
         await sleep(250);
       }
+      await ui.closeViewOptions();
       if ((await ui.filterState()) === target) return true;
-      throw new Error(`could not reach archive filter '${target}' (current: ${await ui.filterState()})`);
-    },    async openSessionMenu(sid) {
+      throw new Error(`could not reach session archive filter '${target}' (current: ${await ui.filterState()})`);
+    },
+    /**
+     * Picks one group archive tri-state inside the already-open popover and
+     * returns the updated `data-group-filter`. §10 keeps the popover open, so
+     * callers can pick several rows in a row and close it explicitly.
+     */
+    async pickGroupFilter(target) {
+      const clicked = await evaluate(`(() => {
+        const option = document.querySelector(${JSON.stringify(GROUP_ARCHIVE_OPTION)} + '[data-group-filter="' + ${JSON.stringify(target)} + '"]');
+        if (!option) return false;
+        option.click();
+        return true;
+      })()`);
+      if (!clicked) throw new Error(`group archive option '${target}' not found in the view-options popover`);
+      await sleep(200);
+      return await ui.groupFilterState();
+    },
+    async openSessionMenu(sid) {
       const button = '[data-testid="session-groups-session-menu"][data-session-id="' + sid + '"]';
       const found = await evaluate(`(() => {
         const direct = document.querySelector(${JSON.stringify(button)});
@@ -1433,38 +1462,103 @@ function makeSteps({ driver, ui, evidenceDir, args, state }) {
         if (!/分组|Groups/.test(header.title)) throw new Error(`header title expected 分组/Groups, got ${JSON.stringify(header.title)}`);
         if (header.searchVisible) throw new Error('search field must stay collapsed until the search icon is clicked');
         if (header.returnVisible) throw new Error('normal header must not render the 返回工作区 button');
-        // View-options popover: three 30px archive rows, active check, Escape and
-        // outside pointerdown both close it (feedback item 3).
+        // View-options popover: two labelled tri-state segments (sessions and
+        // groups), three 30px rows each with an active check; picking keeps the
+        // popover open (§10), while Escape and an outside pointerdown close it.
         await ui.openViewOptions();
         const options = await driver.evaluate(`(() => {
+          const button = document.querySelector(${JSON.stringify(VIEW_OPTIONS)});
           const popover = document.querySelector(${JSON.stringify(VIEW_OPTIONS_POPOVER)});
-          const rows = Array.from(document.querySelectorAll(${JSON.stringify(ARCHIVE_OPTION)}), (row) => ({
-            filter: row.getAttribute('data-filter'),
+          const readRows = (selector, attr) => Array.from(document.querySelectorAll(selector), (row) => ({
+            value: row.getAttribute(attr),
             active: row.getAttribute('data-active'),
+            checked: row.getAttribute('aria-checked'),
+            role: row.getAttribute('role'),
             height: row.getBoundingClientRect().height,
             text: (row.textContent ?? '').trim(),
             check: !!row.querySelector('svg'),
           }));
           return {
             popover: !!popover,
-            buttonExpanded: document.querySelector(${JSON.stringify(VIEW_OPTIONS)})?.getAttribute('aria-expanded'),
-            rows,
+            buttonExpanded: button?.getAttribute('aria-expanded'),
+            buttonFilter: button?.getAttribute('data-filter'),
+            buttonGroupFilter: button?.getAttribute('data-group-filter'),
+            sections: Array.from(popover?.querySelectorAll('.dsg-view-options-section') ?? [], (section) => ({
+              role: section.getAttribute('role'),
+              title: (section.querySelector('.dsg-view-options-section-title')?.textContent ?? '').trim(),
+            })),
+            sessionRows: readRows(${JSON.stringify(ARCHIVE_OPTION)}, 'data-filter'),
+            groupRows: readRows(${JSON.stringify(GROUP_ARCHIVE_OPTION)}, 'data-group-filter'),
           };
         })()`);
         if (!options.popover || options.buttonExpanded !== 'true') {
           throw new Error(`view-options popover did not open (${JSON.stringify(options)})`);
         }
-        if (options.rows.length !== 3) throw new Error(`view-options popover must expose 3 archive rows, got ${options.rows.length}`);
-        const expectedFilters = ['hidden', 'all', 'only'];
-        if (JSON.stringify(options.rows.map((row) => row.filter)) !== JSON.stringify(expectedFilters)) {
-          throw new Error(`archive row order expected ${JSON.stringify(expectedFilters)}, got ${JSON.stringify(options.rows.map((row) => row.filter))}`);
+        // The outer button mirrors both tri-states; a missing/garbage value must
+        // fail here instead of letting the per-row checks pass vacuously.
+        const filters = ['hidden', 'all', 'only'];
+        for (const [attr, value] of [['data-filter', options.buttonFilter], ['data-group-filter', options.buttonGroupFilter]]) {
+          if (!filters.includes(value)) {
+            throw new Error(`view-options button ${attr} expected one of ${JSON.stringify(filters)}, got ${JSON.stringify(value)}`);
+          }
         }
-        const labelPatterns = [/隐藏已归档|Hide archived/, /全部对话（显示已归档）|All conversations \(archived shown\)/, /仅显示已归档|Archived only/];
-        options.rows.forEach((row, index) => {
-          if (!labelPatterns[index].test(row.text)) throw new Error(`archive row ${row.filter} label mismatch: ${JSON.stringify(row.text)}`);
-          if (Math.abs(row.height - 30) > 1) throw new Error(`archive row ${row.filter} height expected 30 ±1, got ${row.height}`);
-          if ((row.filter === 'hidden') !== row.check) throw new Error(`archive row ${row.filter} check visibility mismatch (${row.check})`);
+        if (options.sessionRows.length !== 3) {
+          throw new Error(`session archive segment must expose 3 rows, got ${options.sessionRows.length}`);
+        }
+        if (options.groupRows.length !== 3) {
+          throw new Error(`group archive segment must expose 3 rows, got ${options.groupRows.length}`);
+        }
+        if (options.sessionRows.length + options.groupRows.length !== 6) {
+          throw new Error(`view-options popover must expose 6 archive rows in two segments, got ${options.sessionRows.length + options.groupRows.length}`);
+        }
+        if (options.sections.length !== 2 || options.sections.some((section) => section.role !== 'group')) {
+          throw new Error(`view-options popover must expose 2 labelled role=group segments, got ${JSON.stringify(options.sections)}`);
+        }
+        const sectionTitlePatterns = [/会话|Conversations/, /分组|Groups/];
+        options.sections.forEach((section, index) => {
+          if (!sectionTitlePatterns[index].test(section.title)) {
+            throw new Error(`view-options section ${index} title mismatch: ${JSON.stringify(section.title)}`);
+          }
         });
+        // Both segments share the row order/height/check contract; the active row
+        // must follow the value mirrored on the outer button.
+        const assertSegment = (label, rows, expectedButtonValue) => {
+          if (JSON.stringify(rows.map((row) => row.value)) !== JSON.stringify(filters)) {
+            throw new Error(`${label} row order expected ${JSON.stringify(filters)}, got ${JSON.stringify(rows.map((row) => row.value))}`);
+          }
+          rows.forEach((row) => {
+            if (row.role !== 'menuitemradio') throw new Error(`${label} row ${row.value} role expected menuitemradio, got ${JSON.stringify(row.role)}`);
+            if (Math.abs(row.height - 30) > 1) throw new Error(`${label} row ${row.value} height expected 30 ±1, got ${row.height}`);
+            const active = row.value === expectedButtonValue;
+            if ((row.active === 'true') !== active) throw new Error(`${label} row ${row.value} data-active mismatch (${row.active})`);
+            if ((row.checked === 'true') !== active) throw new Error(`${label} row ${row.value} aria-checked mismatch (${row.checked})`);
+            if (row.check !== active) throw new Error(`${label} row ${row.value} check visibility mismatch (${row.check})`);
+          });
+        };
+        assertSegment('session archive', options.sessionRows, options.buttonFilter);
+        assertSegment('group archive', options.groupRows, options.buttonGroupFilter);
+        const sessionLabelPatterns = [/隐藏已归档|Hide archived/, /全部对话（显示已归档）|All conversations \(archived shown\)/, /仅显示已归档|Archived only/];
+        options.sessionRows.forEach((row, index) => {
+          if (!sessionLabelPatterns[index].test(row.text)) throw new Error(`session archive row ${row.value} label mismatch: ${JSON.stringify(row.text)}`);
+        });
+        const groupLabelPatterns = [/隐藏已归档分组|Hide archived groups/, /全部分组（显示已归档）|All groups \(archived shown\)/, /仅显示已归档分组|Archived groups only/];
+        options.groupRows.forEach((row, index) => {
+          if (!groupLabelPatterns[index].test(row.text)) throw new Error(`group archive row ${row.value} label mismatch: ${JSON.stringify(row.text)}`);
+        });
+        // Group tri-state interaction: every pick updates data-group-filter while
+        // the popover stays open, so both segments can be set in one visit. The
+        // isolated home has no groups yet, so this never needs a real archived
+        // group to exist.
+        for (const target of ['only', 'all', 'hidden']) {
+          const current = await ui.pickGroupFilter(target);
+          if (current !== target) throw new Error(`group archive filter expected ${target}, got ${current}`);
+          if (!(await ui.exists(VIEW_OPTIONS_POPOVER))) {
+            throw new Error(`view-options popover must stay open after picking group filter '${target}'`);
+          }
+        }
+        if ((await ui.filterState()) !== options.buttonFilter) {
+          throw new Error('picking the group segment must not change the session archive filter');
+        }
         await ui.closeViewOptions();
         await ui.openViewOptions();
         await driver.evaluate(`document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }))`);

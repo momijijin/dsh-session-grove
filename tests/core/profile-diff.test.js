@@ -44,12 +44,24 @@ test('normalizeDocForCompare strips metadata and keeps the comparison fields', (
         color: 'blue',
         colorHex: '#aabbcc',
         sessionIds: ['s2', 's1'],
+        archived: false,
       },
     ],
     ungrouped: ['s3'],
   })
   assert.equal('version' in normalized, false)
   assert.equal('revision' in normalized, false)
+})
+
+test('normalizeDocForCompare normalizes the archived flag to a boolean', () => {
+  const archivedOf = (extra) =>
+    normalizeDocForCompare(doc([group('g1', 'A', null, [], extra)])).groups[0].archived
+  assert.equal(archivedOf({}), false)
+  assert.equal(archivedOf({ archived: false }), false)
+  assert.equal(archivedOf({ archived: true }), true)
+  // Only the literal `true` marks a group as archived.
+  assert.equal(archivedOf({ archived: 'true' }), false)
+  assert.equal(archivedOf({ archived: 1 }), false)
 })
 
 test('normalizeDocForCompare tolerates missing or empty collections', () => {
@@ -78,6 +90,19 @@ test('sameDocs compares groups, ids, parents, names, appearance and order', () =
   assert.equal(sameDocs(doc([group('a', 'A'), group('b', 'B')]), doc([group('b', 'B'), group('a', 'A')])), false)
   assert.equal(sameDocs(doc([group('a', 'A', null, ['s1', 's2'])]), doc([group('a', 'A', null, ['s2', 's1'])])), false)
   assert.equal(sameDocs(doc([], ['s1', 's2']), doc([], ['s2', 's1'])), false)
+})
+
+test('sameDocs compares the archived flag but treats missing and false as equal', () => {
+  const missing = doc([group('g1', 'A', null, ['s1'])], ['s2'])
+  const explicitFalse = doc([group('g1', 'A', null, ['s1'], { archived: false })], ['s2'])
+  const archived = doc([group('g1', 'A', null, ['s1'], { archived: true })], ['s2'])
+
+  assert.equal(sameDocs(missing, explicitFalse), true)
+  assert.equal(sameDocs(explicitFalse, missing), true)
+  assert.equal(sameDocs(archived, archived), true)
+  assert.equal(sameDocs(missing, archived), false)
+  assert.equal(sameDocs(archived, missing), false)
+  assert.equal(sameDocs(archived, explicitFalse), false)
 })
 
 test('diffDocs reports no changes for equivalent docs and ignores revision', () => {
@@ -136,10 +161,10 @@ test('diffDocs classifies rename, move, rename+move and appearance changes', () 
   ])
   const diff = diffDocs(current, target)
   assert.deepEqual(diff.groups.changed, [
-    { id: 'c', from: 'Parent/Child', to: 'Parent/NewName', renamed: true, moved: false, appearance: false },
-    { id: 'd', from: 'Parent/Old', to: 'Old', renamed: false, moved: true, appearance: false },
-    { id: 'e', from: 'Parent/Both', to: 'Both2', renamed: true, moved: true, appearance: false },
-    { id: 'f', from: 'Parent/Look', to: 'Parent/Look', renamed: false, moved: false, appearance: true },
+    { id: 'c', from: 'Parent/Child', to: 'Parent/NewName', renamed: true, moved: false, appearance: false, archived: false },
+    { id: 'd', from: 'Parent/Old', to: 'Old', renamed: false, moved: true, appearance: false, archived: false },
+    { id: 'e', from: 'Parent/Both', to: 'Both2', renamed: true, moved: true, appearance: false, archived: false },
+    { id: 'f', from: 'Parent/Look', to: 'Parent/Look', renamed: false, moved: false, appearance: true, archived: false },
   ])
   assert.equal(diff.summary.groups.changed, 4)
   assert.equal(diff.groups.reordered, false)
@@ -150,9 +175,71 @@ test('diffDocs flags icon, palette and custom color changes as appearance', () =
   for (const extra of [{ icon: 'briefcase' }, { color: 'red' }, { colorHex: '#112233' }]) {
     const diff = diffDocs(base(), base(extra))
     assert.deepEqual(diff.groups.changed, [
-      { id: 'g', from: 'G', to: 'G', renamed: false, moved: false, appearance: true },
+      { id: 'g', from: 'G', to: 'G', renamed: false, moved: false, appearance: true, archived: false },
     ])
   }
+})
+
+test('diffDocs reports a group whose only change is the archived flag', () => {
+  const current = doc([group('g', 'G', null, ['s1'])])
+  const target = doc([group('g', 'G', null, ['s1'], { archived: true })])
+  const diff = diffDocs(current, target, ['s1'])
+  assert.deepEqual(diff.groups.changed, [
+    { id: 'g', from: 'G', to: 'G', renamed: false, moved: false, appearance: false, archived: true },
+  ])
+  assert.equal(diff.summary.groups.changed, 1)
+  assert.equal(diff.groups.reordered, false)
+  assert.deepEqual(diff.sessions, { moved: [], newlyGrouped: [], ungrouped: [], stale: [] })
+
+  // Unarchiving is the same flag flip in the other direction.
+  const back = diffDocs(target, current, ['s1'])
+  assert.deepEqual(back.groups.changed, [
+    { id: 'g', from: 'G', to: 'G', renamed: false, moved: false, appearance: false, archived: true },
+  ])
+  assert.equal(back.summary.groups.changed, 1)
+
+  // Missing and explicit false stay equivalent: no row, no count.
+  const missingVsFalse = diffDocs(current, doc([group('g', 'G', null, ['s1'], { archived: false })]), ['s1'])
+  assert.deepEqual(missingVsFalse.groups.changed, [])
+  assert.equal(missingVsFalse.summary.groups.changed, 0)
+
+  // The flag is structural content, not a reorder.
+  assert.equal(diffDocs(current, target).groups.reordered, false)
+})
+
+test('diffDocs reports archived together with rename, move and appearance', () => {
+  const current = doc([
+    group('p', 'Parent'),
+    group('c', 'Child', 'p'),
+    group('m', 'Moved', 'p'),
+    group('f', 'Look', 'p'),
+  ])
+  const target = doc([
+    group('p', 'Parent'),
+    group('c', 'Renamed', 'p', [], { archived: true }),
+    group('m', 'Moved', null, [], { archived: true }),
+    group('f', 'Look', 'p', [], { icon: 'briefcase', archived: true }),
+  ])
+  const diff = diffDocs(current, target)
+  assert.deepEqual(diff.groups.changed, [
+    { id: 'c', from: 'Parent/Child', to: 'Parent/Renamed', renamed: true, moved: false, appearance: false, archived: true },
+    { id: 'm', from: 'Parent/Moved', to: 'Moved', renamed: false, moved: true, appearance: false, archived: true },
+    { id: 'f', from: 'Parent/Look', to: 'Parent/Look', renamed: false, moved: false, appearance: true, archived: true },
+  ])
+  assert.equal(diff.summary.groups.changed, 3)
+})
+
+test('diffDocs reports archived for path-matched groups without rename or move', () => {
+  const current = doc([group('old', 'Work', null, ['s1'])])
+  const target = doc([group('new', 'Work', null, ['s1'], { archived: true })])
+  const diff = diffDocs(current, target, ['s1'])
+  assert.deepEqual(diff.groups.added, [])
+  assert.deepEqual(diff.groups.removed, [])
+  assert.deepEqual(diff.groups.changed, [
+    { id: 'new', from: 'Work', to: 'Work', renamed: false, moved: false, appearance: false, archived: true },
+  ])
+  assert.equal(diff.summary.groups.changed, 1)
+  assert.equal(sameDocs(current, target), false)
 })
 
 test('diffDocs flags sibling reordering globally without changed rows', () => {
@@ -192,7 +279,7 @@ test('diffDocs treats a unique equal path with a different id as the same logica
 
   const appearance = diffDocs(current, doc([group('new', 'Work', null, ['s1'], { colorHex: '#aabbcc' })]))
   assert.deepEqual(appearance.groups.changed, [
-    { id: 'new', from: 'Work', to: 'Work', renamed: false, moved: false, appearance: true },
+    { id: 'new', from: 'Work', to: 'Work', renamed: false, moved: false, appearance: true, archived: false },
   ])
 })
 
@@ -306,7 +393,7 @@ test('diffDocs reports deep paths and empty documents', () => {
   const target = doc([group('a', 'A'), group('b', 'B', 'a'), group('c', 'C', 'b'), group('d', 'E', 'c')])
   const diff = diffDocs(current, target)
   assert.deepEqual(diff.groups.changed, [
-    { id: 'd', from: 'A/B/C/D', to: 'A/B/C/E', renamed: true, moved: false, appearance: false },
+    { id: 'd', from: 'A/B/C/D', to: 'A/B/C/E', renamed: true, moved: false, appearance: false, archived: false },
   ])
   assert.equal(diff.groups.reordered, false)
 })
@@ -316,7 +403,7 @@ test('diffDocs reports an ancestor rename once and keeps descendants unchanged',
   const target = doc([group('a', 'New'), group('b', 'Child', 'a')])
   const diff = diffDocs(current, target)
   assert.deepEqual(diff.groups.changed, [
-    { id: 'a', from: 'Old', to: 'New', renamed: true, moved: false, appearance: false },
+    { id: 'a', from: 'Old', to: 'New', renamed: true, moved: false, appearance: false, archived: false },
   ])
   assert.equal(diff.groups.reordered, false)
 })

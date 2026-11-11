@@ -1,15 +1,23 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  ARCHIVE_CONFIRM_SKIP_KEY,
+  readArchiveConfirmSkip,
+  writeArchiveConfirmSkip,
+} from '../../src/client/state/persistence.js'
+import {
   ARCHIVE_FILTER_KEY,
   COLLAPSED_KEY,
+  GROUP_ARCHIVE_FILTER_KEY,
   ONBOARDING_KEY,
   VIEW_MODE_KEY,
   createStore,
   readArchiveFilter,
+  readGroupArchiveFilter,
   readOnboardingDone,
   readViewMode,
   writeArchiveFilter,
+  writeGroupArchiveFilter,
   writeOnboardingDone,
   writeViewMode,
 } from '../../src/client/state.js'
@@ -45,6 +53,103 @@ test('archive filter defaults to hidden and ignores unknown values', () => {
   assert.equal(readArchiveFilter(storage), 'hidden')
 })
 
+test('group archive filter uses its own key, defaults to hidden and rejects unknown values', () => {
+  assert.equal(GROUP_ARCHIVE_FILTER_KEY, 'dsh-session-grove.archive.groups.v1')
+  assert.notEqual(GROUP_ARCHIVE_FILTER_KEY, ARCHIVE_FILTER_KEY)
+
+  assert.equal(readGroupArchiveFilter(fakeStorage()), 'hidden')
+  assert.equal(readGroupArchiveFilter(fakeStorage({ [GROUP_ARCHIVE_FILTER_KEY]: 'only' })), 'only')
+  assert.equal(readGroupArchiveFilter(fakeStorage({ [GROUP_ARCHIVE_FILTER_KEY]: 'garbage' })), 'hidden')
+
+  const storage = fakeStorage()
+  writeGroupArchiveFilter('all', storage)
+  assert.equal(storage.getItem(GROUP_ARCHIVE_FILTER_KEY), 'all')
+  assert.equal(storage.getItem(ARCHIVE_FILTER_KEY), null, 'group writes never touch the session key')
+  writeGroupArchiveFilter('nope', storage)
+  assert.equal(storage.getItem(GROUP_ARCHIVE_FILTER_KEY), 'hidden')
+
+  // 0.4.0-beta.62 UI patch: the archive-confirm opt-out is its own key and only
+  // the exact string `'true'` opts out (default false, other values ignored).
+  assert.equal(ARCHIVE_CONFIRM_SKIP_KEY, 'dsh-session-grove.archive.confirm-skip.v1')
+  assert.notEqual(ARCHIVE_CONFIRM_SKIP_KEY, GROUP_ARCHIVE_FILTER_KEY)
+  assert.equal(readArchiveConfirmSkip(fakeStorage()), false)
+  assert.equal(readArchiveConfirmSkip(fakeStorage({ [ARCHIVE_CONFIRM_SKIP_KEY]: '1' })), false)
+  assert.equal(readArchiveConfirmSkip(fakeStorage({ [ARCHIVE_CONFIRM_SKIP_KEY]: 'false' })), false)
+  assert.equal(readArchiveConfirmSkip(fakeStorage({ [ARCHIVE_CONFIRM_SKIP_KEY]: 'true' })), true)
+
+  const skipStorage = fakeStorage()
+  writeArchiveConfirmSkip(true, skipStorage)
+  assert.equal(skipStorage.getItem(ARCHIVE_CONFIRM_SKIP_KEY), 'true')
+  assert.equal(readArchiveConfirmSkip(skipStorage), true)
+  writeArchiveConfirmSkip(false, skipStorage)
+  assert.equal(skipStorage.getItem(ARCHIVE_CONFIRM_SKIP_KEY), 'false')
+  assert.equal(readArchiveConfirmSkip(skipStorage), false)
+  writeArchiveConfirmSkip('truthy-but-not-true', skipStorage)
+  assert.equal(skipStorage.getItem(ARCHIVE_CONFIRM_SKIP_KEY), 'false', 'only a real boolean true opts out')
+})
+
+test('store group archive filter dispatches, persists and falls back to hidden', () => {
+  const storage = fakeStorage()
+  const store = createStore({ storage })
+  assert.equal(store.getSnapshot().groupArchiveFilter, 'hidden')
+
+  store.dispatch('group-archive-filter', { filter: 'only' })
+  assert.equal(store.getSnapshot().groupArchiveFilter, 'only')
+  assert.equal(storage.getItem(GROUP_ARCHIVE_FILTER_KEY), 'only')
+  assert.equal(readGroupArchiveFilter(storage), 'only')
+  assert.equal(createStore({ storage }).getSnapshot().groupArchiveFilter, 'only', 'a fresh store reads the persisted value')
+
+  // Invalid payloads never reach storage and degrade to the hidden default.
+  store.dispatch('group-archive-filter', { filter: 'nope' })
+  assert.equal(store.getSnapshot().groupArchiveFilter, 'hidden')
+  assert.equal(storage.getItem(GROUP_ARCHIVE_FILTER_KEY), 'hidden')
+  store.dispatch('group-archive-filter', {})
+  assert.equal(store.getSnapshot().groupArchiveFilter, 'hidden')
+})
+
+test('the two archive tri-states are independent and same-value dispatches do not publish', () => {
+  const storage = fakeStorage()
+  const store = createStore({ storage })
+  let calls = 0
+  store.subscribe(() => {
+    calls += 1
+  })
+  store.dispatch('group-archive-filter', { filter: 'hidden' })
+  store.dispatch('group-archive-filter', { filter: 'bogus' })
+  assert.equal(calls, 0, 'hidden/invalid payloads are a no-op')
+  assert.equal(store.getSnapshot().groupArchiveFilter, 'hidden')
+
+  store.dispatch('archive-filter', { filter: 'all' })
+  assert.equal(store.getSnapshot().archiveFilter, 'all')
+  assert.equal(store.getSnapshot().groupArchiveFilter, 'hidden')
+
+  store.dispatch('group-archive-filter', { filter: 'only' })
+  assert.equal(store.getSnapshot().archiveFilter, 'all')
+  assert.equal(store.getSnapshot().groupArchiveFilter, 'only')
+  assert.equal(storage.getItem(ARCHIVE_FILTER_KEY), 'all')
+  assert.equal(storage.getItem(GROUP_ARCHIVE_FILTER_KEY), 'only')
+  assert.equal(calls, 2)
+})
+
+test('blocked storage falls back to hidden for the group archive filter', () => {
+  const blocked = {
+    getItem() {
+      throw new Error('blocked')
+    },
+    setItem() {
+      throw new Error('blocked')
+    },
+  }
+  assert.equal(readGroupArchiveFilter(blocked), 'hidden')
+  assert.doesNotThrow(() => writeGroupArchiveFilter('only', blocked))
+  assert.equal(readArchiveConfirmSkip(blocked), false, 'blocked storage never skips the archive confirm')
+  assert.doesNotThrow(() => writeArchiveConfirmSkip(true, blocked))
+  const store = createStore({ storage: blocked })
+  assert.equal(store.getSnapshot().groupArchiveFilter, 'hidden')
+  store.dispatch('group-archive-filter', { filter: 'only' })
+  assert.equal(store.getSnapshot().groupArchiveFilter, 'only', 'blocked storage keeps the session-only value')
+})
+
 test('onboarding dismissal persists once', () => {
   const storage = fakeStorage()
   assert.equal(readOnboardingDone(storage), false)
@@ -63,6 +168,13 @@ test('reset-collapsed clears and persists the expansion defaults', () => {
   store.dispatch('reset-collapsed')
   assert.deepEqual(store.getSnapshot().collapsed, {})
   assert.deepEqual(createStore({ storage }).getSnapshot().collapsed, {})
+
+  // `resetLayout` (plugin-host) also re-arms the archive confirm; its storage
+  // write is the unit-testable half of that reset.
+  writeArchiveConfirmSkip(true, storage)
+  assert.equal(readArchiveConfirmSkip(storage), true)
+  writeArchiveConfirmSkip(false, storage)
+  assert.equal(readArchiveConfirmSkip(storage), false)
 })
 
 test('store dispatch updates view mode and persists it', () => {
@@ -157,11 +269,13 @@ test('storage failures are best-effort and malformed persisted values fall back 
   const malformed = fakeStorage({
     [VIEW_MODE_KEY]: 'garbage',
     [ARCHIVE_FILTER_KEY]: 'garbage',
+    [GROUP_ARCHIVE_FILTER_KEY]: 'garbage',
     [COLLAPSED_KEY]: JSON.stringify({ g1: false, g2: true, '': true }),
   })
   const store = createStore({ storage: malformed })
   assert.equal(store.getSnapshot().viewMode, 'workspace')
   assert.equal(store.getSnapshot().archiveFilter, 'hidden')
+  assert.equal(store.getSnapshot().groupArchiveFilter, 'hidden')
   assert.deepEqual(store.getSnapshot().collapsed, { g2: true })
 })
 

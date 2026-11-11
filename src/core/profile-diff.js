@@ -19,6 +19,7 @@ const normalizeGroup = (group) => ({
   color: textOrNull(group?.color),
   colorHex: textOrNull(group?.colorHex),
   sessionIds: asArray(group?.sessionIds).slice(),
+  archived: group?.archived === true,
 })
 
 /** Strip metadata and optional-field shape noise so two docs can be compared. */
@@ -42,11 +43,13 @@ const sameGroup = (left, right) =>
   left.icon === right.icon &&
   left.color === right.color &&
   left.colorHex === right.colorHex &&
+  left.archived === right.archived &&
   sameList(left.sessionIds, right.sessionIds)
 
 /**
  * Structural equality ignoring `version`/`revision`. Group order, per-group
- * field values, sessionIds order and ungrouped order all count.
+ * field values (including `archived`, where missing and false are equivalent),
+ * sessionIds order and ungrouped order all count.
  */
 const sameDocs = (a, b) => {
   const left = normalizeDocForCompare(a)
@@ -122,6 +125,9 @@ const parentOf = (group) => group.parentId ?? null
  * Session classification uses `liveSessionIds`; when that list is empty the
  * document memberships are used for the grouped/ungrouped counts and `stale`
  * stays empty because liveness is unknown.
+ *
+ * Changed rows carry `renamed`/`moved`/`appearance` plus `archived` (the group
+ * flipped its archived flag). An archived-only change still produces a row.
  */
 const diffDocs = (currentDoc, targetDoc, liveSessionIds = []) => {
   const currentGroups = asArray(currentDoc?.groups).filter((group) => group && typeof group === 'object')
@@ -179,14 +185,16 @@ const diffDocs = (currentDoc, targetDoc, liveSessionIds = []) => {
   const changed = []
   for (const pair of orderedPairs) {
     // A path match already means same name and same place: only content can
-    // differ, so renamed/moved stay false for it.
+    // differ, so renamed/moved stay false for it. The archived flag is content
+    // and is always compared, path match or not.
     const renamed = pair.byPath ? false : pair.current.name !== pair.target.name
     const moved = pair.byPath ? false : parentOf(pair.current) !== parentOf(pair.target)
     const appearance =
       textOrNull(pair.current.icon) !== textOrNull(pair.target.icon) ||
       textOrNull(pair.current.color) !== textOrNull(pair.target.color) ||
       textOrNull(pair.current.colorHex) !== textOrNull(pair.target.colorHex)
-    if (!renamed && !moved && !appearance) continue
+    const archived = (pair.current.archived === true) !== (pair.target.archived === true)
+    if (!renamed && !moved && !appearance && !archived) continue
     changed.push({
       id: pair.target.id,
       from: pathOf(currentPaths, pair.current),
@@ -194,6 +202,7 @@ const diffDocs = (currentDoc, targetDoc, liveSessionIds = []) => {
       renamed,
       moved,
       appearance,
+      archived,
     })
   }
 

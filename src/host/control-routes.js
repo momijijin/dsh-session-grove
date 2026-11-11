@@ -20,7 +20,13 @@ import {
   MAX_CONTROL_BODY_BYTES,
 } from './constants.js'
 import { buildControlCatalog } from '../core/catalog.js'
-import { applyControlOperations, buildControlState, CONTROL_PROTOCOL, resolveGroupPath } from '../core/control.js'
+import {
+  applyControlOperations,
+  buildControlState,
+  CONTROL_PROTOCOL,
+  isArchiveConflictCode,
+  resolveGroupPath,
+} from '../core/control.js'
 import { controlPlanHash, resolveControlProfile, withProfileStorage } from './profile-policy.js'
 
 export const registerControlRoutes = (deps) => {
@@ -325,7 +331,11 @@ export const registerControlRoutes = (deps) => {
             allowDestructive: controlDestructiveEnabled(),
           })
           if (!planned.ok) {
-            sendJson(res, 422, planned)
+            // N6: archive-state conflicts (`group-archived` and friends, plus a
+            // whole-batch invariant rejection) are 409; schema/unknown-field/
+            // type/negative-index mistakes stay 422. The body keeps
+            // code/groupId/field/operationIndex either way.
+            sendJson(res, isArchiveConflictCode(planned.code) ? 409 : 422, planned)
             return
           }
           sendJson(res, 200, {
@@ -418,10 +428,13 @@ export const registerControlRoutes = (deps) => {
             allowDestructive: controlDestructiveEnabled(),
           })
           if (!planned.ok) {
-            sendJson(res, 422, planned)
+            sendJson(res, isArchiveConflictCode(planned.code) ? 409 : 422, planned)
             return
           }
           const committed = await resolvedProfile.store.commit(baseRevision, planned.doc)
+          // `commitResponse` already maps `archive-frozen` to a 409 body with
+          // code:'archive-frozen', reason:<op code>, groupId/field. It must not
+          // be wrapped as a 200 change set, and it never bumps the revision.
           const { status, body: committedBody } = commitResponse(committed)
           if (status === 200) {
             const responseBody = {

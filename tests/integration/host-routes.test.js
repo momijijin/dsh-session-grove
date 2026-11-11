@@ -61,6 +61,7 @@ test('H2: commit writes the file and bumps the revision', { skip }, async (t) =>
   t.after(() => tmp.cleanup());
 
   const doc = validDocWithGroup();
+  const expectedGroups = doc.groups.map((group) => ({ ...group, archived: false }));
   const response = await harness.invoke(COMMIT_PATH, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -70,14 +71,14 @@ test('H2: commit writes the file and bumps the revision', { skip }, async (t) =>
   const body = response.json();
   assert.equal(body.ok, true);
   assert.equal(body.revision, 1);
-  assert.deepEqual(body.doc.groups, doc.groups);
+  assert.deepEqual(body.doc.groups, expectedGroups, 'every persisted group gains an explicit archived flag');
   assert.deepEqual(body.doc.ungrouped, doc.ungrouped);
 
   assert.equal(existsSync(tmp.filePath), true);
   const onDisk = readJsonFile(tmp.filePath);
   assert.equal(onDisk.version, 1);
   assert.equal(onDisk.revision, 1);
-  assert.deepEqual(onDisk.groups, doc.groups);
+  assert.deepEqual(onDisk.groups, expectedGroups);
 
   const reload = await harness.invoke(LOAD_PATH, { method: 'GET' });
   assert.equal(reload.json().revision, 1, 'load sees the committed revision');
@@ -265,6 +266,70 @@ test('H10: a commit only writes the record file (workspace.json / session logs u
   assert.equal(existsSync(join(home.storages, GROUP_FILE_NAME)), true);
   const leftovers = readdirSync(home.storages).filter((name) => name.endsWith('.tmp'));
   assert.deepEqual(leftovers, [], 'no tmp files may remain in storages/');
+});
+
+test('archive freeze: old-client commits inherit archived; frozen edits get 409 archive-frozen', { skip }, async (t) => {
+  const { tmp, harness } = await setupHarness();
+  t.after(() => tmp.cleanup());
+
+  const commit = (baseRevision, doc) => harness.invoke(COMMIT_PATH, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ baseRevision, doc }),
+  });
+
+  const archived = validDocWithGroup();
+  archived.groups[0].archived = true;
+  const first = await commit(0, archived);
+  assert.equal(first.status, 200);
+  assert.equal(first.json().revision, 1);
+  assert.equal(first.json().doc.groups[0].archived, true);
+  assert.equal(readJsonFile(tmp.filePath).groups[0].archived, true, 'explicit true is written');
+
+  // A pre-0.4.0-beta.62 client drops the additive field and edits the frozen group.
+  const oldClient = validDocWithGroup();
+  oldClient.groups[0].name = 'Renamed by an old client';
+  const before = fileSha(tmp.filePath);
+  const frozen = await commit(1, oldClient);
+  assert.equal(frozen.status, 409);
+  assert.deepEqual(frozen.json(), {
+    ok: false,
+    code: 'archive-frozen',
+    reason: 'group-archived',
+    groupId: 'g-0123456789ab',
+    field: 'name',
+    message: 'group-archived',
+  });
+  assert.equal(fileSha(tmp.filePath), before, 'the rejected commit must not write');
+  const afterReject = await harness.invoke(LOAD_PATH, { method: 'GET' });
+  assert.equal(afterReject.json().revision, 1, 'the rejected commit must not bump the revision');
+
+  // The same old client resubmitting without an edit is accepted and inherits true.
+  const inherited = await commit(1, validDocWithGroup());
+  assert.equal(inherited.status, 200);
+  assert.equal(inherited.json().revision, 2);
+  assert.equal(inherited.json().doc.groups[0].archived, true);
+  assert.equal(readJsonFile(tmp.filePath).groups[0].archived, true, 'the inherited flag is persisted');
+
+  // unarchive + edit must be split into two commits (strict before-state).
+  const unarchivePlusEdit = validDocWithGroup();
+  unarchivePlusEdit.groups[0].archived = false;
+  unarchivePlusEdit.groups[0].name = 'Renamed';
+  const unarchiveRejected = await commit(2, unarchivePlusEdit);
+  assert.equal(unarchiveRejected.status, 409);
+  assert.equal(unarchiveRejected.json().reason, 'group-archived');
+  assert.equal(unarchiveRejected.json().field, 'name');
+
+  // unarchive only is legal; a new group without the flag lands as explicit false.
+  const unarchiveOnly = validDocWithGroup();
+  unarchiveOnly.groups[0].archived = false;
+  unarchiveOnly.groups.push({ id: 'g-ffffffffffff', name: 'New', icon: 'folder', parentId: null, sessionIds: [] });
+  const unarchived = await commit(2, unarchiveOnly);
+  assert.equal(unarchived.status, 200);
+  assert.equal(unarchived.json().revision, 3);
+  assert.equal(unarchived.json().doc.groups[0].archived, false);
+  assert.equal(unarchived.json().doc.groups[1].archived, false, 'new groups default to false');
+  assert.equal(readJsonFile(tmp.filePath).groups[1].archived, false);
 });
 
 test('contract: method / content-type / body-limit / malformed-body status codes', { skip }, async (t) => {

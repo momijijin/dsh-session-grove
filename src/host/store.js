@@ -11,6 +11,10 @@
  * - shape/invariant failure -> same recovery/quarantine policy, warning
  *   `recovered-backup` or `invalid-file`;
  * - `version > 1` -> `unsupported-version`, never overwritten;
+ * - 0.4.0-beta.62: the additive group `archived` flag is inherited from the
+ *   current document when an old client drops it, normalized to an explicit
+ *   boolean on every write, and `commit()` enforces the frozen-subtree
+ *   invariant (`archive-frozen`; no write, no revision bump);
  * - `peek()` is the side-effect-free read path used by previews and health
  *   checks: no lock, no write, no quarantine (`load()` keeps healing semantics);
  * - write path: unique temp name -> fsync -> copy previous to `.bak` ->
@@ -28,6 +32,7 @@
 import { randomBytes } from 'node:crypto'
 import { copyFile, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
+import { findArchiveViolation } from '../shared/archive.js'
 import { DOC_VERSION } from '../shared/constants.js'
 import { emptyDoc, normalizeColorHex, validateDoc } from '../shared/model.js'
 import { RECORD_FILE_NAME } from './constants.js'
@@ -82,6 +87,34 @@ const normalizeGroupColorHex = (groups) =>
         return hex && hex !== group.colorHex ? { ...group, colorHex: hex } : group
       })
     : groups
+
+/**
+ * 0.4.0-beta.62 additive group `archived` (SPEC §3.4): a client that predates
+ * the field serializes the whole document without it, so the commit path
+ * inherits the current group's own flag by id before structural validation.
+ * Explicit `true`/`false` always wins; a group the current document does not
+ * know defaults to `false`. The inbound document is never mutated.
+ */
+const inheritIncomingArchived = (doc, currentDoc) => {
+  if (!isObject(doc) || !Array.isArray(doc.groups)) return doc
+  const currentById = new Map()
+  for (const group of Array.isArray(currentDoc?.groups) ? currentDoc.groups : []) {
+    if (isObject(group) && typeof group.id === 'string' && !currentById.has(group.id)) {
+      currentById.set(group.id, group)
+    }
+  }
+  let changed = false
+  const groups = doc.groups.map((group) => {
+    if (!isObject(group) || group.archived !== undefined) return group
+    changed = true
+    return { ...group, archived: currentById.get(group.id)?.archived === true }
+  })
+  return changed ? { ...doc, groups } : doc
+}
+
+/** Persist `archived` as an explicit boolean; a missing flag reads as `false`. */
+const normalizeGroupArchivedFlags = (groups) =>
+  Array.isArray(groups) ? groups.map((group) => ({ ...group, archived: group?.archived === true })) : groups
 
 const errorMessage = (error) => (error instanceof Error ? error.message : String(error))
 
@@ -425,6 +458,9 @@ export const createStore = (options = {}) => {
     if (!verdict.ok) {
       return { ok: false, errors: verdict.errors, candidate }
     }
+    // 0.4.0-beta.62 additive `archived`: missing validates, but every persisted
+    // group is normalized to an explicit boolean (SPEC §3.3) like `color`.
+    candidate.groups = normalizeGroupArchivedFlags(candidate.groups)
     return { ok: true, errors: [], candidate }
   }
 
@@ -514,8 +550,24 @@ export const createStore = (options = {}) => {
         if (current.revision !== baseRevision) {
           return { kind: 'conflict', doc: current.doc, revision: current.revision }
         }
-        const verdict = validateForWrite(doc)
+        // 0.4.0-beta.62: inherit the additive `archived` flag dropped by old
+        // clients before structural validation (SPEC §3.4).
+        const inherited = inheritIncomingArchived(doc, current.doc)
+        const verdict = validateForWrite(inherited)
         if (!verdict.ok) return { kind: 'invalid', errors: verdict.errors }
+        // SPEC §6.3: the frozen-subtree invariant is authoritative here. The
+        // current (confirmed) document is the before-state; a violation is a
+        // rejected commit that must not write or bump the revision.
+        const violation = findArchiveViolation(current.doc, verdict.candidate)
+        if (violation !== null) {
+          return {
+            kind: 'archive-frozen',
+            code: violation.code,
+            groupId: violation.groupId,
+            field: violation.field,
+            message: violation.code,
+          }
+        }
         const persisted = await writeDoc(verdict.candidate, current.revision + 1)
         return { kind: 'ok', doc: persisted, revision: persisted.revision }
       }))

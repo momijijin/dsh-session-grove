@@ -26,6 +26,8 @@ import {
   assignSession,
   validateDoc,
 } from '../../src/shared/model.js';
+import { buildSearchIndex, splitSearchResultsByVisibility } from '../../src/core/search.js';
+import { statusSectionsByGroup } from '../../src/core/tree.js';
 
 const group = (id, parentId = null) => ({ id, name: id, icon: 'folder', parentId, sessionIds: [] });
 const docOf = (groups = [], ungrouped = []) => ({ version: 1, revision: 0, groups, ungrouped });
@@ -194,5 +196,57 @@ test('cloneDoc deep-copies (callers cannot mutate a returned doc through nested 
   assert.deepEqual(doc.groups[0].sessionIds, ['s1']);
   assert.deepEqual(doc.ungrouped, ['s2']);
   assert.equal(doc.groups[0].name, 'g1');
+});
+
+test('P2: tree, search and status counters share one group-visibility projection (no three-way drift)', () => {
+  const doc = docOf(
+    [
+      { ...group('live'), sessionIds: ['live1'] },
+      { ...group('arch'), archived: true, sessionIds: ['arch1'] },
+      { ...group('path'), sessionIds: ['pathOwn'] },
+      { ...group('child', 'path'), archived: true, sessionIds: ['pathChild'] },
+    ],
+    ['loose'],
+  );
+  const sessions = {
+    live1: session('live1'),
+    arch1: session('arch1'),
+    pathOwn: session('pathOwn'),
+    pathChild: session('pathChild'),
+    loose: session('loose'),
+  };
+  const statuses = new Map(Object.keys(sessions).map((id) => [id, { running: true }]));
+  const index = buildSearchIndex({ doc, sessionsById: sessions });
+
+  const treeSessionIds = (tree) => {
+    const walk = (nodes) =>
+      nodes.flatMap((node) => (node.kind === 'session' ? [node.session.id] : walk(node.children)));
+    return [...walk(tree.groups), ...tree.ungrouped.map((node) => node.session.id)].sort();
+  };
+  const statusSessionIds = (buckets) =>
+    ['running', 'blocked', 'unread']
+      .flatMap((bucket) => buckets[bucket].sections.flatMap((section) => section.sessions.map((item) => item.sessionId)))
+      .sort();
+
+  const expected = {
+    hidden: ['live1', 'loose', 'pathOwn'],
+    all: ['arch1', 'live1', 'loose', 'pathChild', 'pathOwn'],
+    // "only" hides the ungrouped container and every group that is neither full nor a path ancestor.
+    only: ['arch1', 'pathChild'],
+  };
+
+  for (const groupFilter of ['hidden', 'all', 'only']) {
+    const tree = buildRenderTree(doc, sessions, [], { filter: 'hidden', groupFilter });
+    const split = splitSearchResultsByVisibility(doc, index, groupFilter);
+    const buckets = statusSectionsByGroup(doc, sessions, statuses, [], new Map(), groupFilter);
+    const searchVisible = split.visible.map((entry) => entry.sessionId).sort();
+    assert.deepEqual(treeSessionIds(tree), expected[groupFilter], `tree rows under ${groupFilter}`);
+    assert.deepEqual(searchVisible, expected[groupFilter], `search rows under ${groupFilter}`);
+    assert.deepEqual(statusSessionIds(buckets), expected[groupFilter], `status rows under ${groupFilter}`);
+    for (const entry of split.hidden) {
+      assert.equal(treeSessionIds(tree).includes(entry.sessionId), false, `hidden ${entry.sessionId} never renders`);
+      assert.equal(statusSessionIds(buckets).includes(entry.sessionId), false, `hidden ${entry.sessionId} never counts`);
+    }
+  }
 });
 

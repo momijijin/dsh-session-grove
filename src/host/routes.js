@@ -13,7 +13,7 @@
  * legacy load/commit semantics; named profiles are health-checked with the
  * side-effect-free `peek()` before they are served or written).
  * Status matrix: 200 / 400 (unreadable body) / 405+Allow / 409 conflict /
- * 409 unsupported-version / 409 profile-missing|profile-unhealthy|profile-changed|
+ * 409 archive-frozen / 409 unsupported-version / 409 profile-missing|profile-unhealthy|profile-changed|
  * profile-archived|profile-in-use|profile-limit|preview-stale|registry-unhealthy /
  * 413 / 415 / 422 invalid-profile-id|profile-name-* / 503 fence-unavailable|io.
  * Responses are JSON, `cache-control: no-store`, and never set CORS headers.

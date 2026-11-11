@@ -35,6 +35,11 @@ export const sessionRowPropsEqual = (prev, next) => {
   const b = next.sessionNode
   if (a.session.id !== b.session.id) return false
   if (prev.depth !== next.depth || prev.groupId !== next.groupId || prev.ungrouped !== next.ungrouped) return false
+  // Container archive lock (0.4.0-beta.62 §5.4): derived from the containing
+  // group's effective archive state, not from the session's own flag. Rows inside
+  // an archived subtree must repaint when the subtree is archived/unarchived even
+  // though `session.archived` itself did not change.
+  if ((prev.structuralLocked === true) !== (next.structuralLocked === true)) return false
   if (a.archived !== b.archived || a.runningSubagentCount !== b.runningSubagentCount) return false
   if ((prev.store?.currentSessionId === a.session.id) !== (next.store?.currentSessionId === b.session.id)) return false
   if ((prev.store?.localeRevision ?? 0) !== (next.store?.localeRevision ?? 0)) return false
