@@ -13,7 +13,7 @@ import { GROUP_DROP_NOOP } from '../core/group-drag.js'
 import { dispatch, toast } from './command-runtime.js'
 import { findGroup, moveGroup } from '../shared/model.js'
 import { resolveGroupDrop } from '../core/group-drag.js'
-import { renderGlyph, renderHeaderIcon } from './icons.js'
+import { renderGlyph, renderHeaderIcon, renderIcon } from './icons.js'
 import { isMenuKey } from '../core/menu-position.js'
 import { perfEnabled, perfMark, perfNow } from './perf.js'
 import { relativeTimeParts } from './time.js'
@@ -71,19 +71,29 @@ const usePerfCommit = (name, renderStartedAt) => {
 // ---------------------------------------------------------------------------
 // Small primitives
 // ---------------------------------------------------------------------------
-const IconButton = ({ label, glyph, icon, onClick, testId, data, expanded, haspopup, className }) =>
-  h(
+const IconButton = ({ label, glyph, icon, onClick, testId, data, expanded, haspopup, className, disabled = false, disabledReason = null }) => {
+  // Archive-locked actions stay focusable (aria-disabled, not the native
+  // attribute) so keyboard users can read the reason; a click reports it instead
+  // of performing the action (0.4.0-beta.62 §5.3/§5.6).
+  const reason = disabled ? disabledReason ?? null : null
+  return h(
     'button',
     {
       type: 'button',
       class: classNames('dsg-icon-button', className),
-      title: label,
-      'aria-label': label,
+      title: reason ?? label,
+      'aria-label': reason === null ? label : `${label} — ${reason}`,
+      'aria-disabled': disabled ? 'true' : undefined,
+      'data-disabled': disabled ? 'true' : 'false',
       'data-testid': testId,
       ...(expanded === undefined ? {} : { 'aria-expanded': expanded ? 'true' : 'false' }),
       ...(haspopup ? { 'aria-haspopup': haspopup } : {}),
       onClick: (event) => {
         event.stopPropagation()
+        if (disabled) {
+          if (reason !== null) toast('info', reason)
+          return
+        }
         onClick?.(event)
       },
       ...(data ?? {}),
@@ -92,6 +102,7 @@ const IconButton = ({ label, glyph, icon, onClick, testId, data, expanded, haspo
     // other IconButton keeps the small stroke glyph vocabulary.
     icon ? renderHeaderIcon(h, icon, 16) : renderGlyph(h, glyph)
   )
+}
 
 const TextButton = ({ label, onClick, testId, data }) =>
   h(
@@ -263,17 +274,20 @@ const GROUP_PLACEHOLDER_HEIGHT = 34
  * DropPlaceholder: full-width dashed 32px box with a 14px plus glyph and label.
  * It is a hint only — the surrounding group body/section owns the drop handlers.
  */
-const EmptyDropBox = ({ label, active = false, testId = 'session-groups-empty', data }) =>
+const EmptyDropBox = ({ label, active = false, testId = 'session-groups-empty', data, locked = false }) =>
   h(
     'div',
     {
-      class: 'dsg-empty-dropbox',
+      class: classNames('dsg-empty-dropbox', locked && 'dsg-empty-dropbox-locked'),
       'data-testid': testId,
       'data-drop-active': active ? 'true' : 'false',
+      'data-locked': locked ? 'true' : 'false',
       role: 'presentation',
       ...(data ?? {}),
     },
-    h('span', { class: 'dsg-empty-dropbox-plus', 'aria-hidden': 'true' }, renderGlyph(h, 'plus', 14)),
+    // An archived empty group is a read-only surface: the plus hint would invite
+    // a drop that the archive freeze rejects, so it becomes a lock hint instead.
+    h('span', { class: 'dsg-empty-dropbox-plus', 'aria-hidden': 'true' }, locked ? renderIcon(h, 'lock', 14) : renderGlyph(h, 'plus', 14)),
     h('span', { class: 'dsg-empty-dropbox-label' }, label)
   )
 

@@ -10,23 +10,30 @@ import { ScrollArea } from './scroll-area.js'
 
 const h = createElement
 
-export const GroupListPicker = ({ options, selection, onSelect, rootLabel, ariaLabel, allowRoot = true, testId = 'session-groups-dialog-options' }) => {
+export const GroupListPicker = ({ options, selection, onSelect, rootLabel, ariaLabel, allowRoot = true, rootDisabled = false, rootReason = null, testId = 'session-groups-dialog-options' }) => {
   const t = rt()?.t
-  const option = (key, value, label, depth) =>
-    h(
+  const option = (key, value, label, depth, disabled = false, reasonKey = null) => {
+    const reason = disabled && typeof reasonKey === 'string' && reasonKey !== '' ? t(reasonKey) : null
+    return h(
       'button',
       {
         key,
         type: 'button',
         role: 'option',
         'aria-selected': selection === value ? 'true' : 'false',
+        'aria-disabled': disabled ? 'true' : undefined,
+        'data-disabled': disabled ? 'true' : 'false',
         class: 'dsg-menu-item dsg-dialog-option',
         'data-testid': 'session-groups-dialog-group',
         'data-group-id': value ?? '',
         'data-selected': selection === value ? 'true' : 'false',
+        ...(reason === null ? {} : { title: reason, 'aria-label': `${label} — ${reason}` }),
         style: { paddingLeft: `${12 + depth * 16}px` },
         onClick: (event) => {
           event.stopPropagation()
+          // Archived/illegal destinations stay focusable (aria-disabled) so the
+          // reason is readable, but a click never changes the highlight.
+          if (disabled) return
           onSelect(value)
         },
       },
@@ -35,6 +42,7 @@ export const GroupListPicker = ({ options, selection, onSelect, rootLabel, ariaL
         ? h('span', { class: 'dsg-dialog-option-check', 'aria-hidden': 'true' }, renderGlyph(h, 'check', 16))
         : null
     )
+  }
   return h(
     ScrollArea,
     {
@@ -43,7 +51,7 @@ export const GroupListPicker = ({ options, selection, onSelect, rootLabel, ariaL
       'data-testid': testId,
       'aria-label': ariaLabel ?? t('dialog.destinationGroup'),
     },
-    allowRoot ? option('ungrouped', null, rootLabel ?? t('ungrouped.title'), 0) : null,
+    allowRoot ? option('ungrouped', null, rootLabel ?? t('ungrouped.title'), 0, rootDisabled === true, rootReason) : null,
     ...options.flatMap((group, index) => {
       const nodes = []
       if (group.depth === 0 && index > 0) {
@@ -56,7 +64,7 @@ export const GroupListPicker = ({ options, selection, onSelect, rootLabel, ariaL
           })
         )
       }
-      nodes.push(option(group.id, group.id, group.name, group.depth + 1))
+      nodes.push(option(group.id, group.id, group.name, group.depth + 1, group.disabled === true, group.disabledReason ?? null))
       return nodes
     })
   )

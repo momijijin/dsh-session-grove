@@ -8,11 +8,13 @@
  *
  * Search scope: every non-subagent session in `sessionsById` — archived, blank
  * and host-derived ungrouped rows included (visibility filters are a view concern,
- * not an index concern). Titles use the same rules as the tree (`sessionTitle`),
+ * not an index concern; the rendered result set is split by group visibility
+ * afterwards). Titles use the same rules as the tree (`sessionTitle`),
  * workspace labels use `workspaceLabel`, and the group path/ids come from the
  * confirmed GroupDoc (a flat `groups` array with `parentId`).
  */
 import { workspaceLabel, workspaceOfSession } from '../shared/model.js'
+import { computeGroupVisibility } from '../shared/archive.js'
 import { sessionTitle } from '../core/filter.js'
 import { groupAncestors, groupPath } from '../core/tree.js'
 
@@ -82,6 +84,7 @@ const aliasesFor = (row) => {
  *   workspace: string,
  *   groupPath: string,
  *   groupIds: string[],
+ *   groupId: string|null,
  *   archived: boolean,
  *   aliases: string[],
  * }>}
@@ -110,6 +113,7 @@ export const buildSearchIndex = (input = {}) => {
       workspace: workspaceLabel(workspaceOfSession(workspaceList, sessionId)),
       groupPath: groupId ? groupPath(doc, groupId) : '',
       groupIds,
+      groupId,
       archived: archived.includes(sessionId),
       aliases: aliasesFor(row),
     })
@@ -117,6 +121,42 @@ export const buildSearchIndex = (input = {}) => {
 
   return entries
 }
+
+/**
+ * Split matched search entries by group visibility (spec §4.5, 0.4.0-beta.62).
+ *
+ * The index stays complete; this projection decides which matches may render
+ * once a group filter applies. A grouped entry is visible only when its
+ * containing group's own sessions render (`computeGroupVisibility(...)
+ * .sessionGroups`): archived subtrees under `hidden`, every group that is
+ * neither `full` nor a `pathOnly` ancestor under `only`, and every group under
+ * `all`. `pathOnly` ancestors never expose their own sessions, and ungrouped
+ * entries follow N1 (`hidden`/`all` show them, `only` hides them). An
+ * individually archived session inside a visible group stays visible: the
+ * existing "listable but not openable" search behavior is unchanged.
+ *
+ * @param {object} doc - confirmed GroupDoc
+ * @param {object[]} entries - matched entries from {@link buildSearchIndex}
+ * @param {'hidden'|'all'|'only'} [groupFilter]
+ * @returns {{ visible: object[], hidden: object[] }}
+ */
+const splitSearchResultsByVisibility = (doc, entries, groupFilter = 'hidden') => {
+  const visibility = computeGroupVisibility(doc, groupFilter)
+  const visible = []
+  const hidden = []
+  for (const entry of asArray(entries)) {
+    if (!isObject(entry)) continue
+    const groupId = typeof entry.groupId === 'string' && entry.groupId !== '' ? entry.groupId : null
+    const shown = groupId === null ? visibility.ungroupedVisible : visibility.sessionGroups.has(groupId)
+    if (shown) visible.push(entry)
+    else hidden.push(entry)
+  }
+  return { visible, hidden }
+}
+
+// Re-export form (not an inline declaration) so the P9 SearchBox can consume the
+// split without tripping the dead-export guard before that wiring lands.
+export { splitSearchResultsByVisibility }
 
 const normalizeQuery = (query) => (typeof query === 'string' ? query.trim().toLowerCase() : '')
 

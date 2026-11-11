@@ -3,6 +3,7 @@
  * paths and depth clamping.
  */
 import { childrenOf, findGroup } from '../shared/model.js'
+import { computeGroupVisibility } from '../shared/archive.js'
 
 /** Soft UI depth limit from V1-PLAN (contract allows 8, UI recommends 4). */
 export const UI_SOFT_DEPTH = 4
@@ -98,14 +99,21 @@ export const runningSubagentCounts = (sessions, statuses) => {
 /**
  * One traversal for all three header counters. The three independent scans were
  * O(3n) on every stream snapshot; this returns the same grouped shape in O(n).
+ *
+ * `groupFilter` (0.4.0-beta.62 §4.5) applies the shared group visibility before
+ * counting: pruned archived subtrees, `pathOnly` ancestors' own sessions and the
+ * ungrouped container under `only` never reach a counter. The session tri-state
+ * is intentionally not applied here, matching the previous counter behavior;
+ * `archivedSessionIds` keeps flagging rows without filtering them.
  */
-export const statusSectionsByGroup = (doc, sessionsById = {}, statuses = null, archivedSessionIds = [], subagentCounts = new Map()) => {
+export const statusSectionsByGroup = (doc, sessionsById = {}, statuses = null, archivedSessionIds = [], subagentCounts = new Map(), groupFilter = 'hidden') => {
   const buckets = {
     running: { sections: [], count: 0 },
     blocked: { sections: [], count: 0 },
     unread: { sections: [], count: 0 },
   }
   const archived = new Set(Array.isArray(archivedSessionIds) ? archivedSessionIds : [])
+  const visibility = computeGroupVisibility(doc, groupFilter)
   const seen = new Set()
   const add = (sessionId, groupId, groupName) => {
     if (typeof sessionId !== 'string' || seen.has(sessionId)) return
@@ -128,12 +136,17 @@ export const statusSectionsByGroup = (doc, sessionsById = {}, statuses = null, a
   }
   const walk = (parentId) => {
     for (const group of childrenOf(doc, parentId)) {
-      for (const sessionId of group.sessionIds ?? []) add(sessionId, group.id, group.name ?? '')
+      if (!visibility.sessionGroups.has(group.id) && !visibility.path.has(group.id)) continue
+      if (visibility.sessionGroups.has(group.id)) {
+        for (const sessionId of group.sessionIds ?? []) add(sessionId, group.id, group.name ?? '')
+      }
       walk(group.id)
     }
   }
   walk(null)
-  for (const sessionId of doc?.ungrouped ?? []) add(sessionId, null, '')
+  if (visibility.ungroupedVisible) {
+    for (const sessionId of doc?.ungrouped ?? []) add(sessionId, null, '')
+  }
   return buckets
 }
 

@@ -172,7 +172,7 @@ test('H6a: a corrupt record recovers the previous valid .bak and preserves the c
   assert.equal(result.kind, 'ok')
   assert.equal(result.warning, 'recovered-backup')
   assert.equal(result.revision, 1)
-  assert.deepEqual(result.doc.groups, sampleDoc().groups)
+  assert.deepEqual(result.doc.groups, sampleDoc().groups.map((group) => ({ ...group, archived: false })))
   assert.match(result.quarantinedTo, /dsh-session-grove\.corrupt-.*\.json$/)
   assert.equal(await readFile(result.quarantinedTo, 'utf8'), garbage)
   assert.equal(JSON.parse(await readFile(temp.filePath, 'utf8')).revision, 1)
@@ -578,4 +578,107 @@ test('T3.2: peek propagates IO errors and classifies wrong-version/non-object pa
   const nonObject = await temp.store.peek()
   assert.equal(nonObject.kind, 'corrupt')
   assert.match(nonObject.detail, /not a JSON object/)
+})
+
+// ---------------------------------------------------------------------------
+// 0.4.0-beta.62 additive group `archived` field (SPEC §3.3/§3.4/§9)
+// ---------------------------------------------------------------------------
+
+test('0.4.0-beta.62: load and peek accept a missing archived flag without migrating it', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  await writeFile(temp.filePath, `${JSON.stringify({ ...sampleDoc(), revision: 6 }, null, 2)}\n`, 'utf8')
+  const before = await sha256(temp.filePath)
+
+  const loaded = await temp.store.load()
+  assert.equal(loaded.kind, 'ok')
+  assert.equal(loaded.revision, 6)
+  for (const group of loaded.doc.groups) assert.equal(Object.hasOwn(group, 'archived'), false)
+
+  const peeked = await temp.store.peek()
+  assert.equal(peeked.kind, 'ok')
+  for (const group of peeked.doc.groups) assert.equal(Object.hasOwn(group, 'archived'), false)
+  assert.equal(await sha256(temp.filePath), before, 'reads must not migrate the document')
+})
+
+test('0.4.0-beta.62: load and peek preserve explicit archived booleans verbatim', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  const onDisk = sampleDoc()
+  onDisk.groups[0].archived = true
+  onDisk.groups[1].archived = false
+  await writeFile(temp.filePath, `${JSON.stringify({ ...onDisk, revision: 2 }, null, 2)}\n`, 'utf8')
+  const before = await sha256(temp.filePath)
+
+  const loaded = await temp.store.load()
+  assert.equal(loaded.doc.groups[0].archived, true)
+  assert.equal(loaded.doc.groups[1].archived, false)
+  const peeked = await temp.store.peek()
+  assert.equal(peeked.doc.groups[0].archived, true)
+  assert.equal(peeked.doc.groups[1].archived, false)
+  assert.equal(await sha256(temp.filePath), before)
+})
+
+test('0.4.0-beta.62: backup recovery keeps the archived flag of the recovered revision', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  const first = sampleDoc()
+  first.groups[0].archived = true
+  await temp.store.commit(0, first)
+  await temp.store.commit(1, sampleDoc())
+  await writeFile(temp.filePath, '{broken', 'utf8')
+
+  const recovered = await temp.store.load()
+  assert.equal(recovered.warning, 'recovered-backup')
+  assert.equal(recovered.revision, 1)
+  assert.equal(recovered.doc.groups[0].archived, true)
+  assert.equal(JSON.parse(await readFile(temp.filePath, 'utf8')).groups[0].archived, true)
+})
+
+test('0.4.0-beta.62: a backup with a non-boolean archived flag is not used for recovery', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  const invalidBackup = sampleDoc()
+  invalidBackup.groups[0].archived = 'yes'
+  await writeFile(
+    `${temp.filePath}.bak`,
+    `${JSON.stringify({ ...invalidBackup, version: 1, revision: 1 })}\n`,
+    'utf8',
+  )
+  await writeFile(temp.filePath, '{broken', 'utf8')
+
+  const loaded = await temp.store.load()
+  assert.equal(loaded.warning, 'corrupt-file')
+  assert.equal(loaded.revision, 0)
+})
+
+test('0.4.0-beta.62: save() normalizes a missing archived flag to false and keeps explicit true', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  const saved = await temp.store.save(sampleDoc())
+  assert.equal(saved.groups[0].archived, false)
+  assert.equal(saved.groups[1].archived, false)
+
+  const archived = sampleDoc()
+  archived.groups[0].archived = true
+  const second = await temp.store.save(archived)
+  assert.equal(second.groups[0].archived, true)
+  assert.equal(second.groups[1].archived, false)
+  assert.deepEqual(JSON.parse(await readFile(temp.filePath, 'utf8')).groups, second.groups)
+})
+
+test('0.4.0-beta.62: save() does not run the archive transition guard', async (t) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  const current = sampleDoc()
+  current.groups[0].archived = true
+  await temp.store.commit(0, current)
+
+  // A save-as/import path may overwrite a frozen group (SPEC §6.3 exception).
+  const replacement = sampleDoc()
+  replacement.groups[0] = { ...replacement.groups[0], name: 'Renamed', archived: false }
+  const saved = await temp.store.save(replacement)
+  assert.equal(saved.groups[0].archived, false)
+  assert.equal(saved.groups[0].name, 'Renamed')
+  assert.equal((await temp.store.load()).doc.groups[0].name, 'Renamed')
 })

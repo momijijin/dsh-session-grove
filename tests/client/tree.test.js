@@ -15,7 +15,7 @@ import {
   sessionContainer,
   sessionNeighbors,
 } from '../../src/core/tree.js'
-import { assignSession, buildRenderTree, createGroup, emptyDoc } from '../../src/shared/model.js'
+import { assignSession, buildRenderTree, createGroup, emptyDoc, setGroupArchived } from '../../src/shared/model.js'
 
 const nestedDoc = () => {
   let doc = emptyDoc()
@@ -247,4 +247,93 @@ test('session move neighbors follow the stored group or ungrouped order', () => 
   assert.deepEqual(sessionContainer(doc, 'u2'), { groupId: null, ids: ['u1', 'u2'] })
   assert.deepEqual(sessionNeighbors(doc, 'u2'), { previous: 'u1', next: null })
   assert.deepEqual(sessionNeighbors(doc, 'derived'), { previous: null, next: null })
+})
+
+// ------------------------------------------- P2 group visibility (0.4.0-beta.62 §4.5)
+
+/**
+ * Status-count fixture:
+ *   Live        [live1, liveArchived]
+ *   Archived    [arch1]                         (own-archived)
+ *   Path        [pathOwn]
+ *     Path child [pathChild]                   (own-archived; makes Path a pathOnly ancestor)
+ *   ungrouped:  [loose]
+ */
+const statusVisibilityDoc = () => {
+  let doc = emptyDoc()
+  doc = createGroup(doc, { name: 'Live' })
+  const live = doc.groups[0].id
+  doc = createGroup(doc, { name: 'Archived' })
+  const archived = doc.groups[1].id
+  doc = createGroup(doc, { name: 'Path' })
+  const path = doc.groups[2].id
+  doc = createGroup(doc, { name: 'Path child', parentId: path })
+  const child = doc.groups.find((group) => group.name === 'Path child').id
+  doc = assignSession(doc, 'live1', live)
+  doc = assignSession(doc, 'liveArchived', live)
+  doc = assignSession(doc, 'arch1', archived)
+  doc = assignSession(doc, 'pathOwn', path)
+  doc = assignSession(doc, 'pathChild', child)
+  doc = assignSession(doc, 'loose', null)
+  doc = setGroupArchived(doc, archived, true)
+  doc = setGroupArchived(doc, child, true)
+  return { doc, live, archived, path, child }
+}
+
+const runningStatuses = (...ids) => new Map(ids.map((id) => [id, { running: true }]))
+
+const statusSessionIds = (buckets, bucket) =>
+  (buckets[bucket]?.sections ?? []).flatMap((section) => section.sessions.map((session) => session.sessionId))
+
+test('statusSectionsByGroup follows group visibility: hidden/all/only never leak pruned subtrees', () => {
+  const { doc } = statusVisibilityDoc()
+  const byId = Object.fromEntries(
+    ['live1', 'liveArchived', 'arch1', 'pathOwn', 'pathChild', 'loose'].map((id) => [id, { id, title: id }]),
+  )
+  const statuses = runningStatuses('live1', 'liveArchived', 'arch1', 'pathOwn', 'pathChild', 'loose')
+  const archived = ['liveArchived', 'loose']
+
+  const implicit = statusSectionsByGroup(doc, byId, statuses, archived, new Map())
+  const hidden = statusSectionsByGroup(doc, byId, statuses, archived, new Map(), 'hidden')
+  assert.deepEqual(implicit, hidden, 'the group filter defaults to hidden')
+  assert.equal(implicit.running.count, 4, 'archived subtrees are skipped; archived rows of live groups still count')
+  assert.deepEqual(implicit.running.sections.map((section) => section.groupName), ['Live', 'Path', ''])
+  assert.deepEqual(
+    implicit.running.sections[0].sessions,
+    [
+      { sessionId: 'live1', archived: false },
+      { sessionId: 'liveArchived', archived: true },
+    ],
+    'archivedSessionIds keeps flagging rows without filtering them',
+  )
+  assert.deepEqual(statusSessionIds(implicit, 'running').includes('arch1'), false)
+  assert.deepEqual(statusSessionIds(implicit, 'running').includes('pathChild'), false)
+
+  const all = statusSectionsByGroup(doc, byId, statuses, archived, new Map(), 'all')
+  assert.equal(all.running.count, 6)
+  assert.deepEqual(all.running.sections.map((section) => section.groupName), ['Live', 'Archived', 'Path', 'Path child', ''])
+  assert.deepEqual(statusSessionIds(all, 'running').includes('arch1'), true)
+
+  const only = statusSectionsByGroup(doc, byId, statuses, archived, new Map(), 'only')
+  assert.equal(only.running.count, 2)
+  assert.deepEqual(only.running.sections.map((section) => section.groupName), ['Archived', 'Path child'])
+  assert.deepEqual(statusSessionIds(only, 'running').sort(), ['arch1', 'pathChild'])
+  assert.equal(statusSessionIds(only, 'running').includes('pathOwn'), false, 'pathOnly own sessions never count')
+  assert.equal(statusSessionIds(only, 'running').includes('loose'), false, 'N1: only hides ungrouped')
+
+  const bogus = statusSectionsByGroup(doc, byId, statuses, archived, new Map(), 'bogus')
+  assert.deepEqual(bogus, hidden, 'an out-of-vocabulary group filter is treated as "hidden"')
+})
+
+test('statusSectionsByGroup=only with no archived groups reports empty buckets', () => {
+  let doc = emptyDoc()
+  doc = createGroup(doc, { name: 'Live' })
+  const live = doc.groups[0].id
+  doc = assignSession(doc, 'live1', live)
+  doc = assignSession(doc, 'loose', null)
+  const byId = { live1: { id: 'live1' }, loose: { id: 'loose' } }
+  const statuses = runningStatuses('live1', 'loose')
+  const buckets = statusSectionsByGroup(doc, byId, statuses, [], new Map(), 'only')
+  assert.equal(buckets.running.count, 0)
+  assert.deepEqual(buckets.running.sections, [])
 })

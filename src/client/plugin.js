@@ -29,6 +29,7 @@ import { resolveDshVersion, selectDshAdapter } from '../adapters/dsh-selector.js
 import { createDocumentSync } from './plugin-document.js'
 import { createProfileController } from './plugin-profiles.js'
 import { CENTER, createHostIntegration, VIEW_PRIORITY, VIEW_SLOT } from './plugin-host.js'
+import { mainSessionIdOf } from '../core/filter.js'
 
 export { VIEW_PRIORITY, VIEW_SLOT }
 
@@ -291,6 +292,9 @@ export const createPlugin = () => {
       services,
       failDialog,
       diag,
+      // 0.4.0-beta.62 §5.5: the group-archive confirm boundary needs the main
+      // view session (inside the target subtree) next to the live running rows.
+      getCurrentSessionId: () => mainSessionIdOf(services().sessions?.list?.getSnapshot?.() ?? null),
       onDispose: teardownRoot,
     })
     changeRouter = createExternalChangeRouter({
@@ -355,6 +359,8 @@ export const createPlugin = () => {
       notify,
       archiveSession: host.archiveSession,
       unarchiveSession: host.unarchiveSession,
+      archiveGroup: host.archiveGroup,
+      unarchiveGroup: host.unarchiveGroup,
       forkSession: host.forkSession,
       copySessionId: host.copySessionId,
       commitDoc: documentSync.commitDoc,
@@ -378,6 +384,7 @@ export const createPlugin = () => {
       confirmDialog: host.confirmDialog,
       deleteGroupDirect: host.deleteGroupDirect,
       setArchiveFilter: host.setArchiveFilter,
+      setGroupArchiveFilter: host.setGroupArchiveFilter,
       resetLayout: host.resetLayout,
       setFloatingLabel,
       startDragLabel: () => {},

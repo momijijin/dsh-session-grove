@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { GROUP_DRAG_MIME, resolveGroupDrop } from '../../src/core/group-drag.js'
-import { assignSession, childrenOf, createGroup, emptyDoc, findGroup, moveGroup } from '../../src/shared/model.js'
+import { assignSession, childrenOf, createGroup, emptyDoc, findGroup, moveGroup, setGroupArchived } from '../../src/shared/model.js'
 
 const idOf = (doc, name) => {
   const group = doc.groups.find((item) => item.name === name)
@@ -196,4 +196,21 @@ test('depth boundary: the resolver resolves the slot and moveGroup rejects the o
   const overflow = resolve(doc, r, { kind: 'child', parentId: idOf(doc, 'L7'), beforeGroupId: null })
   assert.deepEqual(overflow, { parentId: idOf(doc, 'L7'), index: 0 })
   assert.throws(() => moveGroup(doc, r, overflow.parentId, overflow.index), /depth-exceeded/)
+})
+
+test('0.4.0-beta.62: the resolver stays archive-agnostic; the archive guard is a separate layer', () => {
+  let doc = makeDoc(['B', 'A', 'C'])
+  const a = idOf(doc, 'A')
+  doc = setGroupArchived(doc, a, true)
+
+  // Archived state is not part of drop resolution: the raw slots resolve as
+  // before, including into the archived group and for the archived group itself.
+  // `src/core/archive-drop.js` is the only place that rejects them.
+  assert.deepEqual(resolve(doc, idOf(doc, 'B'), { kind: 'before', targetId: a }), { parentId: null, index: 0 })
+  assert.deepEqual(resolve(doc, idOf(doc, 'C'), { kind: 'after', targetId: a }), { parentId: null, index: 2 })
+  assert.deepEqual(resolve(doc, a, { kind: 'root-end' }), { parentId: null, index: 3 })
+  assert.deepEqual(resolve(doc, idOf(doc, 'B'), { kind: 'child', parentId: a, beforeGroupId: null }), {
+    parentId: a,
+    index: 0,
+  })
 })

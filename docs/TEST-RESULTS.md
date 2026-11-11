@@ -1,6 +1,48 @@
-# 0.4.0-beta.13 测试结果（历史快照）
+# 0.4.0-beta.62 本地测试结果（当前轮）
 
-> 本文件是 `0.4.0-beta.13` 的历史证据快照，**不是当前测试摘要**。当前可重复验证状态、语言覆盖范围和测试缺口以 [TEST-MATRIX.md](TEST-MATRIX.md) 为准。
+> `docs/TEST-MATRIX.md` 仍是当前可重复验证状态、语言覆盖与测试缺口的**真相源**；本文件记录 2026-11-11 本地候选树的实际执行结果，并保留 `0.4.0-beta.13` 历史快照（见文末）。`.62` 是未发布 dev 批次。
+
+日期：2026-11-11  
+版本：`0.4.0-beta.62`（dev，未发布；最近发布为 `0.4.0-beta.61`，2026-11-10）  
+宿主基线：`@deepseek-ai/dsh` 0.2.1-rc.2（community）/ 0.2.2-rc.1（official，`.61` A+ 证据；0.2.1-rc.5 为 `.60` 历史）  
+变更范围：分组归档 + 双三态 + 递归结构锁 + host 409 守卫 + 控制 `group.archive` + 归档确认“不再提示”复选框/还原图标 + 19 语言 385 keys + QQ 二维码资产替换
+
+## 本轮自动门禁（2026-11-11，本地 Windows）
+
+- `npm run check:style`：**PASS**
+- `npm test`：**907/907 PASS**（0 failed / 0 skipped）
+- `npm run build`：**PASS**（`lib/client.js` 实际 627,655 bytes；构建日志打印的 620,092 是字符数；17 个 lazy locale chunks 483,462 bytes；版本戳 `0.4.0-beta.62`）
+- `npm run check:lib`：**PASS**
+- `node --check lib/client.js`：**PASS**
+- `npm run check:coverage`：**PASS**，all files **94.58% lines / 86.66% branches / 91.36% functions**（门禁 92/80/85；本次提交前最后实测；同批范围 94.53–94.58 / 86.58–86.66 / 91.22–91.36，属正常的每次运行波动）
+- `npm run check:ui`：**41/41 PASS**（1 module-load + 40 component tests，覆盖 18 components / 24 client modules）
+- `npm run check:release`：**PASS**（五处版本一致、release note 存在、bundle 版本戳、`package.json.files` 路径 26/26 存在）
+- `npm pack --dry-run`：**PASS**，**237 files**，package **829.1 kB**，unpacked **3.1 MB**（tarball `dsh-session-grove-0.4.0-beta.62.tgz`；合并批次新增了 feature 源码、ADR 与 release note，所以最终包大于 QR-only 估算的 704,553；dry-run 只记录实测 files/bytes，不把旧 QR-only 的 233/704,553 当硬断言；QR 净减 571,092 bytes 由两个资产的实际文件大小差证明）
+- locale：**385 keys × 19 dictionaries**（331 → 385，新增 54 个 key；13 个 CLDR 复数对象）
+- QR 资产：`assets/qrcode-qq-group.jpg` 480×855 真 JPEG、**40,272 bytes**、sha256 `A08F494F63D869389C1B70C31EEEBBF4426CC413E4587CCC4F6CF0083B8D003A`；旧 `assets/qrcode_1794236242994.jpg` 1284×2286 PNG 硬命名 `.jpg`、**611,364 bytes**；实际净减 **571,092 bytes**（−93.4%）。旧图已按用户授权走回收站删除（工作树记录 `D assets/qrcode_1794236242994.jpg`）；旧路径不再打包/引用。
+
+## 用户本地桌面验收（2026-11-11）
+
+用户在本地桌面宿主验收以下 UI 补丁项，均 **PASS**：
+
+- 分组归档确认 checkbox（默认关闭的“不再提示”）
+- “恢复默认显示”（含清 skip：重置布局会清掉已持久化的 opt-out）
+- restore 图标（compact circular reset glyph / 候选 B）
+- 16px 徽标（group archived lock / contains-archived）
+
+以上只覆盖这 4 个 UI 补丁项；**完整 A+ / locale sweeps 仍 manual pending**，不构成 `.62` A+ 通过结论。
+
+## 本轮手工待跑（不得写成已通过）
+
+- `npm run test:isolated`：**manual pending**（`.62` 未跑）
+- `npm run test:ui-browser`：**manual pending**
+- `npm run test:locale-pack`：**manual pending**（385-key 字典）
+- `npm run test:all-locales`：**manual pending**（385-key 字典/19 语言）
+- 完整 A+ 视觉验收：**manual pending**（关注归档组 `.62` 变暗、pathOnly、disabled `+` 的 ~.28 有效透明度、RTL 徽标/锁语序；2026-11-11 用户桌面验收只覆盖上文 4 个 UI 补丁项，不是 A+）
+
+最近一轮真实宿主证据仍是 `.61`（2026-11-10）：community 隔离宿主跑 `test:isolated`、`test:ui-browser`、`test:locale-pack`、`test:all-locales` 23/23（331 keys）；official A+ O 隔离宿主只跑 `test:isolated` + `test:ui-browser`，locale-pack / all-locales 是 community 宿主上的独立手工证据，不属于 official A+ O。见 `docs/TEST-MATRIX.md` 的 Historical 小节；那些数字不属于 `.62`。
+
+## 0.4.0-beta.13 历史快照
 
 日期：2026-11-05  
 版本：`0.4.0-beta.13`  

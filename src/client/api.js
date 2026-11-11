@@ -72,8 +72,8 @@ const classifyStatus = (status) => {
 
 /**
  * Host error bodies carry profile/recovery context the shell needs (active id,
- * health, stale revisions). Pass the stable fields through instead of dropping
- * them with the generic `code`/`message` mapping.
+ * health, stale revisions) plus the archive-freeze target (`groupId`/`field`)
+ * the dialog/optimistic layers localize (0.4.0-beta.62 §6.4).
  */
 const ERROR_DETAIL_FIELDS = Object.freeze([
   'activeId',
@@ -83,6 +83,8 @@ const ERROR_DETAIL_FIELDS = Object.freeze([
   'health',
   'profileId',
   'reason',
+  'groupId',
+  'field',
   'unarchivedCount',
   'version',
 ])

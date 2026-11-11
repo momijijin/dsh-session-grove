@@ -24,11 +24,13 @@ DSH 的 plugin client 是 **单个客户端 bundle**，没有为插件准备 `#i
 ```text
 主支持：@deepseek-ai/dsh 0.2.1-rc.2 / 0.2.1-rc.5
 插件 engines.dsh: >=0.2.0-rc.2 <0.3.0
+当前 dev 树：0.4.0-beta.62（未发布；最近发布为 0.4.0-beta.61，2026-11-10）
 
-已验证（最新一轮 community A+：0.4.0-beta.59；official A+ O：0.4.0-beta.60，profile 全量 PASS）：
+已验证（最新一轮 community A+：0.4.0-beta.61；official A+ O：0.4.0-beta.61；
+0.4.0-beta.62 的 A+ 为手工待跑）：
   community DSH Desktop Stable 2.0.18 (anywhere-labs) / DSH 0.2.1-rc.2
-  official DeepSeek Harness desktop 0.2.1.0 / DSH 0.2.1-rc.5
-    （官方 bundle DSH host/core 隔离 A+ + 维护者桌面窗口验收）
+  official DeepSeek Harness desktop 0.2.2.0 / DSH 0.2.2-rc.1
+    （官方 bundle DSH host/core 隔离 A+；0.4.0-beta.60 在 0.2.1.0 / rc.5 上另含维护者桌面窗口验收）
 
 明确不官方支持、不承诺兼容：
   community DSH Desktop Beta
@@ -44,11 +46,24 @@ DSH 的 plugin client 是 **单个客户端 bundle**，没有为插件准备 `#i
 | 桌面端/通道 | 支持状态 | 内置 DSH | 是否发布门禁 |
 |---|---|---|---|
 | community DSH Desktop Stable 2.0.18（anywhere-labs） | 支持；已验证 | `@deepseek-ai/dsh` 0.2.1-rc.2 | 是 |
-| official DeepSeek Harness desktop 0.2.1.0 | 支持；已验证（隔离 A+ + 桌面窗口验收） | `@deepseek-ai/dsh` 0.2.1-rc.5 | 是 |
+| official DeepSeek Harness desktop 0.2.2.0 | 支持；已验证（隔离 A+；`.60` 的 0.2.1.0 另含桌面窗口验收） | `@deepseek-ai/dsh` 0.2.2-rc.1 | 是 |
 | community DSH Desktop Beta (`DSH Desktop Beta`, `.dsh-beta`) | **不支持；不承诺兼容** | 可能不同 | 否 |
 | community DSH NEXT (`DSH NEXT`, `-next`) | **不支持；不承诺兼容** | 可能不同 | 否 |
 
-官方 rc.5 验证覆盖官方 bundle 的 DSH host/core 隔离 A+（`0.4.0-beta.60`：`test:isolated` + `test:ui-browser` 的 profile 全量路径 PASS，2026-11-10），并在已安装桌面 profile 完成维护者验收；不代表官方桌面 profile 内所有第三方插件组合都已认证。rc.5 启动时可能记录一次 client `sessions service` 能力警告，但会话创建、分组与 A+ 全量路径均已通过；插件优先使用 `sessions.create`，并保留 rc.2 的 `startSession`/快照差分/`connectWorkspace` fallback。A+ 与 all-locales 都是手工本地证据：all-locales / locale-pack 最新仍为 `0.4.0-beta.59` 的 23/23（331 locale keys），`.60` 未复跑。
+官方 A+ O 验证覆盖官方 bundle 的 DSH host/core 隔离 A+（`0.4.0-beta.60` 在 official 0.2.1.0 / DSH `0.2.1-rc.5` 上完成 `test:isolated` + `test:ui-browser` 的 profile 全量路径 PASS，2026-11-10；`0.4.0-beta.61` 又在 official 0.2.2.0 / DSH `0.2.2-rc.1` 隔离宿主复跑 `test:isolated` + `test:ui-browser` PASS）；`.60` 另在已安装桌面 profile 完成维护者验收；不代表官方桌面 profile 内所有第三方插件组合都已认证。`.60` 的 rc.5 宿主启动时可能记录一次 client `sessions service` 能力警告，但会话创建、分组与 A+ 全量路径均已通过；插件优先使用 `sessions.create`，并保留 rc.2 的 `startSession`/快照差分/`connectWorkspace` fallback。A+ 与 all-locales 都是手工本地证据：all-locales / locale-pack 最近一次是 `0.4.0-beta.61` 的 23/23（331 locale keys，community 宿主；与 official A+ O 的 `.61` 隔离运行相互独立）；`.62` 新增 54 个 key（共 385）后尚未复跑，属于手工待跑，不得写成已通过。
+
+## 分组归档字段兼容（0.4.0-beta.62）
+
+分组级 `archived` 是 `DOC_VERSION` 1 的 additive 字段，不做版本升级、不迁移：
+
+- **旧文档**：缺少 `archived` 读取为 `false`，不报错、不拒绝、不触发 quarantine。
+- **旧客户端 + 新 host**：旧客户端序列化整份 doc 时不带 `archived`；`store.commit` 在锁内按 group id 从 current doc 继承该 flag（显式 `true/false` 优先，新组按 `false`），所以旧客户端不会意外把归档组变回未归档。若旧客户端尝试改归档子树的结构，host 的 before-state 不变量会返回 409 `archive-frozen`（`reason` 为 `group-archived` 等），不写入、不 bump revision；旧客户端可能只显示泛化错误，这是可接受降级。
+- **新客户端 + 旧 host**：旧 host 忽略 `archived` 且没有结构守卫；该字段通常随整份 doc 保留。客户端的 mutator 守卫仍在，但跨窗口/裸 HTTP 的权威兜底不存在——升级 host 后恢复。
+- **备份 / save**：`save()` 新建 profile 没有 current doc，缺失按 `false`；备份恢复路径按备份内容原样写回，可能回到归档前状态，这是恢复语义例外。
+- **降级 caveat**：从 `.62` 回退到旧版本时，`archived` 字段留在 JSON 中但旧版本不展示归档态、也不执行结构锁；重新升级后自动恢复，无需迁移。`DOC_VERSION` 始终为 1，旧版本不会因新字段拒绝文档。
+- **控制协议**：`group.archive` 是独立操作；归档状态冲突返回 409，schema/类型错误仍是 422；批量操作顺序执行后以原始 doc 做整批终校验。
+
+`docs/CONTRACTS.md` 是 frozen 历史契约，其中“Doc stores no … archive flags”指的是会话归档 flag 由 host 持有；分组级 `archived` 由 [ADR-004](adr/0004-group-archive-freeze.md) 记录为 additive extension，不改该文件。
 
 Beta 和 NEXT 是社区自己的实验通道。即使插件在某个 Beta/NEXT 构建里能加载，也不构成兼容承诺，不能替代 Stable 或官方桌面版的回归。
 
@@ -125,7 +140,7 @@ dsh-0.2  >=0.2.0-rc.2 <0.3.0
 
 ## 为什么优先能力检测
 
-- 目前 community Stable 与 official 两个桌面族都已有隔离实例证据（最新一轮 community A+ 为 `0.4.0-beta.59`，official A+ O 为 `0.4.0-beta.60`）；仍不为“壳名”写死版本分支，写死分支等于发布未测试代码。
+- 目前 community Stable 与 official 两个桌面族都已有隔离实例证据（最新一轮 community A+ 为 `0.4.0-beta.61`，official A+ O 也为 `0.4.0-beta.61`；`.62` 的 A+ 仍为手工待跑）；仍不为“壳名”写死版本分支，写死分支等于发布未测试代码。
 - DSH 的扩展点本身是 service/slot 组合，能力检测比版本判断更精确。
 - 插件管理器已经承担版本范围拒绝；插件内部重复版本判断会制造双重真相源。
 
@@ -156,10 +171,10 @@ dsh-0.2  >=0.2.0-rc.2 <0.3.0
 ```text
 npm ci
 语法检查
-699 项单元/契约测试（v0.4.0-beta.60 发布基线；v0.4.0-beta.59 发布时为 529）
+907 项单元/契约测试（0.4.0-beta.62 dev 树；0.4.0-beta.61 dev 树为 726；v0.4.0-beta.60 发布基线为 699；v0.4.0-beta.59 发布时为 529）
 客户端构建
 coverage gate
-UI runtime smoke
+UI runtime smoke（41 cases）
 npm pack --dry-run
 ```
 

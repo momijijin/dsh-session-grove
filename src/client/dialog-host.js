@@ -4,7 +4,7 @@
  */
 import { createElement, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { clientRuntime as rt } from '../adapters/client-runtime.js'
-import { deleteGroupOptions, dialogConfirmPayload, findGroupsFlat, initialDialogSelection, isSelectionDialog, moveGroupOptions, selectionIsValid } from '../core/dialog-selection.js'
+import { deleteGroupDestinationVerdict, deleteGroupOptions, dialogConfirmPayload, initialDialogSelection, isArchiveErrorCode, isSelectionDialog, moveGroupOptions, moveSessionOptions, selectionIsValid } from '../core/dialog-selection.js'
 import { GROUP_COLORS, GROUP_COLOR_HEX, MAX_GROUP_NAME, PLUGIN_VERSION } from '../shared/constants.js'
 import { isColorHex, normalizeColorHex } from '../shared/model.js'
 import { formatActivity } from './actions.js'
@@ -27,6 +27,23 @@ const h = createElement
 const dispatch = (action, payload) => rt()?.store.dispatch(action, payload)
 const focusableSelector =
   'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+
+/**
+ * Copy keys for the 0.4.0-beta.62 archive dialogs and disabled destinations
+ * (resources ship in P10). Computed maps keep the i18n literal-key guard green.
+ */
+const DIALOG_KEYS = Object.freeze({
+  archiveBody: 'dialog.archiveGroupBody',
+  archiveConfirm: 'dialog.archiveGroupConfirm',
+})
+
+const DESTINATION_REASON_KEYS = Object.freeze({
+  'group-archived': 'dialog.destinationArchived',
+  'group-contains-archived': 'dialog.destinationArchived',
+  'group-destination-archived': 'dialog.destinationArchived',
+  'group-position-locked': 'dialog.groupPositionLocked',
+})
+const DEFAULT_DESTINATION_REASON_KEY = 'dialog.destinationArchived'
 
 const focusableIn = (element) =>
   Array.from(element?.querySelectorAll?.(focusableSelector) ?? []).filter(
@@ -54,6 +71,9 @@ export const DialogHost = ({ store, props, sessionsById }) => {
   const [selection, setSelection] = useState(undefined)
   const [hexInput, setHexInput] = useState('')
   const [profileBusy, setProfileBusy] = useState(false)
+  // Archive-group "don't ask again" checkbox: unchecked on every open, and only
+  // the archive-group confirm payload carries it (other dialogs are untouched).
+  const [dontAskAgain, setDontAskAgain] = useState(false)
   // Re-seed the local form state only when the edited target changes; an inline
   // error dispatch replaces the descriptor object but must keep the typed value.
   const dialogSeedRef = useRef(null)
@@ -391,6 +411,8 @@ export const DialogHost = ({ store, props, sessionsById }) => {
     // A new dialog/edit target starts a fresh request slot for the profile
     // footer's loading guard; an inline error on the same target keeps it.
     setProfileBusy(false)
+    // The archive opt-out is per confirmation, never sticky across dialogs.
+    setDontAskAgain(false)
     // Every selection dialog opens with a visible current/inferred highlight;
     // when nothing usable exists Confirm stays disabled until the user picks.
     const initial = dialog ? initialDialogSelection(dialog, store.doc) : undefined
@@ -480,6 +502,11 @@ export const DialogHost = ({ store, props, sessionsById }) => {
   if (profileBody !== null) bodyNodes.push(profileBody)
   if (dialog.kind === 'delete-group') {
     const options = deleteGroupOptions(store.doc, dialog.groupId)
+    // N5: the implicit root/ungrouped destination is validated with the same
+    // candidate-document invariant; a frozen-anchor shift disables it instead of
+    // silently relocating elsewhere.
+    const rootVerdict = deleteGroupDestinationVerdict(store.doc, dialog.groupId, null)
+    const rootDisabled = !rootVerdict.ok && isArchiveErrorCode(rootVerdict.reason)
     bodyNodes.push(
       h(
         'div',
@@ -511,13 +538,41 @@ export const DialogHost = ({ store, props, sessionsById }) => {
         onSelect: setSelection,
         rootLabel: t('dialog.rootDestination'),
         ariaLabel: t('dialog.deleteDestination'),
+        rootDisabled,
+        rootReason: rootDisabled
+          ? DESTINATION_REASON_KEYS[rootVerdict.reason] ?? DEFAULT_DESTINATION_REASON_KEY
+          : null,
         testId: 'session-groups-dialog-delete-options',
       })
     )
   }
+  if (dialog.kind === 'archive-group') {
+    bodyNodes.push(
+      h(
+        'div',
+        { class: 'dsg-dialog-body', 'data-testid': 'session-groups-dialog-archive-body' },
+        t(DIALOG_KEYS.archiveBody)
+      )
+    )
+    // Footer-level opt-out: checked means "skip the confirm next time", and only
+    // a successful archive persists it (cancel/failure leave storage untouched).
+    bodyNodes.push(
+      h(
+        'label',
+        { class: 'dsg-dialog-check' },
+        h('input', {
+          type: 'checkbox',
+          checked: dontAskAgain,
+          'data-testid': 'session-groups-dialog-archive-dont-ask',
+          onChange: (event) => setDontAskAgain(event.target.checked === true),
+        }),
+        h('span', { class: 'dsg-dialog-check-label' }, t('dialog.archiveGroupDontAsk'))
+      )
+    )
+  }
   if (dialog.kind === 'archive-running') bodyNodes.push(h('div', { class: 'dsg-dialog-body' }, t('dialog.archiveRunningBody', { families: formatActivity(dialog.activity) })))
   if (dialog.kind === 'move-session' || dialog.kind === 'move-group') {
-    const options = dialog.kind === 'move-group' ? moveGroupOptions(store.doc, dialog.groupId) : findGroupsFlat(store.doc)
+    const options = dialog.kind === 'move-group' ? moveGroupOptions(store.doc, dialog.groupId) : moveSessionOptions(store.doc)
     bodyNodes.push(h(GroupListPicker, {
       options,
       selection,
@@ -712,6 +767,13 @@ export const DialogHost = ({ store, props, sessionsById }) => {
   const selectable = isSelectionDialog(dialog.kind)
   const danger = dialog.kind === 'delete-group' || dialog.kind === 'archive-running'
   const canConfirm = needsInput ? value.trim().length > 0 : selectable ? selectionIsValid(dialog, selection, store.doc) : true
+  // Footer copy: delete keeps "Move and delete", archive-running keeps
+  // "Stop and archive", the new archive-group confirm names its action.
+  const confirmLabel = danger
+    ? (dialog.kind === 'delete-group' ? t('dialog.moveAndDelete') : t('dialog.stopAndArchive'))
+    : dialog.kind === 'archive-group'
+      ? t(DIALOG_KEYS.archiveConfirm)
+      : t('dialog.confirm')
   // SPEC §9.4/§9.5 footer: Create/Rename/Archive carry the request loading guard
   // and the client-side name error; none of them is the initial focus target.
   const runProfileAction = async () => {
@@ -846,9 +908,17 @@ export const DialogHost = ({ store, props, sessionsById }) => {
                   'data-variant': danger ? 'danger' : 'primary',
                   disabled: !canConfirm,
                   onClick: () =>
-                    confirm(needsInput ? { value: value.trim() } : selectable ? dialogConfirmPayload(dialog, selection) : {}),
+                    confirm(
+                      needsInput
+                        ? { value: value.trim() }
+                        : selectable
+                          ? dialogConfirmPayload(dialog, selection)
+                          : dialog.kind === 'archive-group'
+                            ? { dontAskAgain }
+                            : {}
+                    ),
                 },
-                danger ? (dialog.kind === 'delete-group' ? t('dialog.moveAndDelete') : t('dialog.stopAndArchive')) : t('dialog.confirm')
+                confirmLabel
               ),
             ])
       ),

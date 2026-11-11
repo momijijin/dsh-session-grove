@@ -21,38 +21,97 @@ import { ProfileMenu, ProfileRecovery } from './profile-switcher.js'
 
 const h = createElement
 
-const ArchiveFilterPopover = ({ filter, t, onPick, onResetLayout }) =>
+/**
+ * View-options popover (0.4.0-beta.62 §10): two independent archive tri-states.
+ * The session segment keeps the shipped `archive.*` copy/testid; the group
+ * segment adds `archive.group.*` keys (resources ship in P10). Picking an option
+ * keeps the popover open so both segments can be set in one visit; only the
+ * explicit reset-layout action (and outside/Escape/button toggles) closes it.
+ */
+const GROUP_ARCHIVE_FILTER_LABEL_KEYS = Object.freeze({
+  hidden: 'archive.group.hidden',
+  all: 'archive.group.all',
+  only: 'archive.group.only',
+})
+
+/** Section headings inside the view-options popover (resources ship in P10). */
+const ARCHIVE_SECTION_LABEL_KEYS = Object.freeze({
+  sessions: 'archive.section.sessions',
+  groups: 'archive.section.groups',
+})
+
+const ArchiveFilterPopover = ({ filter, groupFilter, t, onPick, onPickGroup, onResetLayout }) =>
   h(
     'div',
     {
       class: 'dsg-view-options-popover',
       role: 'menu',
       'data-testid': 'session-groups-view-options-popover',
-      'aria-label': t('archive.label'),
+      'aria-label': t('view.options'),
       onClick: (event) => event.stopPropagation(),
     },
-    ...ARCHIVE_FILTERS.map((value) => {
-      const active = value === filter
-      return h(
-        'button',
-        {
-          key: value,
-          type: 'button',
-          role: 'menuitemradio',
-          'aria-checked': active ? 'true' : 'false',
-          class: 'dsg-menu-item dsg-view-option',
-          'data-testid': 'session-groups-archive-filter',
-          'data-filter': value,
-          'data-active': active ? 'true' : 'false',
-          onClick: (event) => {
-            event.stopPropagation()
-            onPick(value)
+    h(
+      'div',
+      {
+        class: 'dsg-view-options-section',
+        role: 'group',
+        'aria-label': t(ARCHIVE_SECTION_LABEL_KEYS.sessions),
+      },
+      h('div', { class: 'dsg-view-options-section-title' }, t(ARCHIVE_SECTION_LABEL_KEYS.sessions)),
+      ...ARCHIVE_FILTERS.map((value) => {
+        const active = value === filter
+        return h(
+          'button',
+          {
+            key: value,
+            type: 'button',
+            role: 'menuitemradio',
+            'aria-checked': active ? 'true' : 'false',
+            class: 'dsg-menu-item dsg-view-option',
+            'data-testid': 'session-groups-archive-filter',
+            'data-filter': value,
+            'data-active': active ? 'true' : 'false',
+            onClick: (event) => {
+              event.stopPropagation()
+              onPick(value)
+            },
           },
-        },
-        h('span', { class: 'dsg-view-option-label' }, t(ARCHIVE_FILTER_LABEL_KEYS[value])),
-        h('span', { class: 'dsg-view-option-check', 'aria-hidden': 'true' }, active ? renderGlyph(h, 'check', 16) : null)
-      )
-    }),
+          h('span', { class: 'dsg-view-option-label' }, t(ARCHIVE_FILTER_LABEL_KEYS[value])),
+          h('span', { class: 'dsg-view-option-check', 'aria-hidden': 'true' }, active ? renderGlyph(h, 'check', 16) : null)
+        )
+      })
+    ),
+    h(
+      'div',
+      {
+        class: 'dsg-view-options-section',
+        role: 'group',
+        'aria-label': t(ARCHIVE_SECTION_LABEL_KEYS.groups),
+      },
+      h('div', { class: 'dsg-view-options-section-title' }, t(ARCHIVE_SECTION_LABEL_KEYS.groups)),
+      ...ARCHIVE_FILTERS.map((value) => {
+        const active = value === groupFilter
+        return h(
+          'button',
+          {
+            key: value,
+            type: 'button',
+            role: 'menuitemradio',
+            'aria-checked': active ? 'true' : 'false',
+            class: 'dsg-menu-item dsg-view-option',
+            'data-testid': 'session-groups-group-archive-filter',
+            'data-group-filter': value,
+            'data-active': active ? 'true' : 'false',
+            onClick: (event) => {
+              event.stopPropagation()
+              onPickGroup(value)
+            },
+          },
+          h('span', { class: 'dsg-view-option-label' }, t(GROUP_ARCHIVE_FILTER_LABEL_KEYS[value])),
+          h('span', { class: 'dsg-view-option-check', 'aria-hidden': 'true' }, active ? renderGlyph(h, 'check', 16) : null)
+        )
+      })
+    ),
     h('div', { class: 'dsg-view-options-divider' }),
     h(
       'button',
@@ -67,7 +126,9 @@ const ArchiveFilterPopover = ({ filter, t, onPick, onResetLayout }) =>
         },
       },
       h('span', { class: 'dsg-view-option-label' }, t('about.resetLayout')),
-      h('span', { class: 'dsg-view-option-check', 'aria-hidden': 'true' }, renderGlyph(h, 'refresh', 16))
+      // 0.4.0-beta.62 UI patch: a return arrow ("restore defaults") instead of
+      // the refresh/X-like glyph, so the row does not read as "reload".
+      h('span', { class: 'dsg-view-option-check', 'aria-hidden': 'true' }, renderGlyph(h, 'restore', 16))
     ),
     h(
       'div',
@@ -208,6 +269,8 @@ const Header = ({ store, handlers, sessionsById, workspaces, archivedSessionIds,
   diagRender('Header')
   const t = rt()?.t ?? ((key) => key)
   const filter = store.archiveFilter
+  // 0.4.0-beta.62 §4.1: the group tri-state is independent of the session one.
+  const groupFilter = store.groupArchiveFilter ?? 'hidden'
   const [searchOpen, setSearchOpen] = useState(false)
   const [optionsOpen, setOptionsOpen] = useState(false)
   // Profile switcher (SPEC §9.1/§9.2): the header owns the open flag so the
@@ -337,7 +400,7 @@ const Header = ({ store, handlers, sessionsById, workspaces, archivedSessionIds,
             testId: 'session-groups-view-options',
             expanded: optionsOpen,
             haspopup: 'menu',
-            data: { 'data-filter': filter },
+            data: { 'data-filter': filter, 'data-group-filter': groupFilter },
             onClick: () => {
               setProfileOpen(false)
               setOptionsOpen((open) => !open)
@@ -346,11 +409,13 @@ const Header = ({ store, handlers, sessionsById, workspaces, archivedSessionIds,
           optionsOpen
             ? h(ArchiveFilterPopover, {
                 filter,
+                groupFilter,
                 t,
-                onPick: (value) => {
-                  handlers.setArchiveFilter(value)
-                  setOptionsOpen(false)
-                },
+                onPick: (value) => handlers.setArchiveFilter(value),
+                // §10: keep the popover open so the second tri-state can be set
+                // in the same visit; the menu closes on outside/Escape/re-toggle
+                // or the explicit reset-layout action only.
+                onPickGroup: (value) => handlers.setGroupArchiveFilter(value),
                 onResetLayout: () => {
                   handlers.resetLayout()
                   setOptionsOpen(false)
