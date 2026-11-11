@@ -26,8 +26,8 @@ DSH 的 plugin client 是 **单个客户端 bundle**，没有为插件准备 `#i
 插件 engines.dsh: >=0.2.0-rc.2 <0.3.0
 当前 dev 树：0.4.0-beta.62（未发布；最近发布为 0.4.0-beta.61，2026-11-10）
 
-已验证（最新一轮 community A+：0.4.0-beta.61；official A+ O：0.4.0-beta.61；
-0.4.0-beta.62 的 A+ 为手工待跑）：
+已验证（最新一轮 community A+ C：0.4.0-beta.62（2026-11-11，四项手工门禁 PASS）；
+official A+ O：0.4.0-beta.61；0.4.0-beta.62 的 official A+ O 未重跑）：
   community DSH Desktop Stable 2.0.18 (anywhere-labs) / DSH 0.2.1-rc.2
   official DeepSeek Harness desktop 0.2.2.0 / DSH 0.2.2-rc.1
     （官方 bundle DSH host/core 隔离 A+；0.4.0-beta.60 在 0.2.1.0 / rc.5 上另含维护者桌面窗口验收）
@@ -50,7 +50,7 @@ DSH 的 plugin client 是 **单个客户端 bundle**，没有为插件准备 `#i
 | community DSH Desktop Beta (`DSH Desktop Beta`, `.dsh-beta`) | **不支持；不承诺兼容** | 可能不同 | 否 |
 | community DSH NEXT (`DSH NEXT`, `-next`) | **不支持；不承诺兼容** | 可能不同 | 否 |
 
-官方 A+ O 验证覆盖官方 bundle 的 DSH host/core 隔离 A+（`0.4.0-beta.60` 在 official 0.2.1.0 / DSH `0.2.1-rc.5` 上完成 `test:isolated` + `test:ui-browser` 的 profile 全量路径 PASS，2026-11-10；`0.4.0-beta.61` 又在 official 0.2.2.0 / DSH `0.2.2-rc.1` 隔离宿主复跑 `test:isolated` + `test:ui-browser` PASS）；`.60` 另在已安装桌面 profile 完成维护者验收；不代表官方桌面 profile 内所有第三方插件组合都已认证。`.60` 的 rc.5 宿主启动时可能记录一次 client `sessions service` 能力警告，但会话创建、分组与 A+ 全量路径均已通过；插件优先使用 `sessions.create`，并保留 rc.2 的 `startSession`/快照差分/`connectWorkspace` fallback。A+ 与 all-locales 都是手工本地证据：all-locales / locale-pack 最近一次是 `0.4.0-beta.61` 的 23/23（331 locale keys，community 宿主；与 official A+ O 的 `.61` 隔离运行相互独立）；`.62` 新增 54 个 key（共 385）后尚未复跑，属于手工待跑，不得写成已通过。
+官方 A+ O 验证覆盖官方 bundle 的 DSH host/core 隔离 A+（`0.4.0-beta.60` 在 official 0.2.1.0 / DSH `0.2.1-rc.5` 上完成 `test:isolated` + `test:ui-browser` 的 profile 全量路径 PASS，2026-11-10；`0.4.0-beta.61` 又在 official 0.2.2.0 / DSH `0.2.2-rc.1` 隔离宿主复跑 `test:isolated` + `test:ui-browser` PASS）；`.60` 另在已安装桌面 profile 完成维护者验收；不代表官方桌面 profile 内所有第三方插件组合都已认证。`.60` 的 rc.5 宿主启动时可能记录一次 client `sessions service` 能力警告，但会话创建、分组与 A+ 全量路径均已通过；插件优先使用 `sessions.create`，并保留 rc.2 的 `startSession`/快照差分/`connectWorkspace` fallback。A+ 与 all-locales 都是手工本地证据：`.62` 的 community A+ C 四项（`test:isolated`、`test:ui-browser`、`test:locale-pack`、`test:all-locales` 23/23，385 locale keys）已于 2026-11-11 在 community 隔离宿主 PASS，与 official A+ O 的 `.61` 隔离运行相互独立；`.62` 的 official A+ O **未重跑**，不得写成 official `.62` 已通过。
 
 ## 分组归档字段兼容（0.4.0-beta.62）
 
@@ -140,7 +140,7 @@ dsh-0.2  >=0.2.0-rc.2 <0.3.0
 
 ## 为什么优先能力检测
 
-- 目前 community Stable 与 official 两个桌面族都已有隔离实例证据（最新一轮 community A+ 为 `0.4.0-beta.61`，official A+ O 也为 `0.4.0-beta.61`；`.62` 的 A+ 仍为手工待跑）；仍不为“壳名”写死版本分支，写死分支等于发布未测试代码。
+- 目前 community Stable 与 official 两个桌面族都已有隔离实例证据（最新一轮 community A+ C 为 `0.4.0-beta.62`，2026-11-11 四项 PASS；official A+ O 为 `0.4.0-beta.61`；`.62` 的 official A+ O 未重跑）；仍不为“壳名”写死版本分支，写死分支等于发布未测试代码。
 - DSH 的扩展点本身是 service/slot 组合，能力检测比版本判断更精确。
 - 插件管理器已经承担版本范围拒绝；插件内部重复版本判断会制造双重真相源。
 
