@@ -9,18 +9,27 @@ A free-form grouping layer over the shipped DSH Desktop workspace/session sideba
 - session titles and archive state change only through explicit user actions or the opt-in `controlSessions` API;
 - `workspace.json` is never written.
 
-Current version: **0.4.0-beta.62**  
+Current version: **0.4.0-beta.63**  
 Primary support: **DSH core/API `@deepseek-ai/dsh` 0.2.1-rc.2 and 0.2.1-rc.5** (`engines.dsh: >=0.2.0-rc.2 <0.3.0`)  
 Verified shells: **community DSH Desktop Stable 2.0.18** (rc.2) and **official DeepSeek Harness desktop 0.2.2.0** (rc.1, isolated runtime A+)  
 Not supported or promised: **community DSH Desktop Beta** and **community DSH NEXT (`-next` channel)**
 
-Distribution: `0.4.0-beta.61` is the latest published release (2026-11-10; GitHub Release assets: `.tgz` + `SHA256SUMS`, two assets); `0.4.0-beta.60` (2026-11-10) is the previous release and is listed in **dshmarket**. The GitHub Release assets and the local tarball are maintainer/debug paths. Multiple group profiles and the profile switch-preview layout fix shipped in `.60`, and the module split shipped in `.61`; `.62` (group archive) is an unreleased `dev` batch, so the **Current version** line above names the dev tree, not a published release.
+Distribution: `0.4.0-beta.62` is the latest published release (2026-11-11; GitHub Release assets: `.tgz` + `SHA256SUMS`, two assets); `0.4.0-beta.61` (2026-11-10) is the previous release and is listed in **dshmarket**. The GitHub Release assets and the local tarball are maintainer/debug paths. Group archive shipped in `.62`; `.63` (first-run guide) is an unreleased `dev` batch, so the **Current version** line above names the dev tree, not a published release.
 
 Localization: **English, Chinese, Japanese, Korean, German, French, Spanish, Brazilian Portuguese, Italian, Dutch, Polish, Turkish, Vietnamese, Thai, Indonesian, Russian, Hindi, Traditional Chinese and Arabic** dictionaries are packaged. Locale ids resolve by base language (`ja-JP` → `ja`, `zh-Hant`/`zh-TW` → `zh-Hant`, `pt-BR` → `pt`); unsupported languages fall back to English. Arabic switches the plugin root to RTL and includes the core list/header/dialog RTL overrides. Session count and expand labels use CLDR plural templates. The profile switcher, switch preview and management dialogs are localized in all 19 dictionaries. The plugin registers every dictionary with the host, but does not add languages to the host catalog itself.
 
 Dependency policy: official `@deepseek-ai/*` runtime packages are declared as `peerDependencies`; the DSH host supplies them instead of the plugin bundling a duplicate copy.
 
 See [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) for the support contract, the `engines.dsh` range, the `dsh-0.2` adapter selector and runtime capability checks.
+
+### Quick start
+
+1. Install `dsh-session-grove` from **dshmarket** and restart DSH Desktop if the host asks for it.
+2. Open the **Free Groups** view from the grid icon in the sidebar header. On the first launch the icon also shows a one-time hint that explains what the view is.
+3. Create a group, then drag sessions from any workspace into it. Drag group headers to reorder or nest them.
+4. Drag a session out of a group to return it to the ungrouped list.
+
+Assigning a session to a group never changes its official workspace, its log or `workspace.json`; it only changes where the session appears in the Free Groups view. The first visit shows a one-time card with the same steps and a **Full guide** link back to this README.
 
 ### Platform support
 
@@ -131,7 +140,12 @@ Running / waiting / unread are mutually exclusive primary states; background job
 
 ### First run
 
-A one-time card explains that groups only change display placement and how to create groups and drag sessions. The card can be dismissed and its state is stored in `localStorage`. When there are no groups and no sessions, an empty-state action creates the first group.
+First-run guidance is a three-stop funnel, not a bundled tour:
+
+- **Entry**: on the first launch the workspace-header grid icon carries a dot and a one-time hint that explains what the view is and that it does not change official membership. Entering the view through the hint or the icon retires it (`localStorage`, `dsh-session-grove.entry.v1`).
+- **First visit**: with no groups, the one-time card *is* the empty state — **new group**, **full guide** (README link) and **dismiss**. With data present it stays a compact note at the top.
+- **In place**: the archive tri-states, the three status popovers, session fork and group archive each explain themselves where they are used.
+- The **full guide** link opens this README (`README.zh.md` on Chinese hosts); long-form docs never enter the package.
 
 ### View options
 
@@ -378,7 +392,7 @@ Only while `diagnostics` is on. It contains drag events, ids and timings, never 
 - dialog move/resize has keyboard support; a full automated axe/contrast audit and keyboard drag for the whole tree remain deferred;
 - writes use an in-process queue plus a short-lived `<record>.lock` file for cross-process serialization; stale locks are reclaimed after the owner PID dies or the lock is 30 seconds old;
 - large-list lazy rendering remains deferred; the current Ungrouped list is virtualized, but a collapsed subtree is still built by `buildRenderTree`;
-- the `0.4.0-beta.62` dev tree was validated with **907 unit/contract tests + 41 UI runtime cases + 1 browser runtime spec** and 385 locale keys (`.61` dev tree: 726 + 39; `.60` release: 699 + 39; `.59`: 529 + 15); manual evidence is not a per-candidate CI artifact: the `.62` **community A+ C** run passed on 2026-11-11 (community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2` isolated host; `.62` tarball 829,055 bytes, sha256 `47DFB392…11B34`): `test:isolated` PASS (preview geometry dialog 560×560px, narrow sidebar 252px, body scroll 3659>466px, row gaps [0,0,0]), `test:ui-browser` PASS on a fresh host (`executedRatio` 1), `test:locale-pack` PASS and `test:all-locales` PASS 23/23 (19 languages + aliases, 385 keys). `test:ui-browser` needs a fresh isolated host: the first attempt reused the host right after `test:isolated`, hit the 20-profile limit and disabled Save-as (host state, not a code failure). **Official A+ O was not re-run for `.62`** — the latest official evidence is the 2026-11-10 `.61` run (official 0.2.2.0 / DSH `0.2.2-rc.1`: `test:isolated` PASS, `test:ui-browser` at `executedRatio` 1); no official `.62` or group-archive A+ claim is made. The `.62` group-archive A+ flows live in the historical manual `e2e/groups.spec.mjs` (updated in this batch but not run), while the default scripted A+ is `e2e/isolated.spec.mjs` (run manually against an isolated host, not in CI); see [docs/TEST-MATRIX.md](docs/TEST-MATRIX.md). `npm run check:release` is the release-workflow-enforced structural release gate (version consistency, tag match, release note, bundle stamp, packaged paths); A+ and all-locales runs are manual local evidence, not CI artifacts.
+- the `0.4.0-beta.63` dev tree was validated with **914 unit/contract tests + 41 UI runtime cases + 1 browser runtime spec** and **394 locale keys** (`.62` dev tree: 907 + 41 + 385; `.61` dev tree: 726 + 39; `.60` release: 699 + 39; `.59`: 529 + 15); the `.63` `test:isolated` A+ C run **passed on 2026-11-11** on a community isolated host (new test home, port <ephemeral>, `.63` tarball), covering the new entry-hint/onboarding assertions plus the full existing regression; `test:ui-browser` (fresh host) and the locale sweeps were **not** run for `.63` and are not claimed. Historical manual evidence is not a per-candidate CI artifact: the `.62` **community A+ C** run passed on 2026-11-11 (community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2` isolated host; `.62` tarball 829,055 bytes, sha256 `47DFB392…11B34`): `test:isolated` PASS (preview geometry dialog 560×560px, narrow sidebar 252px, body scroll 3659>466px, row gaps [0,0,0]), `test:ui-browser` PASS on a fresh host (`executedRatio` 1), `test:locale-pack` PASS and `test:all-locales` PASS 23/23 (19 languages + aliases, 385 keys). `test:ui-browser` needs a fresh isolated host: the first attempt reused the host right after `test:isolated`, hit the 20-profile limit and disabled Save-as (host state, not a code failure). **Official A+ O was not re-run for `.62`** — the latest official evidence is the 2026-11-10 `.61` run (official 0.2.2.0 / DSH `0.2.2-rc.1`: `test:isolated` PASS, `test:ui-browser` at `executedRatio` 1); no official `.62` or group-archive A+ claim is made. The `.62` group-archive A+ flows live in the historical manual `e2e/groups.spec.mjs` (updated in the `.62` batch but not run), while the default scripted A+ is `e2e/isolated.spec.mjs` (run manually against an isolated host, not in CI); the `.63` batch updates that script for the entry hint and onboarding copy, but its run is manual local evidence too. See [docs/TEST-MATRIX.md](docs/TEST-MATRIX.md). `npm run check:release` is the release-workflow-enforced structural release gate (version consistency, tag match, release note, bundle stamp, packaged paths); A+ and all-locales runs are manual local evidence, not CI artifacts.
 
 ## Documentation
 
@@ -426,7 +440,7 @@ installing it.
 - `scripts/qa/lifecycle-isolated.ps1`: isolated install → uninstall → reinstall with record hash preservation;
 - `scripts/qa/start-isolated-web.ps1` + `npm run test:isolated`: A+ isolated Playwright smoke, including two-window concurrent CAS and the profile create/switch/preview/save-as/rename/archive/limit flow plus returning to the default profile (manual local evidence; the release workflow does not run it); the unhealthy-active recovery strip is not covered by this script and remains manual/pending;
 - build artifact: `lib/client.js`;
-- package: `dsh-session-grove-0.4.0-beta.62.tgz`;
+- package: `dsh-session-grove-0.4.0-beta.63.tgz`;
 - release steps: `docs/RELEASE.md`;
 - local test results and the historical `0.4.0-beta.13` snapshot: `docs/TEST-RESULTS.md` (current status is `docs/TEST-MATRIX.md`).
 

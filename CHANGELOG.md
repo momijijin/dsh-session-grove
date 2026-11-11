@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.0-beta.63 (first-run guide, 2026-11-11)
+
+Unreleased `dev` batch. The latest published release is `0.4.0-beta.62` (2026-11-11; GitHub Release assets: `.tgz` + `SHA256SUMS`, two assets).
+
+### First-run funnel
+
+- Added a one-time entry hint on the workspace-header toggle: a dot badge plus a small anchored coach mark (plain DOM, like the toggle itself) that explains the non-destructive layer before the user has opened the groups view. Dismissal persists under the new key `dsh-session-grove.entry.v1`; entering the view through the toggle or the hint's primary action also retires it. The bubble anchors to the plugin's own fixed button (never host DOM), clamps to the viewport and positions in RTL.
+- The one-time onboarding card is now action-first: one sentence about the layer, then **new group**, **full guide** (external README link) and **dismiss**. The long-form reference stays external; the package bundles no onboarding prose beyond the localized one-liners. `DOCS_BASE_URL` plus the runtime locale id choose `README.zh.md` for `zh*` hosts and `README.md` otherwise.
+- The card is the genuine empty state: a truly empty tree renders it in place of the plain empty state; with data present it stays a compact note at the top. Archive-filter empty states keep their own copy and actions.
+
+### In-place hints
+
+- View options: one muted line under the two archive tri-states explains that filters only change what is shown and that archiving a group locks its structure without archiving its sessions.
+- Status popovers: one line notes that running / waiting / unread are exclusive and exclude background jobs.
+- Session menu: the fork row carries a `title` describing the fork point and child placement; a locked row keeps its disabled reason instead.
+- Group menu: the archive row carries a `title` describing the structure lock and that sessions stay open; locked rows keep their own reason.
+
+### i18n and data
+
+- 385 → 394 keys in all 19 dictionaries: nine new keys (`entry.title/body/primary/dismiss`, `onboarding.docs`, `archive.hint`, `group.archiveHint`, `status.hint`, `session.forkHint`) and a shorter `onboarding.title`/`onboarding.body` in every dictionary. Structural parity remains enforced by `npm test`.
+- No document schema change: `DOC_VERSION` stays 1, no new fields, no migration. The only new persisted value is the browser-local entry-hint key.
+
+### Verification
+
+- Unit/contract **914/914 PASS**; UI runtime **41/41 PASS**; `check:style` **PASS**; build **PASS** (`lib/client.js` 638,346 bytes on disk — the build log's 630,577 is its character count — plus 17 lazy locale chunks 494,363 bytes, version stamp `0.4.0-beta.63`); `check:lib` **PASS**; `node --check lib/client.js` **PASS**; coverage **PASS 95.19% lines / 86.07% branches / 91.40% functions** (gates 92/80/85); `check:release` **PASS**; `npm pack --dry-run` **PASS** (**238 files**, package **848.8 kB**, unpacked **3.2 MB**).
+- Community isolated A+ C (partial): `test:isolated` **PASS** (exit 0) on 2026-11-11, community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2` isolated host (new test home, port <ephemeral>, `.63` tarball), including the new entry-hint / onboarding assertions plus the full existing regression. `test:ui-browser` (fresh host) and the locale sweeps were **not** run for `.63`.
+- User desktop acceptance: pending; the checklist is recorded in [docs/TEST-RESULTS.md](docs/TEST-RESULTS.md).
+
 ## 0.4.0-beta.62 (group archive, 2026-11-11)
 
 Unreleased `dev` batch. The latest published release is `0.4.0-beta.61` (2026-11-10; GitHub Release assets: `.tgz` + `SHA256SUMS`, two assets).

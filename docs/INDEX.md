@@ -2,11 +2,11 @@
 
 ## Current documentation
 
-Use these for the current `0.4.0-beta.62` codebase (unreleased `dev` batch;
-the latest published release is `v0.4.0-beta.61`, 2026-11-10, two GitHub
-Release assets). `.61` shipped the module split; `.62`
-adds group archive, the second view-options tri-state and the recursive
-structural lock:
+Use these for the current `0.4.0-beta.63` codebase (unreleased `dev` batch;
+the latest published release is `v0.4.0-beta.62`, 2026-11-11, two GitHub
+Release assets). `.62` shipped group archive, the second view-options tri-state
+and the recursive structural lock; `.63` adds the first-run funnel (entry hint
++ action-first onboarding card) and four in-place hints:
 
 - [README](../README.md) — English default
 - [README.zh.md](../README.zh.md) — Chinese
