@@ -17,7 +17,7 @@
 - `npm run check:coverage`：**PASS**，all files **95.19% lines / 86.07% branches / 91.40% functions**（门禁 92/80/85）
 - `npm run check:ui`：**41/41 PASS**（1 module-load + 40 component tests，覆盖 18 components / 24 client modules）
 - `npm run check:release`：**PASS**（五处版本一致、release note 存在、bundle 版本戳、`package.json.files` 路径 26/26 存在）
-- `npm pack --dry-run`：**PASS**，**238 files**，package **848.8 kB**，unpacked **3.2 MB**（tarball `dsh-session-grove-0.4.0-beta.63.tgz`；增量来自入口提示/说明卡源码、9 个新 locale key × 19 与 release note；dry-run 不修改仓库）
+- `npm pack --dry-run`：**PASS**，**238 files**，package **850.6 kB**，unpacked **3.2 MB**（tarball `dsh-session-grove-0.4.0-beta.63.tgz`；增量来自入口提示/说明卡源码、9 个新 locale key × 19 与 release note；dry-run 不修改仓库）
 - locale：**394 keys × 19 dictionaries**（385 → 394，新增 9 个 key；`onboarding.title/body` 改写）
 
 ## 用户本地桌面验收（`.63`，待用户执行）
