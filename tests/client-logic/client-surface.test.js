@@ -182,6 +182,9 @@ test('client: stable data-testid names from CONTRACTS §4.1 are present in the s
     'session-groups-ungrouped',
     'session-groups-dialog',
     'session-groups-archive-filter',
+    'session-groups-group-archive-filter',
+    'session-groups-group-archived',
+    'session-groups-group-contains-archived',
     'session-groups-rail',
   ]) {
     assert.equal(source.includes(testId), true, `missing required data-testid "${testId}" (CONTRACTS §4.1)`);

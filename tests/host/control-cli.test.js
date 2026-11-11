@@ -269,3 +269,49 @@ test('control skill documents profile scope and exposes no switch action', async
   assert.equal(/\nactivate\b/.test(text), false)
   assert.equal(/\nswitch\b/.test(text), false)
 })
+
+test('control skill documents group.archive, archive state and the 409/422 split', async () => {
+  const text = await readFile(skillFile, 'utf8')
+  assert.match(text, /group\.archive/)
+  assert.match(text, /effectiveArchived/)
+  assert.match(text, /archivedBy/)
+  assert.match(text, /group-archived/)
+  assert.match(text, /group-contains-archived/)
+  assert.match(text, /group-destination-archived/)
+  assert.match(text, /group-position-locked/)
+  assert.match(text, /archive-frozen/)
+  assert.match(text, /\b409\b/)
+  assert.match(text, /\b422\b/)
+  assert.match(text, /no-change/)
+  assert.match(text, /unarchive/i)
+})
+
+test('control CLI passes group.archive operations through and preserves archive 409 bodies', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'dsg-cli-'))
+  const conflict = {
+    ok: false,
+    code: 'group-archived',
+    message: 'group-archived',
+    groupId: 'g-1',
+    field: 'groupId',
+    operationIndex: 0,
+  }
+  const { server, port, requests } = await startRoutedServer(async (request) => {
+    if (request.path === '/dsh-session-grove/profiles') {
+      return { body: { ok: true, profiles: [{ id: 'default', archived: false }] } }
+    }
+    return { status: 409, body: conflict }
+  })
+  t.after(() => closeServer(server))
+  const env = cliEnv(home, port)
+  const operations = [{ op: 'group.archive', groupId: 'g-1', archived: true }]
+  const file = await bodyFile({ baseRevision: 2, operations })
+
+  const result = await runCli(['plan', file], env)
+  assert.equal(result.status, 1)
+  assert.deepEqual(JSON.parse(result.stdout), conflict)
+  assert.equal(requests.at(-1).path, '/dsh-session-grove/control/plan')
+  assert.equal(requests.at(-1).method, 'POST')
+  assert.deepEqual(requests.at(-1).body.operations, operations)
+  assert.equal('profileId' in requests.at(-1).body, false)
+})

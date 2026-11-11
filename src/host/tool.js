@@ -256,6 +256,17 @@ export const createControlTool = (options) => {
       if (committed.kind === 'unsupported-version') {
         return failure('unsupported-version', `document version ${String(committed.version)} is newer than this host supports`)
       }
+      if (committed.kind === 'archive-frozen') {
+        // The frozen-subtree guard rejects the whole commit. It carries a
+        // structured op code but no `errors` array, so it must never reach the
+        // `committed.errors.join(...)` fallback (that would throw a TypeError
+        // and hide the real reason).
+        return failure('archive-frozen', committed.message ?? committed.code ?? 'archive-frozen', {
+          reason: committed.code,
+          groupId: committed.groupId,
+          field: committed.field,
+        })
+      }
       return failure('invalid', committed.errors.join('; ') || 'commit rejected')
     }
 

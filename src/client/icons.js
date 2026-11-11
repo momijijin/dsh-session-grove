@@ -245,6 +245,10 @@ export const UI_GLYPHS = Object.freeze({
   more: 'M3.4 8h.01M8 8h.01M12.6 8h.01',
   folderAdjust: 'M2.5 5.1h4l1.5 1.7h5.5v6.1h-11z',
   close: 'M4 4l8 8M12 4l-8 8',
+  // 0.4.0-beta.62 UI patch: "restore default display" is a compact circular
+  // return arrow (tight 5.2 radius, arrowhead at top-left), distinct from the
+  // wider open arc of the `refresh` glyph and from the X/close glyph above.
+  restore: 'M2.8 8a5.2 5.2 0 1 0 5.2-5.2 5.6 5.6 0 0 0-3.9 1.6L2.8 5.7M2.8 2.8v2.9h2.9',
   archive: 'M2.5 3.5h11v2.2h-11zM3.7 5.7v6.8h8.6V5.7M6.3 8.2h3.4',
   unarchive: 'M2.5 3.5h11v2.2h-11zM3.7 5.7v6.8h8.6V5.7M6.3 8.2h3.4M8 10.4V7.2M6.8 8.4L8 7.2l1.2 1.2',
   search: 'M7 2.6a4.4 4.4 0 1 0 0 8.8 4.4 4.4 0 0 0 0-8.8zM10.4 10.4l3 3',

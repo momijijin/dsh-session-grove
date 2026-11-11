@@ -1,4 +1,5 @@
 import {
+  ARCHIVE_FILTERS,
   DEFAULT_GROUP_COLOR,
   DEFAULT_ICON,
   DEFAULT_NEW_GROUP_ICON,
@@ -11,6 +12,7 @@ import {
   MAX_GROUP_NAME,
   MAX_ICON_LENGTH,
 } from './constants.js'
+import { assertArchiveInvariant, computeGroupVisibility, groupArchivedTypeError, isOwnArchived } from './archive.js'
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 const clone = (value) => JSON.parse(JSON.stringify(value))
@@ -160,6 +162,7 @@ export const createGroup = (doc, { name, icon = DEFAULT_NEW_GROUP_ICON, color = 
     sessionIds: [],
   }
   insertGroupAt(next, group, index)
+  assertArchiveInvariant(doc, next)
   return next
 }
 
@@ -168,6 +171,7 @@ export const renameGroup = (doc, groupId, name) => {
   const group = findGroup(next, groupId)
   if (!group) throw new Error('group-not-found')
   group.name = normalizeName(name)
+  assertArchiveInvariant(doc, next)
   return next
 }
 
@@ -176,6 +180,7 @@ export const setGroupIcon = (doc, groupId, icon) => {
   const group = findGroup(next, groupId)
   if (!group) throw new Error('group-not-found')
   group.icon = normalizeIcon(icon)
+  assertArchiveInvariant(doc, next)
   return next
 }
 
@@ -187,6 +192,7 @@ export const setGroupColor = (doc, groupId, color) => {
   group.color = normalizeColor(color)
   // Picking a preset is an explicit switch back from a custom color.
   delete group.colorHex
+  assertArchiveInvariant(doc, next)
   return next
 }
 
@@ -198,8 +204,16 @@ export const setGroupColorHex = (doc, groupId, colorHex) => {
   const hex = normalizeColorHex(colorHex)
   if (!hex) throw new Error('invalid-color')
   group.colorHex = hex
+  assertArchiveInvariant(doc, next)
   return next
 }
+
+/**
+ * Toggle a group's own `archived` flag (0.4.0-beta.62); the implementation
+ * lives in the archive kernel. Re-exported here so the historic `model.js`
+ * import path keeps working for the host, control layer and tests.
+ */
+export { setGroupArchived } from './archive.js'
 
 export const moveGroup = (doc, groupId, parentId, index) => {
   const next = cloneDoc(doc)
@@ -212,6 +226,7 @@ export const moveGroup = (doc, groupId, parentId, index) => {
   next.groups.splice(findGroupIndex(next, groupId), 1)
   group.parentId = parentId
   insertGroupAt(next, group, index)
+  assertArchiveInvariant(doc, next)
   return next
 }
 
@@ -254,6 +269,7 @@ export const deleteGroupTo = (doc, groupId, destinationId) => {
   for (const child of next.groups) {
     if (child.parentId === groupId) child.parentId = destinationId
   }
+  assertArchiveInvariant(doc, next)
   return next
 }
 
@@ -284,6 +300,7 @@ export const assignSession = (doc, sessionId, groupId, index) => {
     const at = Math.max(0, Math.min(Number.isInteger(index) ? index : next.ungrouped.length, next.ungrouped.length))
     next.ungrouped.splice(at, 0, sessionId)
   }
+  assertArchiveInvariant(doc, next)
   return next
 }
 
@@ -292,6 +309,7 @@ export const detachSession = (doc, sessionId) => {
   if (typeof sessionId !== 'string' || sessionId === '') throw new Error('session-required')
   const next = cloneDoc(doc)
   removeSessionEverywhere(next, sessionId)
+  assertArchiveInvariant(doc, next)
   return next
 }
 
@@ -370,6 +388,7 @@ const sessionNode = (row, archivedSet, statuses, workspaces, subagentCounts) => 
 
 export const buildRenderTree = (doc, sessionsById = {}, workspaces = [], options = {}) => {
   const filter = options.filter === 'all' || options.filter === 'only' ? options.filter : 'hidden'
+  const groupFilter = ARCHIVE_FILTERS.includes(options.groupFilter) ? options.groupFilter : 'hidden'
   const archivedSet = new Set(toArray(options.archivedSessionIds))
   const currentSessionId = typeof options.currentSessionId === 'string' ? options.currentSessionId : null
   const statuses = options.statuses instanceof Map ? options.statuses : null
@@ -378,27 +397,51 @@ export const buildRenderTree = (doc, sessionsById = {}, workspaces = [], options
   const visible = (id) => sessionVisible(sessions[id], id, archivedSet, filter, currentSessionId)
   const makeSession = (id) => sessionNode(sessions[id], archivedSet, statuses, workspaces, subagentCounts)
 
-  const groupNode = (group) => {
-    const childGroups = childrenOf(doc, group.id).map(groupNode)
-    const groupSessions = group.sessionIds.filter(visible).map(makeSession)
+  // Group filtering owns the tree shape; the session tri-state only applies
+  // inside groups that survive it (spec §4.2/§4.3). One shared projection feeds
+  // the tree, search and status counters.
+  const visibility = computeGroupVisibility(doc, groupFilter)
+  const renderable = (group) => visibility.sessionGroups.has(group.id) || visibility.path.has(group.id)
+
+  // `assigned` must come from the complete doc, before any pruning: a session
+  // owned by a hidden group must never surface as derived ungrouped.
+  const assigned = new Set()
+  for (const group of doc.groups) for (const id of group.sessionIds) assigned.add(id)
+
+  // Derived archive state is computed once on the way down (spec §11): the
+  // nearest own-archived ancestor is inherited, so no node re-walks the doc.
+  const groupNode = (group, inheritedArchivedBy = null) => {
+    const ownArchived = isOwnArchived(group)
+    const archivedBy = ownArchived ? group.id : inheritedArchivedBy
+    const pathOnly = visibility.path.has(group.id)
+    const childGroups = childrenOf(doc, group.id)
+      .filter(renderable)
+      .map((child) => groupNode(child, archivedBy))
+    const groupSessions = visibility.sessionGroups.has(group.id)
+      ? group.sessionIds.filter(visible).map(makeSession)
+      : []
     const visibleCount = groupSessions.length + childGroups.reduce((sum, child) => sum + child.visibleCount, 0)
     return {
       kind: 'group',
       group,
       children: [...childGroups, ...groupSessions],
+      effectiveArchived: archivedBy !== null,
+      ownArchived,
+      archivedBy,
+      pathOnly,
       visibleCount,
       emptyVisible: visibleCount === 0,
     }
   }
 
-  const groups = childrenOf(doc, null).map(groupNode)
-  const assigned = new Set()
-  for (const group of doc.groups) for (const id of group.sessionIds) assigned.add(id)
-  const stored = doc.ungrouped.filter((id) => !assigned.has(id) && visible(id))
+  const groups = childrenOf(doc, null).filter(renderable).map((group) => groupNode(group))
+  const stored = visibility.ungroupedVisible ? doc.ungrouped.filter((id) => !assigned.has(id) && visible(id)) : []
   const storedSet = new Set(stored)
-  const derived = Object.keys(sessions)
-    .filter((id) => !assigned.has(id) && !storedSet.has(id) && visible(id))
-    .sort((a, b) => Number(sessions[b]?.updatedAt || 0) - Number(sessions[a]?.updatedAt || 0))
+  const derived = visibility.ungroupedVisible
+    ? Object.keys(sessions)
+        .filter((id) => !assigned.has(id) && !storedSet.has(id) && visible(id))
+        .sort((a, b) => Number(sessions[b]?.updatedAt || 0) - Number(sessions[a]?.updatedAt || 0))
+    : []
   const ungrouped = [...derived, ...stored].map(makeSession)
 
   return { groups, ungrouped }
@@ -448,6 +491,13 @@ export const validateDoc = (doc) => {
       if (!isColorHex(group.colorHex) || group.colorHex.length > MAX_COLOR_HEX_LENGTH) {
         errors.push(`group-color-hex:${group.id}`)
       }
+    }
+    // 0.4.0-beta.62 additive: `archived` is optional (missing = false) but,
+    // when present, must be a boolean. The type error keeps its own
+    // `group-archived-type:<id>` shape so it never mixes with the operation
+    // error codes (`group-archived` etc.).
+    if (group.archived !== undefined && typeof group.archived !== 'boolean') {
+      errors.push(groupArchivedTypeError(group.id))
     }
     if (group.parentId !== null && typeof group.parentId !== 'string') errors.push(`group-parent:${group.id}`)
     if (!Array.isArray(group.sessionIds)) errors.push(`group-sessions:${group.id}`)

@@ -10,13 +10,32 @@ import { createElement, useEffect, useMemo, useRef, useState } from 'react'
 import { clientRuntime as rt } from '../adapters/client-runtime.js'
 import { sessionTitle } from '../core/filter.js'
 import { perfRender } from './perf.js'
-import { buildSearchIndex, matchSessions } from '../core/search.js'
+import { buildSearchIndex, matchSessions, splitSearchResultsByVisibility } from '../core/search.js'
 import { groupPath } from '../core/tree.js'
 
 
 const h = createElement
 
 const SEARCH_LISTBOX_ID = 'dsg-session-search-listbox'
+
+/**
+ * Rendered-row cap (spec §3.3) and the pre-limit match budget. The split by
+ * group visibility runs on the complete match set first (P2 carry-over), so
+ * hidden archived hits never consume the visible limit.
+ */
+const SEARCH_RESULT_LIMIT = 20
+const SEARCH_MATCH_BUDGET = 1000
+
+/**
+ * Copy keys for matches hidden by the current group filter (resources ship in
+ * P10). Computed maps keep the i18n literal-key guard green.
+ */
+const SEARCH_VISIBILITY_KEYS = Object.freeze({
+  hiddenArchived: 'search.hiddenInArchived',
+  hiddenElsewhere: 'search.hiddenOutsideArchived',
+  showArchived: 'search.showArchivedGroups',
+  showAll: 'search.showAllGroups',
+})
 
 /**
  * Session search combobox (spec §3.3 / §4.4).
@@ -41,7 +60,16 @@ const SearchBox = ({ store, handlers, sessionsById, workspaces, archivedSessionI
     () => buildSearchIndex({ doc: store?.doc, sessionsById, workspaces, archivedSessionIds }),
     [store?.doc, sessionsById, workspaces, archivedSessionIds]
   )
-  const results = useMemo(() => matchSessions(index, query), [index, query])
+  // SPEC §4.5: match the full index, then split by group visibility before the
+  // visible rows are capped, so archived-subtree hits are reported instead of
+  // silently eating the limit.
+  const matched = useMemo(() => matchSessions(index, query, SEARCH_MATCH_BUDGET), [index, query])
+  const split = useMemo(
+    () => splitSearchResultsByVisibility(store?.doc, matched, store?.groupArchiveFilter),
+    [store?.doc, matched, store?.groupArchiveFilter]
+  )
+  const results = useMemo(() => split.visible.slice(0, SEARCH_RESULT_LIMIT), [split])
+  const hiddenCount = split.hidden.length
   const visible = open && query.trim() !== ''
 
   // Click outside the combobox closes the dropdown (query is kept for editing).
@@ -152,6 +180,18 @@ const SearchBox = ({ store, handlers, sessionsById, workspaces, archivedSessionI
     }
   }
 
+  /**
+   * Explicit action for matches hidden by the group filter (§4.5): switch the
+   * group filter, never automatically. `all` reveals archived groups (hidden
+   * filter) and every live group (only filter) while keeping the query.
+   */
+  const revealHiddenMatches = () => {
+    rt()?.store?.dispatch?.('group-archive-filter', { filter: 'all' })
+  }
+  const hiddenFilter = store?.groupArchiveFilter === 'only' ? 'only' : 'hidden'
+  const hiddenMessageKey = hiddenFilter === 'only' ? SEARCH_VISIBILITY_KEYS.hiddenElsewhere : SEARCH_VISIBILITY_KEYS.hiddenArchived
+  const hiddenActionKey = hiddenFilter === 'only' ? SEARCH_VISIBILITY_KEYS.showAll : SEARCH_VISIBILITY_KEYS.showArchived
+
   return h(
     'div',
     { ref: boxRef, class: 'dsg-search', 'data-open': visible ? 'true' : 'false' },
@@ -187,7 +227,7 @@ const SearchBox = ({ store, handlers, sessionsById, workspaces, archivedSessionI
             'data-testid': 'session-groups-search-results',
             'aria-label': t('search.results'),
           },
-          results.length === 0
+          results.length === 0 && hiddenCount === 0
             ? h('div', { class: 'dsg-search-empty', 'data-testid': 'session-groups-search-empty' }, t('search.empty'))
             : results.map((entry, position) => {
                 const title = titleOf(entry)
@@ -215,7 +255,32 @@ const SearchBox = ({ store, handlers, sessionsById, workspaces, archivedSessionI
                   meta ? h('span', { class: 'dsg-search-result-meta' }, meta) : null,
                   archived ? h('span', { class: 'dsg-search-result-badge' }, t('session.archivedBadge')) : null
                 )
-              })
+              }),
+          hiddenCount > 0
+            ? h(
+                'div',
+                {
+                  class: 'dsg-search-hidden',
+                  'data-testid': 'session-groups-search-hidden',
+                  'data-hidden-count': String(hiddenCount),
+                },
+                h('span', { class: 'dsg-search-hidden-label' }, t(hiddenMessageKey, { n: hiddenCount })),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    class: 'dsg-search-hidden-action',
+                    'data-testid': 'session-groups-search-show-archived',
+                    onMouseDown: (event) => event.preventDefault(),
+                    onClick: (event) => {
+                      event.stopPropagation()
+                      revealHiddenMatches()
+                    },
+                  },
+                  t(hiddenActionKey)
+                )
+              )
+            : null
         )
       : null
   )

@@ -1072,3 +1072,267 @@ test('T3.3: control routes report registry, document and doctor failures as 503 
   assert.equal(doctor.json.code, 'doctor-failed')
   assert.match(doctor.json.message, /doctor io/)
 })
+
+// ---------------------------------------------------------------------------
+// P7 (0.4.0-beta.62): group.archive, archive state and the 409/422 split (N6).
+// ---------------------------------------------------------------------------
+
+/** Root archived group plus a live root and a child inside the archived subtree. */
+const archiveGuardDoc = () => ({
+  version: 1,
+  groups: [
+    { id: 'g-arch', name: 'Archived', icon: 'folder', parentId: null, sessionIds: ['s-a'], archived: true },
+    { id: 'g-live', name: 'Live', icon: 'folder', parentId: null, sessionIds: ['s-l'], archived: false },
+    { id: 'g-child', name: 'Child', icon: 'folder', parentId: 'g-arch', sessionIds: [] },
+  ],
+  ungrouped: [],
+})
+
+test('control applies group.archive and state exposes own/inherited archive flags', async (t) => {
+  const mounted = await mountRoutes({ connection: connection(), controlApiEnabled: true })
+  t.after(() => mounted.cleanup())
+  await mounted.store.save(sampleDoc())
+
+  const operations = [{ op: 'group.archive', groupId: 'g-bbbbbbbbbbbb', archived: true }]
+  const plan = await mounted.call(CONTROL_PLAN_PATH, post({ baseRevision: 1, operations }))
+  assert.equal(plan.res.statusCode, 200)
+  assert.deepEqual(plan.json.changes, [{ op: 'group.archive', groupId: 'g-bbbbbbbbbbbb', archived: true }])
+
+  const applied = await mounted.call(
+    CONTROL_APPLY_PATH,
+    post({ baseRevision: 1, operations, planHash: plan.json.planHash }),
+  )
+  assert.equal(applied.res.statusCode, 200)
+  assert.equal(applied.json.revision, 2)
+  const appliedChild = applied.json.doc.groups.find((group) => group.id === 'g-bbbbbbbbbbbb')
+  assert.equal(appliedChild.archived, true)
+  assert.equal(applied.json.doc.groups.find((group) => group.id === 'g-aaaaaaaaaaaa').archived, false)
+
+  const state = await mounted.call(CONTROL_STATE_PATH, makeRequest({ headers }))
+  const byId = new Map(state.json.groups.map((group) => [group.id, group]))
+  assert.deepEqual(
+    {
+      archived: byId.get('g-aaaaaaaaaaaa').archived,
+      effectiveArchived: byId.get('g-aaaaaaaaaaaa').effectiveArchived,
+      archivedBy: byId.get('g-aaaaaaaaaaaa').archivedBy,
+    },
+    { archived: false, effectiveArchived: false, archivedBy: null },
+  )
+  assert.deepEqual(
+    {
+      archived: byId.get('g-bbbbbbbbbbbb').archived,
+      effectiveArchived: byId.get('g-bbbbbbbbbbbb').effectiveArchived,
+      archivedBy: byId.get('g-bbbbbbbbbbbb').archivedBy,
+    },
+    { archived: true, effectiveArchived: true, archivedBy: 'g-bbbbbbbbbbbb' },
+  )
+  for (const group of state.json.groups) assert.equal('pathOnly' in group, false)
+
+  const unarchive = [{ op: 'group.archive', groupId: 'g-bbbbbbbbbbbb', archived: false }]
+  const unarchivePlan = await mounted.call(CONTROL_PLAN_PATH, post({ baseRevision: 2, operations: unarchive }))
+  assert.equal(unarchivePlan.res.statusCode, 200)
+  const unarchived = await mounted.call(
+    CONTROL_APPLY_PATH,
+    post({ baseRevision: 2, operations: unarchive, planHash: unarchivePlan.json.planHash }),
+  )
+  assert.equal(unarchived.res.statusCode, 200)
+  assert.equal(unarchived.json.doc.groups.find((group) => group.id === 'g-bbbbbbbbbbbb').archived, false)
+})
+
+test('control plan/apply return 409 for archive conflicts and 422 for schema/invalid input', async (t) => {
+  const mounted = await mountRoutes({
+    connection: connection(),
+    controlApiEnabled: true,
+    controlDestructiveEnabled: true,
+  })
+  t.after(() => mounted.cleanup())
+  await mounted.store.save(archiveGuardDoc())
+  const planHashOf = (operations) => controlPlanHash(DEFAULT_PROFILE_ID, 1, operations)
+
+  const conflicts = [
+    [{ op: 'group.rename', groupId: 'g-arch', name: 'X' }, 'g-arch', 'groupId'],
+    [{ op: 'group.rename', groupId: 'g-child', name: 'X' }, 'g-child', 'groupId'],
+    [{ op: 'group.update', groupId: 'g-arch', icon: 'star' }, 'g-arch', 'groupId'],
+    [{ op: 'group.create', name: 'New', parentId: 'g-arch' }, 'g-arch', 'parentId'],
+    [{ op: 'group.move', groupId: 'g-live', parentId: 'g-arch' }, 'g-arch', 'parentId'],
+    [{ op: 'group.delete', groupId: 'g-live', destinationId: 'g-arch' }, 'g-arch', 'destinationId'],
+    [{ op: 'session.assign', sessionId: 's-a', groupId: 'g-live' }, 'g-arch', 'sessionId'],
+  ]
+  for (const [operation, groupId, field] of conflicts) {
+    const planned = await mounted.call(CONTROL_PLAN_PATH, post({ baseRevision: 1, operations: [operation] }))
+    assert.equal(planned.res.statusCode, 409, JSON.stringify(operation))
+    assert.equal(planned.json.ok, false)
+    assert.equal(planned.json.operationIndex, 0)
+    if (groupId !== undefined) assert.equal(planned.json.groupId, groupId, JSON.stringify(operation))
+    if (field !== undefined) assert.equal(planned.json.field, field, JSON.stringify(operation))
+  }
+
+  // A same-value archive is a semantically valid no-op, so it is 422 `no-change`
+  // rather than an archive conflict (N12: doc-idempotent, not response-idempotent).
+  const noChange = await mounted.call(
+    CONTROL_PLAN_PATH,
+    post({ baseRevision: 1, operations: [{ op: 'group.archive', groupId: 'g-arch', archived: true }] }),
+  )
+  assert.equal(noChange.res.statusCode, 422)
+  assert.equal(noChange.json.code, 'no-change')
+
+  // Apply follows the same split.
+  const conflictOps = [{ op: 'group.rename', groupId: 'g-arch', name: 'X' }]
+  const applyConflict = await mounted.call(
+    CONTROL_APPLY_PATH,
+    post({ baseRevision: 1, operations: conflictOps, planHash: planHashOf(conflictOps) }),
+  )
+  assert.equal(applyConflict.res.statusCode, 409)
+  assert.equal(applyConflict.json.code, 'group-archived')
+  assert.equal(applyConflict.json.groupId, 'g-arch')
+  assert.equal(applyConflict.json.field, 'groupId')
+  assert.equal(applyConflict.json.operationIndex, 0)
+
+  const schemaFailures = [
+    [[{ op: 'group.archive', groupId: 'g-live' }], 'invalid-operation', 'archived'],
+    [[{ op: 'group.archive', groupId: 'g-live', archived: 'yes' }], 'invalid-operation', 'archived'],
+    [[{ op: 'group.archive', groupId: 'g-live', archived: true, cascade: true }], 'invalid-operation', 'cascade'],
+    [[{ op: 'group.update', groupId: 'g-live', archived: true }], 'invalid-operation', 'archived'],
+    [[{ op: 'group.move', groupId: 'g-live', parentId: null, index: -1 }], 'invalid-operation', 'index'],
+    [[{ op: 'raw.commit' }], 'unknown-operation', undefined],
+    [[{ op: 'group.archive', groupId: 'g-missing', archived: true }], 'group-not-found', 'groupId'],
+  ]
+  for (const [operations, code, field] of schemaFailures) {
+    const planned = await mounted.call(CONTROL_PLAN_PATH, post({ baseRevision: 1, operations }))
+    assert.equal(planned.res.statusCode, 422, JSON.stringify(operations))
+    assert.equal(planned.json.code, code)
+    assert.equal(planned.json.operationIndex, 0)
+    if (field !== undefined) assert.equal(planned.json.field, field, JSON.stringify(operations))
+  }
+
+  const applySchema = await mounted.call(
+    CONTROL_APPLY_PATH,
+    post({
+      baseRevision: 1,
+      operations: [{ op: 'group.update', groupId: 'g-live', archived: true }],
+      planHash: planHashOf([{ op: 'group.update', groupId: 'g-live', archived: true }]),
+    }),
+  )
+  assert.equal(applySchema.res.statusCode, 422)
+  assert.equal(applySchema.json.code, 'invalid-operation')
+  assert.equal(applySchema.json.field, 'archived')
+
+  const loaded = await mounted.call(LOAD_PATH, makeRequest({ headers }))
+  assert.equal(loaded.json.revision, 1, 'rejected plan/apply must not bump the revision')
+})
+
+test('control maps group-position-locked and group-contains-archived mutator errors to 409', async (t) => {
+  const mounted = await mountRoutes({ connection: connection(), controlApiEnabled: true })
+  t.after(() => mounted.cleanup())
+
+  // A frozen root anchor: inserting before it shifts its sibling index.
+  await mounted.store.save({
+    version: 1,
+    groups: [
+      { id: 'g-anchor', name: 'Anchor', icon: 'folder', parentId: null, sessionIds: [], archived: true },
+      { id: 'g-live', name: 'Live', icon: 'folder', parentId: null, sessionIds: [], archived: false },
+    ],
+    ungrouped: [],
+  })
+  const shiftOperations = [{ op: 'group.create', name: 'Front', parentId: null, index: 0 }]
+  const shifted = await mounted.call(CONTROL_PLAN_PATH, post({ baseRevision: 1, operations: shiftOperations }))
+  assert.equal(shifted.res.statusCode, 409)
+  assert.equal(shifted.json.code, 'group-position-locked')
+  assert.equal(shifted.json.groupId, 'g-anchor')
+  assert.equal(shifted.json.field, 'index')
+  assert.equal(shifted.json.operationIndex, 0)
+
+  // An unarchived ancestor of a frozen child cannot be moved/removed.
+  await mounted.store.save({
+    version: 1,
+    groups: [
+      { id: 'g-wrap', name: 'Wrap', icon: 'folder', parentId: null, sessionIds: [], archived: false },
+      { id: 'g-frozen-child', name: 'Frozen', icon: 'folder', parentId: 'g-wrap', sessionIds: [], archived: true },
+      { id: 'g-target', name: 'Target', icon: 'folder', parentId: null, sessionIds: [], archived: false },
+    ],
+    ungrouped: [],
+  })
+  const containsOperations = [{ op: 'group.move', groupId: 'g-wrap', parentId: 'g-target' }]
+  const contains = await mounted.call(CONTROL_PLAN_PATH, post({ baseRevision: 2, operations: containsOperations }))
+  assert.equal(contains.res.statusCode, 409)
+  assert.equal(contains.json.code, 'group-contains-archived')
+  assert.equal(contains.json.groupId, 'g-wrap')
+  assert.equal(contains.json.field, 'groupId')
+  assert.equal(contains.json.operationIndex, 0)
+
+  const loaded = await mounted.call(LOAD_PATH, makeRequest({ headers }))
+  assert.equal(loaded.json.revision, 2, '409 conflicts must not bump the revision')
+})
+
+test('control apply maps an archive-frozen commit to 409 without wrapping changes', async (t) => {
+  const published = []
+  const changeHub = {
+    publish: (...args) => published.push(args),
+    publishActive: () => {},
+    subscribe: () => () => {},
+  }
+  const doc = { ...sampleDoc(), revision: 1 }
+  let commits = 0
+  const store = {
+    async load() {
+      return { kind: 'ok', doc, revision: 1, exists: true }
+    },
+    async peek() {
+      return { kind: 'ok', doc, revision: 1, exists: true }
+    },
+    async commit() {
+      commits += 1
+      return {
+        kind: 'archive-frozen',
+        code: 'group-archived',
+        groupId: 'g-aaaaaaaaaaaa',
+        field: 'name',
+        message: 'group-archived',
+      }
+    },
+  }
+  const mounted = await mountRoutes({ store, connection: connection(), controlApiEnabled: true, changeHub })
+  t.after(() => mounted.cleanup())
+
+  // The plan passes: the race is detected only inside the host commit lock.
+  const operations = [{ op: 'group.rename', groupId: 'g-bbbbbbbbbbbb', name: 'Renamed' }]
+  const plan = await mounted.call(CONTROL_PLAN_PATH, post({ baseRevision: 1, operations }))
+  assert.equal(plan.res.statusCode, 200)
+
+  const body = {
+    baseRevision: 1,
+    operations,
+    planHash: plan.json.planHash,
+    idempotencyKey: 'archive-frozen-key',
+  }
+  const applied = await mounted.call(CONTROL_APPLY_PATH, post(body))
+  assert.equal(applied.res.statusCode, 409)
+  assert.deepEqual(
+    {
+      ok: applied.json.ok,
+      code: applied.json.code,
+      reason: applied.json.reason,
+      groupId: applied.json.groupId,
+      field: applied.json.field,
+      message: applied.json.message,
+    },
+    {
+      ok: false,
+      code: 'archive-frozen',
+      reason: 'group-archived',
+      groupId: 'g-aaaaaaaaaaaa',
+      field: 'name',
+      message: 'group-archived',
+    },
+  )
+  assert.equal('changes' in applied.json, false, 'archive-frozen must not be wrapped as a successful change set')
+  assert.equal('revision' in applied.json, false)
+  assert.equal('doc' in applied.json, false)
+  assert.deepEqual(published, [], 'a rejected commit must not publish a revision change')
+
+  // The failure is not cached as an idempotent success: the retry commits again.
+  const retried = await mounted.call(CONTROL_APPLY_PATH, post(body))
+  assert.equal(retried.res.statusCode, 409)
+  assert.equal(commits, 2)
+})
+

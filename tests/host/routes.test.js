@@ -264,6 +264,93 @@ test('POST commit: 200 on success, then 409 conflict with the current doc on a s
   assert.equal(stale.json.doc.revision, 1)
 })
 
+test('POST commit: old clients inherit archived; a frozen edit gets 409 archive-frozen', async (t) => {
+  const mounted = await mountRoutes({ connection: cookieConnection() })
+  t.after(() => mounted.cleanup())
+
+  const archived = sampleDoc()
+  archived.groups[0].archived = true
+  const first = await mounted.call(
+    COMMIT_PATH,
+    makeRequest({ method: 'POST', headers: allowedHeaders, body: commitBody(0, archived) }),
+  )
+  assert.equal(first.res.statusCode, 200)
+  assert.equal(first.json.doc.groups[0].archived, true)
+  assert.equal(first.json.doc.groups[1].archived, false, 'every persisted group is an explicit boolean')
+
+  // A pre-0.4.0-beta.62 client drops the unknown field; the edit must fail.
+  const oldClient = sampleDoc()
+  oldClient.groups[0].name = 'Renamed by an old client'
+  delete oldClient.groups[0].archived
+  const frozen = await mounted.call(
+    COMMIT_PATH,
+    makeRequest({ method: 'POST', headers: allowedHeaders, body: commitBody(1, oldClient) }),
+  )
+  assert.equal(frozen.res.statusCode, 409)
+  assert.deepEqual(frozen.json, {
+    ok: false,
+    code: 'archive-frozen',
+    reason: 'group-archived',
+    groupId: 'g-aaaaaaaaaaaa',
+    field: 'name',
+    message: 'group-archived',
+  })
+
+  const loaded = await mounted.call(LOAD_PATH, makeRequest({ headers: { cookie: 'token=ok' } }))
+  assert.equal(loaded.res.statusCode, 200)
+  assert.equal(loaded.json.revision, 1, 'the rejected commit must not bump the revision')
+  assert.equal(loaded.json.doc.groups[0].archived, true)
+
+  // The same old client resubmitting without an edit is accepted: inheritance
+  // keeps the archived flag and the invariant sees no transition.
+  const inherited = await mounted.call(
+    COMMIT_PATH,
+    makeRequest({ method: 'POST', headers: allowedHeaders, body: commitBody(1, sampleDoc()) }),
+  )
+  assert.equal(inherited.res.statusCode, 200)
+  assert.equal(inherited.json.revision, 2)
+  assert.equal(inherited.json.doc.groups[0].archived, true)
+})
+
+test('POST commit: archive-frozen is never broadcast as a revision', async (t) => {
+  const published = []
+  const hub = {
+    publish: (...args) => published.push(args),
+    publishActive: () => undefined,
+  }
+  const mounted = await mountRoutes({ connection: cookieConnection(), changeHub: hub })
+  t.after(() => mounted.cleanup())
+
+  const archived = sampleDoc()
+  archived.groups[0].archived = true
+  const first = await mounted.call(
+    COMMIT_PATH,
+    makeRequest({ method: 'POST', headers: allowedHeaders, body: commitBody(0, archived) }),
+  )
+  assert.equal(first.res.statusCode, 200)
+  assert.equal(published.length, 1)
+
+  const frozenDoc = sampleDoc()
+  frozenDoc.groups[0].archived = true
+  frozenDoc.groups[0].name = 'Renamed while archived'
+  const frozen = await mounted.call(
+    COMMIT_PATH,
+    makeRequest({ method: 'POST', headers: allowedHeaders, body: commitBody(1, frozenDoc) }),
+  )
+  assert.equal(frozen.res.statusCode, 409)
+  assert.equal(frozen.json.code, 'archive-frozen')
+  assert.equal(published.length, 1, 'a rejected commit must not publish a revision')
+
+  const renamed = sampleDoc()
+  renamed.ungrouped = ['s-4', 's-5']
+  const accepted = await mounted.call(
+    COMMIT_PATH,
+    makeRequest({ method: 'POST', headers: allowedHeaders, body: commitBody(1, renamed) }),
+  )
+  assert.equal(accepted.res.statusCode, 200)
+  assert.equal(published.length, 2, 'the next legal commit publishes normally')
+})
+
 test('POST commit round-trips palette colors and normalizes legacy groups to blue', async (t) => {
   const mounted = await mountRoutes({ connection: cookieConnection() })
   t.after(() => mounted.cleanup())
@@ -354,6 +441,7 @@ test('POST commit rejects malformed bodies with 422 invalid', async (t) => {
     { name: 'invalid doc', body: commitBody(0, { version: 1, groups: [{ id: 'g-a', name: 'A', parentId: null, sessionIds: ['s1'] }], ungrouped: ['s1'] }), expected: /duplicate-session:s1/ },
     { name: 'wrong version', body: commitBody(0, { ...sampleDoc(), version: 2 }), expected: /version must be 1/ },
     { name: 'unknown group color', body: commitBody(0, { ...sampleDoc(), groups: [{ ...sampleDoc().groups[0], color: 'chartreuse' }] }), expected: /group-color/ },
+    { name: 'non-boolean archived', body: commitBody(0, { ...sampleDoc(), groups: [{ ...sampleDoc().groups[0], archived: 'true' }] }), expected: /group-archived-type:g-aaaaaaaaaaaa/ },
   ]
   for (const item of cases) {
     const { res, json } = await mounted.call(
@@ -470,6 +558,24 @@ test('parseCommitBody ignores the client revision and validates the frozen shape
   assert.equal(scoped.ok, true)
   assert.equal(scoped.profileId, PROFILE_ID)
 
+  // 0.4.0-beta.62 additive `archived`: missing stays missing here (the store
+  // inherits it from the current doc); explicit booleans survive verbatim.
+  assert.equal(Object.hasOwn(parsed.doc.groups[0], 'archived'), false)
+  for (const archived of [true, false]) {
+    const doc = sampleDoc()
+    doc.groups[0].archived = archived
+    const flagged = parseCommitBody({ baseRevision: 7, doc })
+    assert.equal(flagged.ok, true)
+    assert.equal(flagged.doc.groups[0].archived, archived)
+  }
+  for (const archived of ['true', 1, null, {}]) {
+    const doc = sampleDoc()
+    doc.groups[0].archived = archived
+    const invalidArchived = parseCommitBody({ baseRevision: 7, doc })
+    assert.equal(invalidArchived.ok, false, `archived ${JSON.stringify(archived)} must be rejected`)
+    assert.match(invalidArchived.message, /group-archived-type:g-aaaaaaaaaaaa/)
+  }
+
   for (const profileId of [null, 42, '', '   ', 'x'.repeat(65)]) {
     const invalid = parseCommitBody({ baseRevision: 7, doc: sampleDoc(), profileId })
     assert.equal(invalid.ok, false, `profileId ${String(profileId)} must be rejected`)
@@ -500,6 +606,23 @@ test('loadResponse/commitResponse map store results to the frozen wire shapes', 
 
   assert.equal(commitResponse({ kind: 'invalid', errors: ['duplicate-session:s1'] }).status, 422)
   assert.equal(commitResponse({ kind: 'unsupported-version', version: 2 }).status, 409)
+
+  const frozen = commitResponse({
+    kind: 'archive-frozen',
+    code: 'group-archived',
+    groupId: 'g-a',
+    field: 'name',
+    message: 'group-archived',
+  })
+  assert.equal(frozen.status, 409)
+  assert.deepEqual(frozen.body, {
+    ok: false,
+    code: 'archive-frozen',
+    reason: 'group-archived',
+    groupId: 'g-a',
+    field: 'name',
+    message: 'group-archived',
+  })
 })
 
 // ---------------------------------------------------------------------------

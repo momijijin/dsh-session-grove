@@ -6,8 +6,18 @@
  */
 import { useEffect, useRef } from 'react'
 import { clientRuntime as rt } from '../adapters/client-runtime.js'
-import { revealSession } from '../core/search.js'
+import { revealSession, splitSearchResultsByVisibility } from '../core/search.js'
+import { sessionContainer } from '../core/tree.js'
 import { dispatch, toast } from './command-runtime.js'
+
+/**
+ * Copy keys for a search target that is hidden by the current group filter
+ * (resources ship in P10). Computed map keeps the i18n literal-key guard green.
+ */
+const SEARCH_TARGET_KEYS = Object.freeze({
+  hidden: 'search.hiddenTarget',
+  showAll: 'search.showAllGroups',
+})
 
 export const useGroupsSearchReveal = ({ rootRef, tree, store, t, virtualRef }) => {
   const searchHitTimerRef = useRef(null)
@@ -95,6 +105,25 @@ const selectSearchResult = (entry) => {
   }
   // Read the live snapshot: the rendered `store` prop can lag a queued commit.
   const live = rt()?.store?.getSnapshot?.() ?? store
+  // SPEC §4.5/§8: a target hidden by the group filter is never revealed by
+  // silently switching the filter; offer the explicit switch instead. Running-
+  // popover hits carry no groupId, so resolve the live container first.
+  const probe =
+    typeof entry.groupId === 'string'
+      ? entry
+      : { ...entry, groupId: sessionContainer(live?.doc, entry.sessionId).groupId }
+  const split = splitSearchResultsByVisibility(live?.doc, [probe], live?.groupArchiveFilter ?? 'hidden')
+  if (split.hidden.length > 0) {
+    rt()?.notify?.({
+      kind: 'info',
+      message: t(SEARCH_TARGET_KEYS.hidden),
+      action: {
+        label: t(SEARCH_TARGET_KEYS.showAll),
+        onClick: () => dispatch('group-archive-filter', { filter: 'all' }),
+      },
+    })
+    return
+  }
   if (live?.archiveFilter === 'only') dispatch('archive-filter', { filter: 'all' })
   rt()?.actions.openSession(entry.sessionId)
   const collapsed = revealSession(live?.doc, live?.collapsed ?? {}, entry.sessionId)
