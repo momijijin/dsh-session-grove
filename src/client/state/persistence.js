@@ -12,6 +12,17 @@ import { ARCHIVE_FILTERS } from '../../shared/constants.js'
 export const VIEW_MODE_KEY = 'dsh-session-grove.view.v1'
 /** localStorage key for the archive tri-state filter. */
 export const ARCHIVE_FILTER_KEY = 'dsh-session-grove.archive.v1'
+/**
+ * localStorage key for the group archive tri-state filter
+ * (0.4.0-beta.62 SPEC §4.1). Independent from the session archive filter.
+ */
+export const GROUP_ARCHIVE_FILTER_KEY = 'dsh-session-grove.archive.groups.v1'
+/**
+ * localStorage key for the group-archive confirmation opt-out
+ * (0.4.0-beta.62 UI patch). `'true'` skips the confirm dialog; reset-layout
+ * writes it back to `'false'`.
+ */
+export const ARCHIVE_CONFIRM_SKIP_KEY = 'dsh-session-grove.archive.confirm-skip.v1'
 /** localStorage key for persisted group expansion, scoped by profile id. */
 export const COLLAPSED_KEY = 'dsh-session-grove.collapsed.v1'
 /** localStorage key for the one-time groups-view onboarding card. */
@@ -63,6 +74,49 @@ export const readArchiveFilter = (storage = safeStorage()) => {
 export const writeArchiveFilter = (filter, storage = safeStorage()) => {
   try {
     storage?.setItem(ARCHIVE_FILTER_KEY, ARCHIVE_FILTERS.includes(filter) ? filter : 'hidden')
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Read the persisted group archive filter; default hides archived groups. */
+export const readGroupArchiveFilter = (storage = safeStorage()) => {
+  try {
+    const raw = storage?.getItem(GROUP_ARCHIVE_FILTER_KEY)
+    return ARCHIVE_FILTERS.includes(raw) ? raw : 'hidden'
+  } catch {
+    return 'hidden'
+  }
+}
+
+/** Persist the group archive filter. */
+export const writeGroupArchiveFilter = (filter, storage = safeStorage()) => {
+  try {
+    storage?.setItem(GROUP_ARCHIVE_FILTER_KEY, ARCHIVE_FILTERS.includes(filter) ? filter : 'hidden')
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Whether the user opted out of the archive-group confirmation dialog.
+ * Only the exact string `'true'` counts; every other or blocked value is false.
+ */
+export const readArchiveConfirmSkip = (storage = safeStorage()) => {
+  try {
+    return storage?.getItem(ARCHIVE_CONFIRM_SKIP_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Persist the archive confirmation opt-out as an explicit `'true'`/`'false'`.
+ * Best effort: blocked storage keeps the in-memory behavior for this window.
+ */
+export const writeArchiveConfirmSkip = (skip, storage = safeStorage()) => {
+  try {
+    storage?.setItem(ARCHIVE_CONFIRM_SKIP_KEY, skip === true ? 'true' : 'false')
   } catch {
     /* ignore */
   }

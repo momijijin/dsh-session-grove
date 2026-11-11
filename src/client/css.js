@@ -228,6 +228,14 @@ export const CSS = `
 .dsg-icon-button:hover { background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, CanvasText 10%, transparent)); color: var(--dsw-alias-label-primary, CanvasText); }
 .dsg-icon-button:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, CanvasText); outline-offset: -2px; }
 .dsg-icon-button[aria-expanded="true"] { color: var(--dsw-alias-state-business-primary, CanvasText); background: color-mix(in srgb, var(--dsw-alias-state-business-primary, CanvasText) 14%, transparent); }
+/* 0.4.0-beta.62 §5.3/§5.6: archive-locked buttons keep their focus ring and
+ * click handler (the handler toasts the reason); only the surface is muted and
+ * the cursor neutral. Never pointer-events: none and never the native disabled
+ * attribute — keyboard users must still reach and read the reason. */
+.dsg-icon-button[aria-disabled="true"],
+.dsg-icon-button[data-disabled="true"] { opacity: .45; cursor: default; }
+.dsg-icon-button[aria-disabled="true"]:hover,
+.dsg-icon-button[data-disabled="true"]:hover { background: transparent; color: var(--dsw-alias-label-secondary, CanvasText); }
 .dsg-text-button {
   appearance: none;
   border: 0.5px solid var(--dsw-alias-border-l3, rgba(128,128,128,.35));
@@ -305,6 +313,11 @@ export const CSS = `
 /* Count is always visible at the far right: row padding-right (8px) is the
  * right edge. Tabular 12/16 keeps two- and three-digit counts stable. */
 .dsg-group-count { flex: none; min-width: 16px; text-align: right; font-size: var(--dsg-font-12, 12px); line-height: 16px; color: var(--dsw-alias-label-tertiary, CanvasText); font-variant-numeric: tabular-nums; }
+/* 0.4.0-beta.62 §5.6: lock (archived) / archive (contains archived) badge after
+ * the name. Icons only; the row gap handles spacing and the flex order mirrors
+ * the placement under RTL, so no physical margin or alignment is pinned here. */
+.dsg-group-badge { flex: none; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; color: var(--dsw-alias-label-tertiary, CanvasText); }
+.dsg-group-badge-contains { opacity: .7; }
 .dsg-group-actions, .dsg-session-actions { display: inline-flex; align-items: center; gap: 4px; flex: none; opacity: 0; pointer-events: none; transition: opacity .12s ease; }
 .dsg-group-row:hover .dsg-group-actions, .dsg-group-row:focus-within .dsg-group-actions,
 .dsg-session-row:hover .dsg-session-actions, .dsg-session-row:focus-within .dsg-session-actions { opacity: 1; pointer-events: auto; }
@@ -379,10 +392,42 @@ export const CSS = `
 }
 .dsg-empty-dropbox-plus { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; flex: none; }
 .dsg-empty-dropbox-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 0.4.0-beta.62 §5.3/§5.6: an archived empty group is a read-only surface. The
+ * component swaps the plus glyph for a lock; the box stays neutral and keeps no
+ * accent even if a stale drop flag is set (the group body still owns the
+ * reject handler, so dropping there reports the archive reason). */
+.dsg-empty-dropbox[data-locked="true"],
+.dsg-empty-dropbox.dsg-empty-dropbox-locked {
+  border-color: var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 22%, transparent));
+  background: color-mix(in srgb, var(--dsw-alias-label-tertiary, CanvasText) 4%, transparent);
+  color: var(--dsw-alias-label-tertiary, CanvasText);
+  cursor: default;
+}
+.dsg-empty-dropbox[data-locked="true"] .dsg-empty-dropbox-plus,
+.dsg-empty-dropbox.dsg-empty-dropbox-locked .dsg-empty-dropbox-plus { opacity: .75; }
+.dsg-empty-dropbox[data-locked="true"][data-drop-active="true"],
+.dsg-empty-dropbox.dsg-empty-dropbox-locked[data-drop-active="true"] {
+  border-color: var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 22%, transparent));
+  background: color-mix(in srgb, var(--dsw-alias-label-tertiary, CanvasText) 4%, transparent);
+  color: var(--dsw-alias-label-tertiary, CanvasText);
+}
 .dsg-session-row { height: 32px; padding: 0 8px; }
 .dsg-session-row[data-current="true"] { background: var(--dsw-alias-state-business-primary-fade, rgba(77,107,254,.16)); box-shadow: inset 2px 0 0 var(--dsw-alias-state-business-primary, #4d6bfe); }
 .dsg-session-row[data-current="true"] .dsg-session-title { color: var(--dsw-alias-state-business-primary, #4d6bfe); font-weight: 500; }
 .dsg-session-row[data-archived="true"] { opacity: .62; }
+/* 0.4.0-beta.62 §5.6: dim the outermost archived group exactly once. A nested
+ * archived group or an archived session row inside it resets to opacity 1 so the
+ * .62 opacity is never composited twice (.62 × .62); pathOnly route ancestors
+ * are not frozen and never dim, they only carry the "contains archived" hint. */
+.dsg-group[data-archived="true"] { opacity: .62; }
+.dsg-group[data-archived="true"] .dsg-group[data-archived="true"] { opacity: 1; }
+.dsg-group[data-archived="true"] .dsg-session-row[data-archived="true"] { opacity: 1; }
+.dsg-group[data-path-only="true"] { opacity: 1; }
+.dsg-group[data-path-only="true"] > .dsg-group-row .dsg-group-name { color: var(--dsw-alias-label-secondary, CanvasText); }
+/* Container archive lock is structural only: the row stays clickable and
+ * focusable (open/rename/archive toggle/copy id remain legal), so the cursor is
+ * neutral instead of the draggable grab. */
+.dsg-session-row[data-structural-locked="true"] { cursor: default; }
 /* Search reveal highlight (1.5 s, class removed by the component timer). */
 .dsg-session-row.dsg-search-hit { background: var(--dsw-alias-state-business-primary-fade, rgba(77,107,254,.3)); animation: dsg-search-hit 1.5s ease-out; }
 @keyframes dsg-search-hit {
@@ -489,6 +534,13 @@ export const CSS = `
 .dsg-menu-item { appearance: none; border: none; background: transparent; text-align: left; font-size: var(--dsg-font-13, 13px); line-height: 20px; color: var(--dsw-alias-label-primary, CanvasText); height: 30px; padding: 0 10px; border-radius: 5px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
 .dsg-menu-item:hover { background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, CanvasText 12%, transparent)); }
 .dsg-menu-item:disabled { opacity: .45; cursor: default; }
+/* Archive-locked entries use aria-disabled (focusable; clicking toasts the
+ * reason) while native-disabled boundary rows keep the :disabled rule above.
+ * Neither variant may use pointer-events: none or the native attribute. */
+.dsg-menu-item[aria-disabled="true"],
+.dsg-menu-item[data-disabled="true"] { color: var(--dsw-alias-label-tertiary, CanvasText); cursor: default; }
+.dsg-menu-item[aria-disabled="true"]:hover,
+.dsg-menu-item[data-disabled="true"]:hover { background: transparent; }
 .dsg-menu-separator { height: 1px; margin: 3px 2px; background: var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 15%, transparent)); }
 .dsg-menu-section { padding: 6px 10px 2px; font-size: var(--dsg-font-11, 11px); color: var(--dsw-alias-label-secondary, CanvasText); }
 /* View-options popover: anchored under the 28px header icon button. */
@@ -499,6 +551,11 @@ export const CSS = `
   right: 0;
   z-index: 72;
   min-width: 200px;
+  /* 0.4.0-beta.62 §10: two labelled tri-state sections must stay reachable on a
+   * short viewport instead of clipping the third group row. */
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 6px;
   display: flex;
   flex-direction: column;
@@ -515,6 +572,11 @@ export const CSS = `
 .dsg-view-option-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsg-view-option-check { display: inline-flex; flex: none; width: 16px; height: 16px; align-items: center; justify-content: center; color: var(--dsw-alias-state-business-primary, CanvasText); }
 .dsg-view-options-divider { height: 0; margin: 4px 6px; border-top: 0.5px solid var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 16%, transparent)); }
+/* 0.4.0-beta.62 §10: one labelled group per archive tri-state (sessions then
+ * groups) so the two "hidden/all/only" rows cannot be confused. */
+.dsg-view-options-section { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dsg-view-options-section + .dsg-view-options-section { margin-top: 4px; padding-top: 4px; border-top: 0.5px solid var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 16%, transparent)); }
+.dsg-view-options-section-title { padding: 2px 10px 3px; font-size: var(--dsg-font-11, 11px); line-height: 16px; font-weight: 500; color: var(--dsw-alias-label-secondary, CanvasText); text-align: start; }
 .dsg-view-options-about { display: flex; flex-direction: column; gap: 1px; padding: 5px 8px 2px; font-size: var(--dsg-font-11, 11px); line-height: 16px; color: var(--dsw-alias-label-tertiary, CanvasText); }
 .dsg-view-options-version { color: var(--dsw-alias-label-secondary, CanvasText); font-variant-numeric: tabular-nums; }
 .dsg-view-options-scope { overflow-wrap: anywhere; }
@@ -676,6 +738,9 @@ export const CSS = `
 .dsg-profile-preview-path-muted { color: var(--dsw-alias-label-secondary, CanvasText); }
 .dsg-profile-preview-arrow { flex: none; display: inline-block; color: var(--dsw-alias-label-tertiary, CanvasText); }
 .dsg-profile-preview-change-tag { color: var(--dsw-alias-state-danger, CanvasText); }
+/* 0.4.0-beta.62 §5.6: an archive-state flip is informational, not the danger
+ * "stale session" marker; the shared tag stays red only for stale rows. */
+.dsg-profile-preview-change-tag[data-kind="archive"] { color: var(--dsw-alias-label-secondary, CanvasText); }
 /* Order-only note under the group blocks. */
 .dsg-profile-preview-row { min-width: 0; white-space: normal; overflow-wrap: anywhere; font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-label-secondary, CanvasText); }
 .dsg-profile-preview-truncated { font-size: var(--dsg-font-11, 11px); line-height: 16px; color: var(--dsw-alias-label-tertiary, CanvasText); }
@@ -792,6 +857,10 @@ export const CSS = `
 .dsg-dialog-content, .dsg-dialog-list, .dsg-icon-sections { scrollbar-width: none; -ms-overflow-style: none; }
 .dsg-dialog-content::-webkit-scrollbar, .dsg-dialog-list::-webkit-scrollbar, .dsg-icon-sections::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .dsg-dialog-body { font-size: var(--dsg-font-13, 13px); line-height: 20px; color: var(--dsw-alias-label-secondary, CanvasText); white-space: pre-wrap; }
+/* 0.4.0-beta.62 UI patch: archive confirm "don't ask again" opt-out row. */
+.dsg-dialog-check { display: flex; align-items: center; gap: 8px; font-size: var(--dsg-font-13, 13px); line-height: 20px; color: var(--dsw-alias-label-secondary, CanvasText); cursor: pointer; user-select: none; }
+.dsg-dialog-check input { flex: none; width: 14px; height: 14px; margin: 0; accent-color: var(--dsw-alias-state-business-primary, #4d6bfe); cursor: pointer; }
+.dsg-dialog-check input:focus-visible { outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, #4d6bfe)); outline-offset: 2px; }
 .dsg-dialog-delete-counts { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .dsg-dialog-input { flex: none; width: 100%; box-sizing: border-box; height: 32px; min-height: 32px; padding: 0 10px; font-size: var(--dsg-font-13, 13px); line-height: 18px; border-radius: 6px; border: 0.5px solid var(--dsw-alias-border-l3, color-mix(in srgb, CanvasText 22%, transparent)); background: var(--dsw-alias-bg-layer-1, Canvas); color: var(--dsw-alias-label-primary, CanvasText); }
 .dsg-dialog-input::placeholder { color: var(--dsw-alias-label-secondary, CanvasText); }
@@ -1035,6 +1104,9 @@ export const CSS = `
 /* The flow arrow points along the inline direction, so mirror it for RTL. */
 .dsg-root[dir="rtl"] .dsg-profile-preview-arrow { transform: scaleX(-1); }
 .dsg-root[dir="rtl"] .dsg-profile-trigger svg { transform: none; }
+/* 0.4.0-beta.62 §5.6: popover section headings align with the RTL row text; the
+ * group badges need no mirroring (the row flex order already swaps). */
+.dsg-root[dir="rtl"] .dsg-view-options-section-title { text-align: right; }
 `
 
 /**

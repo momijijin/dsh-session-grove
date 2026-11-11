@@ -61,6 +61,21 @@ export const commitResponse = (result, profileId) => {
       }
     case 'invalid':
       return { status: 422, body: { ok: false, code: 'invalid', message: result.errors.join('; ') } }
+    case 'archive-frozen':
+      // 0.4.0-beta.62 (SPEC §6.3/§6.4): a whole commit violated the frozen-group
+      // invariant. Never writes and never bumps the revision; `reason` carries
+      // the structured operation code (`group-archived` etc.).
+      return {
+        status: 409,
+        body: {
+          ok: false,
+          code: 'archive-frozen',
+          reason: result.code,
+          groupId: result.groupId,
+          field: result.field,
+          message: result.message,
+        },
+      }
     case 'unsupported-version':
       return {
         status: 409,

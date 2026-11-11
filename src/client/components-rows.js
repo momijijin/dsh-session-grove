@@ -18,17 +18,36 @@ import { diagRender } from './diagnostics.js'
 import { renderGlyph, renderIcon } from './icons.js'
 import { perfRender } from './perf.js'
 import { displayDepth, groupPath, isExpanded, sessionStatuses } from '../core/tree.js'
+import { hasArchivedDescendant } from '../shared/archive.js'
 
 import { SessionStatusCell, sessionTime, menuKeyHandler, DropPlaceholder, EmptyDropBox, IconButton, GROUP_PLACEHOLDER_HEIGHT, SESSION_PLACEHOLDER_HEIGHT } from './components-primitives.js'
 import { toast } from './components-primitives.js'
 
 const h = createElement
 
+/**
+ * Copy keys introduced by the 0.4.0-beta.62 archive freeze. Literal translation
+ * calls would fail the i18n guard until P10 ships the 19-language resources, so
+ * the keys live in one computed map that P10 can fill without touching call
+ * sites.
+ */
+const GROUP_ROW_KEYS = Object.freeze({
+  archivedLocked: 'group.archivedLocked',
+  containsArchived: 'group.containsArchived',
+  archivedEmpty: 'group.archivedEmpty',
+})
+
+/** Structural container lock reason for one session row inside an archived group. */
+const SESSION_ROW_KEYS = Object.freeze({
+  structuralLocked: 'session.structuralLocked',
+})
+
 const SessionRowImpl = ({
   sessionNode,
   depth,
   groupId,
   ungrouped = false,
+  structuralLocked = false,
   props,
   handlers,
   store,
@@ -45,6 +64,10 @@ const SessionRowImpl = ({
   const workspaceName = sessionNode.workspace ? workspaceLabel(sessionNode.workspace) : rt()?.t('session.noWorkspace')
   const current = store?.currentSessionId === sessionId
   const time = sessionTime(row.updatedAt)
+  // Container archive lock (SPEC §5.4): derived from the containing group's
+  // effective archive state. `data-archived` keeps meaning "this session is
+  // archived"; the lock never rewrites it.
+  const lockReason = structuralLocked ? rt()?.t(SESSION_ROW_KEYS.structuralLocked) : null
   // Archived and blank rows keep the 16x20 leading slot but never paint a
   // status marker (official row contract); pending rows trade the time cell for
   // the compact status label.
@@ -56,17 +79,18 @@ const SessionRowImpl = ({
       class: 'dsg-session-row',
       role: 'treeitem',
       tabindex: '0',
-      draggable: 'true',
+      draggable: structuralLocked ? 'false' : 'true',
       'aria-selected': current ? 'true' : undefined,
-      'aria-label': title,
+      'aria-label': lockReason === null ? title : `${title} — ${lockReason}`,
       'aria-haspopup': 'menu',
       'data-testid': 'session-groups-session',
       'data-session-id': sessionId,
       ...(ungrouped ? { 'data-ungrouped': 'true' } : { 'data-group-id': groupId ?? '' }),
       'data-current': current ? 'true' : 'false',
       'data-archived': archived ? 'true' : 'false',
+      'data-structural-locked': structuralLocked ? 'true' : 'false',
       'data-depth': String(displayDepth(depth)),
-      title: `${title} · ${workspaceName}`,
+      title: lockReason === null ? `${title} · ${workspaceName}` : `${title} · ${workspaceName} · ${lockReason}`,
       onClick: () => {
         if (archived) {
           toast('error', rt()?.t('session.archivedBadge'))
@@ -74,15 +98,26 @@ const SessionRowImpl = ({
         }
         handlers.openSession(sessionId)
       },
-      onContextMenu: (event) => handlers.onSessionContextMenu(event, sessionNode),
+      onContextMenu: (event) => handlers.onSessionContextMenu(event, sessionNode, structuralLocked),
       onKeyDown: (event) => {
-        if (menuKeyHandler(event, (rowElement) => handlers.openSessionMenuAtRow(rowElement, sessionNode))) return
+        if (menuKeyHandler(event, (rowElement) => handlers.openSessionMenuAtRow(rowElement, sessionNode, structuralLocked))) return
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
+          // Own-archive still refuses to open; the container lock does not.
+          if (archived) {
+            toast('error', rt()?.t('session.archivedBadge'))
+            return
+          }
           handlers.openSession(sessionId)
         }
       },
       onDragStart: (event) => {
+        // `draggable=false` already blocks this; keep the JSX guard so a future
+        // row wrapper cannot start a structural drag out of an archived subtree.
+        if (structuralLocked) {
+          event.preventDefault()
+          return
+        }
         event.dataTransfer?.setData('text/plain', sessionId)
         if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
         handlers.onDragStart(sessionId)
@@ -123,7 +158,7 @@ const SessionRowImpl = ({
         testId: 'session-groups-session-menu',
         haspopup: 'menu',
         data: { 'data-session-id': sessionId },
-        onClick: (event) => handlers.openSessionMenu(event, sessionNode),
+        onClick: (event) => handlers.openSessionMenu(event, sessionNode, structuralLocked),
       })
     ),
     archived ? h('span', { class: 'dsg-session-badge' }, rt()?.t('session.archivedBadge')) : null,
@@ -209,6 +244,21 @@ const GroupNode = ({ node, depth, props, handlers, store }) => {
   const dragging = store.draggedGroupId === group.id
   const visibleSessions = node.children.filter((child) => child.kind === 'session')
   const childGroups = node.children.filter((child) => child.kind === 'group')
+  // 0.4.0-beta.62 §5.6/N12: `data-archived` is the effective flag, while
+  // `data-contains-archived` only marks a live ancestor of an archived subtree.
+  // `hasArchivedDescendant` is needed because the render tree prunes the frozen
+  // descendants under `hidden`; the doc is the only complete source.
+  const effectiveArchived = node.effectiveArchived === true
+  const pathOnly = node.pathOnly === true
+  const containsArchived = !effectiveArchived && hasArchivedDescendant(store.doc, group.id)
+  const archiveReason = effectiveArchived
+    ? rt()?.t(GROUP_ROW_KEYS.archivedLocked)
+    : containsArchived
+      ? rt()?.t(GROUP_ROW_KEYS.containsArchived)
+      : null
+  // Menu state carries the derived archive flags; session-menu owns the
+  // per-action disabled+reason policy (P9 adds the archive toggle itself).
+  const menuMeta = { archived: effectiveArchived, containsArchived }
   // Official 0.2.13 watermark: 5 direct sessions by default; a current /
   // running / pending / unread-complete row raises the baseline (max 50).
   // "Show more" is a local expansion of +5 (or all remaining); collapsing the
@@ -260,7 +310,18 @@ const GroupNode = ({ node, depth, props, handlers, store }) => {
     if (dropTarget?.kind === 'session-before' && dropTarget.sessionId === sessionId) {
       sessionChildren.push(h(DropPlaceholder, { key: `ph-b-${sessionId}`, target: dropTarget, store, handlers, height: SESSION_PLACEHOLDER_HEIGHT }))
     }
-    sessionChildren.push(h(SessionRow, { key: sessionId, sessionNode: child, depth: depth + 1, groupId: group.id, props, handlers, store }))
+    sessionChildren.push(
+      h(SessionRow, {
+        key: sessionId,
+        sessionNode: child,
+        depth: depth + 1,
+        groupId: group.id,
+        structuralLocked: effectiveArchived,
+        props,
+        handlers,
+        store,
+      })
+    )
     if (dropTarget?.kind === 'session-after' && dropTarget.sessionId === sessionId) {
       sessionChildren.push(h(DropPlaceholder, { key: `ph-a-${sessionId}`, target: dropTarget, store, handlers, height: SESSION_PLACEHOLDER_HEIGHT }))
     }
@@ -287,12 +348,16 @@ const GroupNode = ({ node, depth, props, handlers, store }) => {
   )
   const lineChildren = [...bodyChildren]
   if (headPlaceholder) lineChildren.push(headPlaceholder)
-  if (node.visibleCount === 0 && childGroups.length === 0 && !bodyPlaceholderVisible) {
+  // pathOnly must win over the empty-box branch: a path ancestor has no own
+  // sessions by construction, so `visibleCount=0/emptyVisible` must never paint
+  // it as a locked empty group (P2 carry-over).
+  if (!pathOnly && node.visibleCount === 0 && childGroups.length === 0 && !bodyPlaceholderVisible) {
     lineChildren.push(
       h(EmptyDropBox, {
         key: 'empty',
-        label: notFound,
-        active: emptyDropActive,
+        label: effectiveArchived ? rt()?.t(GROUP_ROW_KEYS.archivedEmpty) : notFound,
+        active: !effectiveArchived && emptyDropActive,
+        locked: effectiveArchived,
         data: { 'data-group-id': group.id },
       })
     )
@@ -334,6 +399,9 @@ const GroupNode = ({ node, depth, props, handlers, store }) => {
     {
       class: 'dsg-group',
       'data-color': groupColor(group),
+      'data-archived': effectiveArchived ? 'true' : 'false',
+      'data-path-only': pathOnly ? 'true' : 'false',
+      'data-contains-archived': containsArchived ? 'true' : 'false',
       ...(groupColorHex(group) ? { 'data-color-hex': groupColorHex(group) } : {}),
       // 0.2.7 display precedence: colorHex > palette. Inline custom property is
       // inherited by the row icon/caret and this group's child-guide pseudo.
@@ -348,24 +416,28 @@ const GroupNode = ({ node, depth, props, handlers, store }) => {
         class: 'dsg-group-row',
         role: 'treeitem',
         tabindex: '0',
-        draggable: 'true',
+        draggable: effectiveArchived || containsArchived ? 'false' : 'true',
         'aria-expanded': expanded ? 'true' : 'false',
         'aria-haspopup': 'menu',
+        ...(archiveReason === null ? {} : { 'aria-label': `${group.name} — ${archiveReason}` }),
         'data-testid': 'session-groups-group',
         'data-group-id': group.id,
         'data-color': groupColor(group),
+        'data-archived': effectiveArchived ? 'true' : 'false',
+        'data-path-only': pathOnly ? 'true' : 'false',
+        'data-contains-archived': containsArchived ? 'true' : 'false',
         'data-depth': String(displayDepth(depth)),
         'data-expanded': expanded ? 'true' : 'false',
         'data-drop-active': isAppendTarget ? 'true' : 'false',
         'data-drop-kind': isAppendTarget ? 'group-append' : headerKind ?? '',
         'data-drop-forbidden': isForbidden ? 'true' : 'false',
         'data-dragging': dragging ? 'true' : 'false',
-        title: groupPath(store.doc, group.id),
+        title: archiveReason === null ? groupPath(store.doc, group.id) : `${groupPath(store.doc, group.id)} · ${archiveReason}`,
         onClick: () => handlers.onGroupClick(group.id),
-        onContextMenu: (event) => handlers.onGroupContextMenu(event, group),
+        onContextMenu: (event) => handlers.onGroupContextMenu(event, group, menuMeta),
         onPointerDown: (event) => handlers.onGroupPointerDown(event, group),
         onKeyDown: (event) => {
-          if (menuKeyHandler(event, (rowElement) => handlers.openGroupMenuAtRow(rowElement, group))) return
+          if (menuKeyHandler(event, (rowElement) => handlers.openGroupMenuAtRow(rowElement, group, menuMeta))) return
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault()
             handlers.toggleGroup(group.id)
@@ -380,6 +452,24 @@ const GroupNode = ({ node, depth, props, handlers, store }) => {
       h('span', { class: 'dsg-group-caret' }, renderGlyph(h, expanded ? 'chevronDown' : 'chevronRight', 16)),
       h('span', { class: 'dsg-group-icon' }, renderIcon(h, group.icon, 16)),
       h('span', { class: 'dsg-group-name' }, group.name),
+      effectiveArchived
+        ? h(
+            'span',
+            { class: 'dsg-group-badge', 'data-testid': 'session-groups-group-archived', 'aria-hidden': 'true', title: archiveReason ?? '' },
+            renderIcon(h, 'lock', 16)
+          )
+        : containsArchived
+          ? h(
+              'span',
+              {
+                class: 'dsg-group-badge dsg-group-badge-contains',
+                'data-testid': 'session-groups-group-contains-archived',
+                'aria-hidden': 'true',
+                title: archiveReason ?? '',
+              },
+              renderGlyph(h, 'archive', 16)
+            )
+          : null,
       h(
         'span',
         { class: 'dsg-group-actions' },
@@ -388,6 +478,8 @@ const GroupNode = ({ node, depth, props, handlers, store }) => {
           glyph: 'plus',
           testId: 'session-groups-group-add',
           data: { 'data-group-id': group.id },
+          disabled: effectiveArchived,
+          disabledReason: effectiveArchived ? archiveReason : null,
           onClick: (event) => handlers.openNewSession(event, group.id),
         }),
         IconButton({
@@ -396,7 +488,7 @@ const GroupNode = ({ node, depth, props, handlers, store }) => {
           testId: 'session-groups-group-menu',
           haspopup: 'menu',
           data: { 'data-group-id': group.id },
-          onClick: (event) => handlers.openGroupMenu(event, group),
+          onClick: (event) => handlers.openGroupMenu(event, group, menuMeta),
         })
       ),
       h('span', { class: 'dsg-group-count', 'data-testid': 'session-groups-group-count' }, node.visibleCount)

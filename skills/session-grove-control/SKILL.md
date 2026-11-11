@@ -1,6 +1,6 @@
 ---
 name: session-grove-control
-description: Read and safely change the DSH free-groups sidebar or a session's title/archive state. Use when the user asks to create, rename, move, color, delete groups, assign sessions to groups, rename a session, or archive/restore it without clicking the sidebar.
+description: Read and safely change the DSH free-groups sidebar or a session's title/archive state. Use when the user asks to create, rename, move, color, archive/restore or delete groups, assign sessions to groups, rename a session, or archive/restore it without clicking the sidebar.
 ---
 
 <!-- managed-by: dsh-session-grove -->
@@ -53,7 +53,9 @@ that to tell "what I read" apart from "what the sidebar shows".
 The local CLI (`scripts/session-grove-control.mjs`) mirrors the same policy:
 `--profile <id>` for `state`/`resolve`/`plan`/`apply`, optional for the first
 two and required for `plan`/`apply` once more than one profile exists. `doctor`
-and session commands reject `--profile`.
+and session commands reject `--profile`. The CLI forwards `operations` bodies
+unchanged (including `group.archive`) and prints archive conflict bodies as-is
+with a non-zero exit code.
 
 ## Session identity
 
@@ -119,6 +121,11 @@ before building a plan that changes `icon` or `color`.
 Returns the stable `revision`, every group `id`/`path`/icon/color, session ids,
 plus the selected `profileId` and the current `activeProfile`. Always read state
 before writing, and read the same profile you intend to write.
+
+Each group also reports the 0.4.0-beta.62 archive fields: `archived` (its own
+flag), `effectiveArchived` (own flag or any ancestor archived) and `archivedBy`
+(the nearest archived group id, or `null` when the group is not frozen).
+`pathOnly` is view state and is never exposed by the control state.
 
 ### resolve
 
@@ -188,6 +195,54 @@ allowed; do not edit `dsh-session-grove.json`.
 When only the default profile exists, `profileId` may be omitted on `plan`/
 `apply` and the host behaves exactly as before.
 
+### group archive
+
+`group.archive` toggles one group's own archive flag. It is deliberately
+separate from `group.update`, which still accepts only `icon`/`color`/
+`colorHex`; putting `archived` in `group.update` is `invalid-operation`.
+
+```json
+{ "op": "group.archive", "groupId": "g-...", "archived": true }
+```
+
+A `group.archive` change reports `{ op, groupId, archived }`.
+
+- The flag never cascades: child groups and sessions keep their own `archived`
+  value. Archiving inside an already archived subtree is allowed; the switch is
+  the only mutation a frozen group accepts on its own.
+- Session-scoped actions (`session_rename`, `session_archive`) still work for
+  sessions inside an archived group; the lock covers structure (group
+  membership/order) and group metadata, not a session's own title/archive flag.
+- An archived group freezes its whole recursive subtree: renames, icon/color
+  edits, moves, deletes and session membership/order changes are refused when
+  they touch the frozen target, would move/delete its ancestors, or would shift
+  its sibling index. The structured guard codes are:
+  - `group-archived` — the target or operation source is in an archived subtree;
+  - `group-contains-archived` — the source contains archived descendants and
+    would move/delete them indirectly;
+  - `group-destination-archived` — the destination (move parent or delete
+    destination, even an empty archived group) is archived;
+  - `group-position-locked` — the operation would shift an archived group's
+    sibling index indirectly.
+- Guard failures carry `groupId`, `field` and `operationIndex`. HTTP control
+  routes answer **409** for these codes and **422** for schema, unknown-field,
+  type, negative-index, `no-change` and `group-not-found` failures.
+- A same-value archive is `no-change` (HTTP 422). It is idempotent on the
+  document, not a successful response: re-read state if you need confirmation.
+- Operations in one plan run strictly in order and the whole batch is then
+  checked against the before-state:
+  - `[rename, archive]` is allowed (the group was not frozen before the batch);
+  - `[archive, rename]` / `[archive, update]` are rejected at the second
+    operation because the target is already frozen;
+  - `[unarchive, edit]` is rejected for the whole batch even though each step
+    looks legal. Unarchive and edit must be two separate `apply` calls.
+  A rejected batch changes nothing, so re-read state after a conflict.
+- A host commit can still reject the whole write with `code: "archive-frozen"`
+  (HTTP 409, body also carries `reason`, `groupId`, `field`). The native tool
+  returns the same information as a structured failure
+  `{ ok: false, code: "archive-frozen", reason, groupId, field }`. Reload
+  state, rebuild the plan, and never retry blindly.
+
 ### session actions
 
 Session actions are host-scoped, not profile-scoped: they never take
@@ -242,7 +297,8 @@ success rather than pretending both succeeded.
 ```text
 group.create    { name, parentId?, index?, icon?, color?, colorHex? }
 group.rename    { groupId, name }
-group.update    { groupId, icon?, color?, colorHex? }
+group.update    { groupId, icon?, color?, colorHex? }   (appearance only)
+group.archive   { groupId, archived }                  (own flag; never cascades)
 group.move      { groupId, parentId|null, index? }
 group.delete    { groupId, destinationId|null }
 session.assign  { sessionId, groupId|null, index? }
@@ -278,5 +334,10 @@ The control API does not silently rewrite invalid appearance input. Read
   session title and group assignment are separate state domains. Do rename,
   verify, then assign, verify.
 - On `conflict`, re-read state and rebuild the plan; never blindly retry.
+- Never combine an unarchive with an edit in one plan: the whole batch is
+  rejected against the before-state. Send `group.archive` with
+  `archived: false`, then edit in a second apply.
+- On an `archive-frozen` apply failure the write was rejected as a whole: reload
+  state, rebuild the plan, and do not assume any operation was applied.
 - Do not use this skill for workspace/session-log edits; it only changes the
   plugin's group assignments, session title, and archived status.

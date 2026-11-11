@@ -1,11 +1,14 @@
 /**
  * Drag & drop model for the groups tree.
  *
- * Pure functions only: `hitTest` maps pointer geometry to a drop target and
- * `applyDrop` maps a target to the next GroupDoc via the shared model mutators.
- * Components own the HTML5 drag events, insertion line, floating label and the
- * 500ms collapsed-group auto-expand timer; they call these functions.
+ * Pure functions only: `hitTest` maps pointer geometry to a drop target,
+ * `checkSessionDrop` answers whether that target is structurally legal (the
+ * live preview shares it with the commit), and `applyDrop` maps an allowed
+ * target to the next GroupDoc via the shared model mutators. Components own the
+ * HTML5 drag events, insertion line, floating label and the 500ms
+ * collapsed-group auto-expand timer; they call these functions.
  */
+import { effectiveArchived } from '../shared/archive.js'
 import { assignSession, findGroup, reorderUngrouped } from '../shared/model.js'
 
 /**
@@ -126,64 +129,147 @@ export const ungroupedBodyTarget = (rows, pointerY) => {
   return { kind: 'session-after', groupId: null, sessionId: visible[visible.length - 1].sessionId }
 }
 
-/** Whether `groupId` is the dragged session's current group (before/after same-group reorder). */
-const sameGroup = (doc, sessionId, groupId) => sessionLocation(doc, sessionId).groupId === groupId
+/**
+ * Resolve a session drop to its insertion slot.
+ *
+ * `index` is the post-removal insertion index inside the destination list, which
+ * is what the shared mutators (`assignSession`) expect: the dragged session is
+ * removed first. Invalid/unknown targets return `{ reason: 'invalid' }`.
+ *
+ * @returns {{ groupId: string|null, index: number, moving: { groupId: string|null, index: number } } | { reason: string }}
+ */
+const sessionDropPosition = (doc, sessionId, target) => {
+  if (!target || typeof target !== 'object') return { reason: 'invalid' }
+  switch (target.kind) {
+    case 'session-before':
+    case 'session-after': {
+      if (typeof target.sessionId !== 'string' || target.sessionId === '' || target.sessionId === sessionId) {
+        return { reason: 'invalid' }
+      }
+      const anchor = sessionLocation(doc, target.sessionId)
+      if (anchor.index < 0) return { reason: 'invalid' }
+      const moving = sessionLocation(doc, sessionId)
+      const insertAt = target.kind === 'session-before' ? anchor.index : anchor.index + 1
+      // Removing the moved id first shifts anchors inside the same list.
+      let index = insertAt
+      if (moving.groupId === anchor.groupId && moving.index >= 0 && moving.index < insertAt) index -= 1
+      return { groupId: anchor.groupId, index, moving }
+    }
+    case 'group-append': {
+      if (typeof target.groupId !== 'string' || target.groupId === '') return { reason: 'invalid' }
+      const group = findGroup(doc, target.groupId)
+      if (!group) return { reason: 'invalid' }
+      const moving = sessionLocation(doc, sessionId)
+      const length = Array.isArray(group.sessionIds) ? group.sessionIds.length : 0
+      // A same-group append removes the session before inserting, so its last
+      // reachable index is `length - 1`; a cross-group append lands at `length`.
+      const index = moving.groupId === group.id ? Math.max(0, length - 1) : length
+      return { groupId: group.id, index, moving }
+    }
+    case 'group-head': {
+      if (typeof target.groupId !== 'string' || target.groupId === '') return { reason: 'invalid' }
+      const group = findGroup(doc, target.groupId)
+      if (!group) return { reason: 'invalid' }
+      return { groupId: group.id, index: 0, moving: sessionLocation(doc, sessionId) }
+    }
+    case 'ungrouped':
+      return { groupId: null, index: null, moving: sessionLocation(doc, sessionId) }
+    default:
+      return { reason: 'invalid' }
+  }
+}
+
+/**
+ * Structural legality of one session drop (0.4.0-beta.62 archived containers).
+ *
+ * Pure: never clones or mutates the doc, so the drag preview can call it on every
+ * `dragover` and the commit can call it again on the latest confirmed doc — the
+ * two always agree. The returned `noop` means the drop resolves to the session's
+ * current slot, so the caller must not write a new doc (and must not bump the
+ * revision).
+ *
+ * An effectively archived group is a locked container (spec §2 `containerLock`,
+ * §6.2): sessions inside it cannot be reordered, moved out or moved between
+ * groups, and nothing can be dropped into / reordered inside it. Reordering a
+ * sibling *outside* an archived subtree stays legal. An individually archived
+ * session (`session.archived`) is host state, not part of GroupDoc, so it is
+ * intentionally not consulted here (spec §1 non-goal).
+ *
+ * Reasons are stable machine-readable strings:
+ * - `invalid` — missing/unknown source, self drop, unknown group/session, unknown kind.
+ * - `archived-container` — the source session lives in an archived container.
+ * - `archived-destination` — the destination group is an archived container.
+ *
+ * @param {object} doc
+ * @param {{ kind: 'session', sessionId: string } | null | undefined} source
+ * @param {{ kind: string, groupId?: string|null, sessionId?: string|null } | null | undefined} target
+ * @returns {{ ok: true, noop: boolean } | { ok: false, reason: string }}
+ */
+export const checkSessionDrop = (doc, source, target) => {
+  const sessionId = source?.kind === 'session' ? source.sessionId : null
+  if (typeof sessionId !== 'string' || sessionId === '') return { ok: false, reason: 'invalid' }
+  if (!doc || !Array.isArray(doc.groups)) return { ok: false, reason: 'invalid' }
+  const position = sessionDropPosition(doc, sessionId, target)
+  if (position.reason) return { ok: false, reason: position.reason }
+  const { moving } = position
+  if (moving.groupId !== null && effectiveArchived(doc, moving.groupId)) {
+    return { ok: false, reason: 'archived-container' }
+  }
+  if (position.groupId !== null && effectiveArchived(doc, position.groupId)) {
+    return { ok: false, reason: 'archived-destination' }
+  }
+  // The ungrouped section is outside the archive tree. Without the visible
+  // ungrouped order the check cannot tell a no-op from a visible reorder, so the
+  // drop is legal here and `applyDrop` resolves the concrete outcome.
+  if (position.groupId === null) return { ok: true, noop: false }
+  const noop = moving.groupId === position.groupId && moving.index === position.index
+  return { ok: true, noop }
+}
 
 /**
  * Apply one drop to the doc.
+ *
+ * The archive guard runs first and shares its predicate with the live preview
+ * (`checkSessionDrop`). A rejected drop returns the input doc untouched plus a
+ * stable `reason`; an allowed drop keeps the previous clone/mutate behavior of
+ * the shared model mutators. A no-op drop returns the input doc identity with
+ * `{ applied: false, noop: true }` so the queue never bumps the revision.
+ *
+ * Only `{ kind: 'ungrouped' }` is a container target ("move out / to the top").
+ * Every row anchor (`session-before` / `session-after`) uses its resolved
+ * insertion index, including the `groupId: null` anchors of the ungrouped list.
+ *
  * @param {object} doc
  * @param {{ kind: 'session', sessionId: string }} source
  * @param {{ kind: string, groupId?: string|null, sessionId?: string|null }} target
  * @param {string[]} [visibleUngrouped] full visible ungrouped order (first reorder writes it)
- * @returns {{ doc: object, applied: boolean }}
+ * @returns {{ doc: object, applied: true } | { doc: object, applied: false, reason: string } | { doc: object, applied: false, noop: true }}
  */
 export const applyDrop = (doc, source, target, visibleUngrouped = null) => {
-  const sessionId = source?.kind === 'session' ? source.sessionId : null
-  if (!sessionId || !target || target.kind === 'invalid') return { doc, applied: false }
+  const verdict = checkSessionDrop(doc, source, target)
+  if (!verdict.ok) return { doc, applied: false, reason: verdict.reason }
+  if (verdict.noop) return { doc, applied: false, noop: true }
+  const sessionId = source.sessionId
+  const position = sessionDropPosition(doc, sessionId, target)
+  // Defensive: checkSessionDrop already validated the same payload.
+  if (position.reason) return { doc, applied: false, reason: position.reason }
 
-  switch (target.kind) {
-    case 'session-before':
-    case 'session-after': {
-      if (!target.sessionId || target.sessionId === sessionId) return { doc, applied: false }
-      const anchor = sessionLocation(doc, target.sessionId)
-      if (anchor.index < 0) return { doc, applied: false }
-      const insertAt = target.kind === 'session-before' ? anchor.index : anchor.index + 1
-      const moving = sessionLocation(doc, sessionId)
-      // Removing the moved id first shifts anchors inside the same list.
-      let index = insertAt
-      if (moving.groupId === anchor.groupId && moving.index < insertAt) index -= 1
-      if (moving.groupId === anchor.groupId && moving.index === index) return { doc, applied: false }
-      const next = assignSession(doc, sessionId, anchor.groupId, index)
-      return { doc: next, applied: true }
+  // Only the `{ kind: 'ungrouped' }` container target means "top of the ungrouped
+  // section". Session anchors (`session-before` / `session-after`, including the
+  // `groupId: null` ones inside the ungrouped list) already resolved a concrete
+  // insertion index, so they take the shared `assignSession` path below.
+  if (target.kind === 'ungrouped') {
+    const moving = position.moving
+    if (moving.groupId === null && Array.isArray(visibleUngrouped) && visibleUngrouped.length > 0) {
+      // Reorder the visible ungrouped list, persisting the manual order.
+      const order = visibleUngrouped.filter((id) => id !== sessionId)
+      order.unshift(sessionId)
+      return { doc: reorderUngrouped(doc, order), applied: true }
     }
-    case 'group-append': {
-      const group = findGroup(doc, target.groupId)
-      if (!group) return { doc, applied: false }
-      const next = assignSession(doc, sessionId, group.id, group.sessionIds.length)
-      return { doc: next, applied: true }
-    }
-    case 'group-head': {
-      const group = findGroup(doc, target.groupId)
-      if (!group) return { doc, applied: false }
-      const next = assignSession(doc, sessionId, group.id, 0)
-      return { doc: next, applied: true }
-    }
-    case 'ungrouped': {
-      const moving = sessionLocation(doc, sessionId)
-      if (moving.groupId === null && Array.isArray(visibleUngrouped) && visibleUngrouped.length > 0) {
-        // Reorder the visible ungrouped list, persisting the manual order.
-        const order = visibleUngrouped.filter((id) => id !== sessionId)
-        order.unshift(sessionId)
-        const next = reorderUngrouped(doc, order)
-        return { doc: next, applied: true }
-      }
-      if (moving.groupId === null) return { doc, applied: false }
-      const next = assignSession(doc, sessionId, null, 0)
-      return { doc: next, applied: true }
-    }
-    default:
-      return { doc, applied: false }
+    if (moving.groupId === null) return { doc, applied: false, noop: true }
+    return { doc: assignSession(doc, sessionId, null, 0), applied: true }
   }
+  return { doc: assignSession(doc, sessionId, position.groupId, position.index), applied: true }
 }
 
 /** Stable drop-target fields. Geometry/indices are never part of a view target. */

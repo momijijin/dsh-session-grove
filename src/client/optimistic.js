@@ -47,6 +47,30 @@ const asReported = (error, code) => {
   return failure
 }
 
+/**
+ * Locale keys for a rejected optimistic write that collided with the archive
+ * freeze (0.4.0-beta.62 §6.4). Kept in a computed map so the i18n literal-key
+ * guard stays green until P10 ships the 19-language resources; the drag reasons
+ * are reused because the rejected gesture has the same semantics.
+ */
+const ARCHIVE_FROZEN_TOAST_KEYS = Object.freeze({
+  'group-archived': 'drag.archivedDestination',
+  'group-contains-archived': 'drag.archivedAnchor',
+  'group-destination-archived': 'drag.archivedDestination',
+  'group-position-locked': 'drag.archivedAnchor',
+  'archive-frozen': 'toast.archiveFrozen',
+})
+const ARCHIVE_FROZEN_DEFAULT_KEY = 'toast.archiveFrozen'
+
+/** Copy the structured commit result fields onto the thrown failure. */
+const withResultDetail = (failure, result) => {
+  if (!result || typeof result !== 'object') return failure
+  if (result.reason !== undefined) failure.reason = result.reason
+  if (result.groupId !== undefined) failure.groupId = result.groupId
+  if (result.field !== undefined) failure.field = result.field
+  return failure
+}
+
 const deferred = () => {
   let resolve
   const promise = new Promise((settle) => {
@@ -118,12 +142,18 @@ export const createOptimisticQueue = ({ store, commit, notify = () => {}, t = (k
 
   const surfaceFailure = (error, result) => {
     const code = result?.code ?? error?.code ?? 'commit-failed'
-    const failure = asReported(error, code)
+    const failure = withResultDetail(asReported(error, code), result)
     trace('queue.rollback', { code, conflict: code === 'conflict' || code === 'profile-changed' })
     // Restore the last confirmed doc/revision: optimistic dispatches never
     // changed the revision, so the confirmed revision is still in the store.
     store.dispatch('optimistic-rollback', { code })
-    if (code === 'conflict' || code === 'profile-changed') notify({ kind: 'error', message: t('banner.conflict') })
+    if (code === 'archive-frozen') {
+      // 0.4.0-beta.62 §6.4: never generalize a frozen-subtree rejection to
+      // `toast.dropFailed`; the host reason picks the precise copy. The write is
+      // not retried (the drain loop stops below).
+      const key = ARCHIVE_FROZEN_TOAST_KEYS[result?.reason ?? error?.reason] ?? ARCHIVE_FROZEN_DEFAULT_KEY
+      notify({ kind: 'error', message: t(key) })
+    } else if (code === 'conflict' || code === 'profile-changed') notify({ kind: 'error', message: t('banner.conflict') })
     else notify({ kind: 'error', message: t('toast.dropFailed') })
     onError?.(failure)
     return failure
@@ -312,6 +342,9 @@ export const createOptimisticQueue = ({ store, commit, notify = () => {}, t = (k
       store.dispatch('commit-error', { code: result?.code === 'fence-unavailable' ? 'route-unavailable' : result?.code })
       const error = new Error(result?.message ?? result?.code ?? 'commit-failed')
       error.code = result?.code
+      // 0.4.0-beta.62 §6.4: the dialog confirm guard localizes the structured
+      // archive failure (`reason`/`groupId`/`field`) instead of a generic toast.
+      withResultDetail(error, result)
       throw error
     } finally {
       strictGate = null

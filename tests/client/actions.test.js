@@ -7,7 +7,7 @@ import {
   workspaceChoices,
   workspaceLabel,
 } from '../../src/client/actions.js'
-import { emptyDoc, createGroup, assignSession, findGroup } from '../../src/shared/model.js'
+import { emptyDoc, createGroup, assignSession, findGroup, setGroupArchived } from '../../src/shared/model.js'
 
 test('classifyArchiveError only matches WorkspaceArchiveError/session-active', () => {
   const error = {
@@ -238,5 +238,57 @@ test('workspaceForSession resolves the owning workspace and tolerates missing se
   assert.equal(actions.workspaceForSession('missing'), null)
   services.workspaces = undefined
   assert.equal(actions.workspaceForSession('existing'), null)
+})
+
+// ---------------------------------------------------------------------------
+// 0.4.0-beta.62 §8: automatic-path archive prechecks (P9)
+// ---------------------------------------------------------------------------
+
+const archiveFixtureActions = () => {
+  const make = makeActions()
+  const groupId = make.groupId
+  let doc = setGroupArchived(make.getDoc(), groupId, true)
+  const actions = createActions({
+    getServices: () => make.services,
+    getDoc: () => doc,
+    commitDoc: async (nextDocOrUpdater) => {
+      const nextDoc = typeof nextDocOrUpdater === 'function' ? nextDocOrUpdater(doc) : nextDocOrUpdater
+      make.calls.commits.push(nextDoc)
+      doc = nextDoc
+      return nextDoc
+    },
+    notify: (toast) => make.calls.toasts?.push?.(toast),
+    t: (key) => key,
+    clipboard: async () => true,
+  })
+  return { actions, calls: make.calls, expectedGroupId: groupId }
+}
+
+test('createSessionInGroup refuses an archived target before creating a host session', async () => {
+  const { actions, calls, expectedGroupId } = archiveFixtureActions()
+  await assert.rejects(
+    () => actions.createSessionInGroup({ groupId: expectedGroupId, workspaceId: 'w2' }),
+    (error) => error.code === 'group-archived' && error.groupId === expectedGroupId,
+  )
+  assert.equal(calls.started, undefined, 'startSession must not run')
+  assert.equal(calls.directCreate, undefined, 'sessions.create must not run')
+  assert.equal(calls.connected, undefined, 'connectWorkspace must not run')
+  assert.equal(calls.commits.length, 0, 'no placement write')
+  assert.deepEqual(calls.opens, [], 'no navigation to a session that was never created')
+})
+
+test('forkSession refuses a session inside an archived container before the host fork', async () => {
+  const { actions, calls, expectedGroupId } = archiveFixtureActions()
+  await assert.rejects(
+    () => actions.forkSession('existing'),
+    (error) => error.code === 'group-archived' && error.groupId === expectedGroupId,
+  )
+  assert.deepEqual(calls.forks, [], 'the host fork is never requested')
+})
+
+test('forkSession keeps the missing-service error before the archive precheck', async () => {
+  const { actions, services } = makeActions()
+  services.uiWorkspace.forkSession = undefined
+  await assert.rejects(() => actions.forkSession('s1'), /fork-unavailable/)
 })
 

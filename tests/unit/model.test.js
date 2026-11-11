@@ -2,6 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { DEFAULT_GROUP_COLOR, DEFAULT_NEW_GROUP_ICON, GROUP_COLORS, GROUP_ICONS } from '../../src/shared/constants.js'
 import {
+  GROUP_ARCHIVED,
+  GROUP_CONTAINS_ARCHIVED,
+  GROUP_DESTINATION_ARCHIVED,
+  GROUP_POSITION_LOCKED,
+  computeGroupVisibility,
+} from '../../src/shared/archive.js'
+import {
   assignSession,
   buildRenderTree,
   childrenOf,
@@ -23,6 +30,7 @@ import {
   normalizeColorHex,
   renameGroup,
   reorderUngrouped,
+  setGroupArchived,
   setGroupColor,
   setGroupColorHex,
   setGroupIcon,
@@ -32,6 +40,41 @@ import {
 } from '../../src/shared/model.js'
 
 const ws = (workspaceId, title, path, sessionIds = []) => ({ workspaceId, title, path, sessionIds })
+
+const groupDef = (id, parentId = null, extra = {}) => ({
+  id,
+  name: id.toUpperCase(),
+  icon: 'folder',
+  color: 'blue',
+  parentId,
+  sessionIds: [],
+  ...extra,
+})
+const docDef = (groups, ungrouped = []) => ({ version: 1, revision: 0, groups, ungrouped })
+/** Root siblings [a (archived), b, e]; a owns sessions [s1, s4] and child c [s2]; b owns d and [s3]. */
+const archivedDoc = () =>
+  docDef([
+    groupDef('a', null, { archived: true, sessionIds: ['s1', 's4'] }),
+    groupDef('b', null, { sessionIds: ['s3'] }),
+    groupDef('d', 'b'),
+    groupDef('e'),
+    groupDef('c', 'a', { sessionIds: ['s2'] }),
+  ])
+const archiveError = (fn) => {
+  try {
+    fn()
+    return null
+  } catch (error) {
+    return error
+  }
+}
+const assertArchiveError = (fn, expected) => {
+  const error = archiveError(fn)
+  assert.ok(error, `expected the archive invariant to reject the mutation (${expected.code}/${expected.field})`)
+  assert.equal(error.code, expected.code)
+  assert.equal(error.groupId, expected.groupId)
+  assert.equal(error.field, expected.field)
+}
 
 test('emptyDoc is valid and versioned', () => {
   const doc = emptyDoc()
@@ -441,4 +484,380 @@ test('detachSession removes the abandoned placeholder from groups and ungrouped'
   assert.deepEqual(next.ungrouped, ['keep'])
   assert.deepEqual(findGroup(doc, target).sessionIds, ['stale-blank'], 'detachSession is pure')
   assert.throws(() => detachSession(doc, ''), /session-required/)
+})
+
+test('validateDoc: group.archived is optional but must be a boolean', () => {
+  const doc = createGroup(emptyDoc(), { name: 'A' })
+  const group = doc.groups[0]
+  assert.equal(validateDoc(doc).ok, true)
+  assert.equal(validateDoc({ ...doc, groups: [{ ...group, archived: true }] }).ok, true)
+  assert.equal(validateDoc({ ...doc, groups: [{ ...group, archived: false }] }).ok, true)
+  assert.equal(
+    validateDoc({ ...doc, groups: [{ ...group, archived: undefined }] }).ok,
+    true,
+    'an explicit undefined equals missing',
+  )
+  for (const archived of ['true', 'yes', 1, 0, null, {}, []]) {
+    const verdict = validateDoc({ ...doc, groups: [{ ...group, archived }] })
+    assert.equal(verdict.ok, false, `archived ${JSON.stringify(archived)} must be rejected`)
+    assert.deepEqual(verdict.errors, [`group-archived-type:${group.id}`])
+  }
+  const mixed = validateDoc({ ...doc, groups: [{ ...group, archived: 'yes', color: 'chartreuse' }] })
+  assert.deepEqual(mixed.errors, [`group-color:${group.id}`, `group-archived-type:${group.id}`])
+})
+
+test('setGroupArchived toggles one flag, returns the same doc for no-ops and never cascades', () => {
+  const doc = archivedDoc()
+  assert.equal(setGroupArchived(doc, 'b', false), doc, 'missing archived already means false')
+  assert.equal(setGroupArchived(doc, 'a', true), doc, 'the same true value is a no-op')
+
+  const archivedB = setGroupArchived(doc, 'b', true)
+  assert.notEqual(archivedB, doc)
+  assert.equal(findGroup(archivedB, 'b').archived, true)
+  assert.equal(findGroup(doc, 'b').archived, undefined, 'setGroupArchived is pure')
+  assert.equal(findGroup(archivedB, 'd').archived, undefined, 'archiving a parent does not cascade to child groups')
+  assert.deepEqual(findGroup(archivedB, 'a').sessionIds, ['s1', 's4'], 'sessions and their archive state are untouched')
+
+  const restored = setGroupArchived(archivedB, 'b', false)
+  assert.equal(findGroup(restored, 'b').archived, false, 'unarchiving persists an explicit false')
+  assert.equal(setGroupArchived(restored, 'b', false), restored)
+  assert.throws(() => setGroupArchived(doc, 'missing', true), /group-not-found/)
+  assert.equal(validateDoc(doc).ok, true)
+  assert.equal(validateDoc(archivedB).ok, true)
+})
+
+test('frozen groups reject metadata edits at every mutator', () => {
+  const doc = archivedDoc()
+  assertArchiveError(() => renameGroup(doc, 'a', 'Renamed'), { code: GROUP_ARCHIVED, groupId: 'a', field: 'name' })
+  assertArchiveError(() => renameGroup(doc, 'c', 'Renamed'), { code: GROUP_ARCHIVED, groupId: 'c', field: 'name' })
+  assertArchiveError(() => setGroupIcon(doc, 'a', 'star'), { code: GROUP_ARCHIVED, groupId: 'a', field: 'icon' })
+  assertArchiveError(() => setGroupColor(doc, 'a', 'red'), { code: GROUP_ARCHIVED, groupId: 'a', field: 'color' })
+  assertArchiveError(() => setGroupColorHex(doc, 'c', '#123456'), {
+    code: GROUP_ARCHIVED,
+    groupId: 'c',
+    field: 'colorHex',
+  })
+
+  assert.equal(findGroup(renameGroup(doc, 'b', 'Renamed'), 'b').name, 'Renamed')
+  assert.equal(findGroup(setGroupIcon(doc, 'b', 'star'), 'b').icon, 'star')
+  assert.equal(findGroup(setGroupColor(doc, 'e', 'red'), 'e').color, 'red')
+  assert.equal(findGroup(setGroupColorHex(doc, 'b', '#abc'), 'b').colorHex, '#aabbcc')
+})
+
+test('frozen groups reject session content changes while outside edits stay legal', () => {
+  const doc = archivedDoc()
+  assertArchiveError(() => assignSession(doc, 's3', 'a'), {
+    code: GROUP_DESTINATION_ARCHIVED,
+    groupId: 'a',
+    field: 'sessionIds',
+  })
+  assertArchiveError(() => assignSession(doc, 's1', 'b'), {
+    code: GROUP_ARCHIVED,
+    groupId: 'a',
+    field: 'sessionIds',
+  })
+  assertArchiveError(() => assignSession(doc, 's4', 'a', 0), {
+    code: GROUP_ARCHIVED,
+    groupId: 'a',
+    field: 'sessionIds',
+  })
+  assertArchiveError(() => detachSession(doc, 's1'), { code: GROUP_ARCHIVED, groupId: 'a', field: 'sessionIds' })
+
+  assert.deepEqual(findGroup(assignSession(doc, 's5', 'b', 0), 'b').sessionIds, ['s5', 's3'])
+  assert.deepEqual(findGroup(assignSession(doc, 's5', null), 'b').sessionIds, ['s3'])
+  assert.deepEqual(findGroup(detachSession(doc, 's3'), 'b').sessionIds, [])
+})
+
+test('frozen structure rejects child insertion, sibling shifts and deletion', () => {
+  const doc = archivedDoc()
+  assertArchiveError(() => createGroup(doc, { name: 'N', parentId: 'a' }), {
+    code: GROUP_DESTINATION_ARCHIVED,
+    groupId: 'a',
+    field: 'children',
+  })
+  assertArchiveError(() => createGroup(doc, { name: 'N', index: 0 }), {
+    code: GROUP_POSITION_LOCKED,
+    groupId: 'a',
+    field: 'index',
+  })
+  assertArchiveError(() => moveGroup(doc, 'a', null, 1), { code: GROUP_ARCHIVED, groupId: 'a', field: 'index' })
+  assertArchiveError(() => moveGroup(doc, 'a', 'b', 0), { code: GROUP_ARCHIVED, groupId: 'a', field: 'parentId' })
+  assertArchiveError(() => moveGroup(doc, 'b', 'a', 0), {
+    code: GROUP_DESTINATION_ARCHIVED,
+    groupId: 'a',
+    field: 'children',
+  })
+  assertArchiveError(() => deleteGroup(doc, 'a'), { code: GROUP_ARCHIVED, groupId: 'a', field: 'deleted' })
+  assertArchiveError(() => deleteGroupTo(doc, 'a', 'b'), { code: GROUP_ARCHIVED, groupId: 'a', field: 'deleted' })
+
+  assert.equal(createGroup(doc, { name: 'N' }).groups.length, doc.groups.length + 1)
+  assert.equal(createGroup(doc, { name: 'N', parentId: 'b' }).groups.length, doc.groups.length + 1)
+  assert.equal(deleteGroup(doc, 'b').groups.some((group) => group.id === 'b'), false)
+  assert.equal(deleteGroupTo(doc, 'b', 'e').groups.some((group) => group.id === 'b'), false)
+  assert.equal(moveGroup(doc, 'b', null, 2).groups.some((group) => group.id === 'b'), true)
+})
+
+test('moving or deleting an ancestor of a frozen group is rejected', () => {
+  const nested = docDef([groupDef('p', null, { sessionIds: ['s1'] }), groupDef('x'), groupDef('q', 'p', { archived: true })])
+  assertArchiveError(() => deleteGroup(nested, 'p'), {
+    code: GROUP_CONTAINS_ARCHIVED,
+    groupId: 'p',
+    field: 'deleted',
+  })
+  assertArchiveError(() => deleteGroupTo(nested, 'p', 'x'), {
+    code: GROUP_CONTAINS_ARCHIVED,
+    groupId: 'p',
+    field: 'deleted',
+  })
+  assertArchiveError(() => moveGroup(nested, 'p', null, 1), {
+    code: GROUP_CONTAINS_ARCHIVED,
+    groupId: 'p',
+    field: 'index',
+  })
+  assertArchiveError(() => moveGroup(nested, 'p', 'x', 0), {
+    code: GROUP_CONTAINS_ARCHIVED,
+    groupId: 'p',
+    field: 'parentId',
+  })
+  assertArchiveError(() => createGroup(nested, { name: 'N', index: 0 }), {
+    code: GROUP_POSITION_LOCKED,
+    groupId: 'p',
+    field: 'index',
+  })
+
+  assert.equal(findGroup(renameGroup(nested, 'p', 'Renamed'), 'p').name, 'Renamed', 'ancestor metadata may change')
+  assert.equal(deleteGroup(nested, 'x').groups.some((group) => group.id === 'x'), false)
+})
+
+test('unarchiving unlocks the subtree only in a later commit', () => {
+  const doc = archivedDoc()
+  assertArchiveError(() => renameGroup(doc, 'a', 'Renamed'), { code: GROUP_ARCHIVED, groupId: 'a', field: 'name' })
+  const unarchived = setGroupArchived(doc, 'a', false)
+  assert.equal(findGroup(renameGroup(unarchived, 'a', 'Renamed'), 'a').name, 'Renamed')
+  assert.equal(findGroup(renameGroup(unarchived, 'c', 'Renamed'), 'c').name, 'Renamed')
+  assert.equal(findGroup(setGroupArchived(unarchived, 'c', true), 'c').archived, true)
+})
+
+// ---------------------------------------------------------------- P2 group visibility
+
+/**
+ * P2 visibility fixture (0.4.0-beta.62 §4):
+ *
+ *   p (live, sessions [p1])
+ *     q (own-archived, sessions [q1, ghost])
+ *       r (not own-archived, inherits; sessions [r1])
+ *   x (live, sessions [x1])
+ *   z (own-archived, empty)
+ *   ungrouped: [u1]
+ *
+ * `ghost` lives in the archived group but is present in `sessionsById`, so a
+ * leak through ungrouped derivation would be visible.
+ */
+const visibilityDoc = () =>
+  docDef(
+    [
+      groupDef('p', null, { sessionIds: ['p1'] }),
+      groupDef('q', 'p', { archived: true, sessionIds: ['q1', 'ghost'] }),
+      groupDef('r', 'q', { sessionIds: ['r1'] }),
+      groupDef('x', null, { sessionIds: ['x1'] }),
+      groupDef('z', null, { archived: true }),
+    ],
+    ['u1'],
+  )
+
+const visibilitySessions = () => ({
+  p1: { id: 'p1', updatedAt: 1 },
+  q1: { id: 'q1', updatedAt: 2 },
+  r1: { id: 'r1', updatedAt: 3 },
+  x1: { id: 'x1', updatedAt: 4 },
+  u1: { id: 'u1', updatedAt: 5 },
+  ghost: { id: 'ghost', updatedAt: 6 },
+})
+
+const nodeId = (node) => (node.kind === 'group' ? `g:${node.group.id}` : `s:${node.session.id}`)
+
+const sessionIdsIn = (nodes) =>
+  nodes.flatMap((node) => (node.kind === 'session' ? [node.session.id] : sessionIdsIn(node.children ?? [])))
+
+test('computeGroupVisibility: full/path/sessionGroups per hidden/all/only (N1 ungrouped)', () => {
+  const doc = visibilityDoc()
+  const hidden = computeGroupVisibility(doc)
+  assert.deepEqual([...hidden.full].sort(), ['q', 'r', 'z'], 'full is always the effective-archived set')
+  assert.equal(hidden.path.size, 0)
+  assert.deepEqual([...hidden.sessionGroups].sort(), ['p', 'x'], 'an archived subtree prunes below a live parent')
+  assert.equal(hidden.ungroupedVisible, true)
+
+  const all = computeGroupVisibility(doc, 'all')
+  assert.deepEqual([...all.full].sort(), ['q', 'r', 'z'])
+  assert.equal(all.path.size, 0)
+  assert.deepEqual([...all.sessionGroups].sort(), ['p', 'q', 'r', 'x', 'z'])
+  assert.equal(all.ungroupedVisible, true)
+
+  const only = computeGroupVisibility(doc, 'only')
+  assert.deepEqual([...only.full].sort(), ['q', 'r', 'z'])
+  assert.deepEqual([...only.path], ['p'], 'only non-archived ancestors of full groups are path-only')
+  assert.deepEqual([...only.sessionGroups].sort(), ['q', 'r', 'z'], 'path-only ancestors never contribute sessions')
+  assert.equal(only.ungroupedVisible, false, 'N1: only hides the ungrouped container')
+
+  assert.deepEqual(computeGroupVisibility(doc, 'bogus'), hidden, 'unknown filters fall back to hidden')
+  assert.deepEqual(computeGroupVisibility(null), {
+    full: new Set(),
+    path: new Set(),
+    sessionGroups: new Set(),
+    ungroupedVisible: true,
+  })
+
+  // Corrupt cycles terminate defensively instead of looping.
+  const cyclic = docDef([groupDef('a', 'b'), groupDef('b', 'a', { archived: true })])
+  const cycleVisibility = computeGroupVisibility(cyclic, 'only')
+  assert.deepEqual([...cycleVisibility.full].sort(), ['a', 'b'])
+  assert.equal(cycleVisibility.path.size, 0)
+})
+
+test('buildRenderTree groupFilter=hidden prunes archived subtrees but keeps live ancestors', () => {
+  const tree = buildRenderTree(visibilityDoc(), visibilitySessions(), [], { filter: 'hidden' })
+  assert.deepEqual(tree.groups.map((node) => node.group.id), ['p', 'x'])
+  const p = tree.groups[0]
+  assert.equal(p.pathOnly, false)
+  assert.equal(p.effectiveArchived, false)
+  assert.equal(p.ownArchived, false)
+  assert.equal(p.archivedBy, null)
+  assert.equal(p.visibleCount, 1)
+  assert.equal(p.emptyVisible, false)
+  assert.deepEqual(p.children.map(nodeId), ['s:p1'], 'the live parent keeps its own sessions; its archived child is pruned')
+  assert.deepEqual(tree.ungrouped.map((node) => node.session.id), ['u1'])
+  assert.equal(sessionIdsIn(tree.groups).includes('ghost'), false, 'archived-group sessions never leak into ungrouped')
+  assert.equal(sessionIdsIn(tree.groups).includes('q1'), false)
+})
+
+test('buildRenderTree groupFilter=all keeps archived groups flagged effective/own/archivedBy', () => {
+  const tree = buildRenderTree(visibilityDoc(), visibilitySessions(), [], { filter: 'hidden', groupFilter: 'all' })
+  assert.deepEqual(tree.groups.map((node) => node.group.id), ['p', 'x', 'z'])
+  const p = tree.groups[0]
+  const q = p.children.find((node) => node.kind === 'group' && node.group.id === 'q')
+  const r = q.children.find((node) => node.kind === 'group' && node.group.id === 'r')
+  assert.equal(q.effectiveArchived, true)
+  assert.equal(q.ownArchived, true)
+  assert.equal(q.archivedBy, 'q')
+  assert.equal(q.pathOnly, false)
+  assert.equal(r.effectiveArchived, true, 'descendants inherit the archived state')
+  assert.equal(r.ownArchived, false)
+  assert.equal(r.archivedBy, 'q')
+  assert.equal(r.pathOnly, false)
+  assert.deepEqual(sessionIdsIn(q.children).sort(), ['ghost', 'q1', 'r1'])
+  const z = tree.groups[2]
+  assert.equal(z.effectiveArchived, true)
+  assert.equal(z.visibleCount, 0)
+  assert.equal(z.emptyVisible, true, 'an empty archived group still renders its locked empty row')
+  assert.deepEqual(sessionIdsIn(tree.groups).sort(), ['ghost', 'p1', 'q1', 'r1', 'x1'])
+})
+
+test('buildRenderTree groupFilter=only renders full groups and header-only path ancestors', () => {
+  const tree = buildRenderTree(visibilityDoc(), visibilitySessions(), [], { filter: 'hidden', groupFilter: 'only' })
+  assert.deepEqual(tree.groups.map((node) => node.group.id), ['p', 'z'], 'x has no archived descendant and is pruned')
+  const p = tree.groups[0]
+  assert.equal(p.pathOnly, true)
+  assert.equal(p.effectiveArchived, false)
+  assert.equal(p.archivedBy, null)
+  assert.equal(p.visibleCount, 3, 'a path-only group counts only its visible descendants')
+  assert.equal(p.emptyVisible, false)
+  assert.deepEqual(p.children.map(nodeId), ['g:q'], 'path-only rows keep only the path/full child chain')
+  assert.equal(sessionIdsIn(p.children).includes('p1'), false, 'path-only own sessions never render')
+  const q = p.children[0]
+  assert.equal(q.pathOnly, false)
+  assert.equal(q.effectiveArchived, true)
+  assert.deepEqual(sessionIdsIn(q.children).sort(), ['ghost', 'q1', 'r1'])
+  const z = tree.groups[1]
+  assert.equal(z.pathOnly, false)
+  assert.equal(z.effectiveArchived, true)
+  assert.equal(z.visibleCount, 0)
+  assert.equal(z.emptyVisible, true)
+  assert.deepEqual(tree.ungrouped, [], 'N1: only hides ungrouped even for stored rows')
+  assert.equal(sessionIdsIn(tree.groups).includes('u1'), false)
+})
+
+test('buildRenderTree groupFilter=only still applies the session tri-state inside full groups', () => {
+  const archived = ['p1', 'q1']
+  const tree = buildRenderTree(visibilityDoc(), visibilitySessions(), [], {
+    filter: 'only',
+    groupFilter: 'only',
+    archivedSessionIds: archived,
+  })
+  const p = tree.groups[0]
+  assert.equal(p.pathOnly, true)
+  assert.deepEqual(p.children.map(nodeId), ['g:q'])
+  const q = p.children[0]
+  assert.deepEqual(sessionIdsIn(q.children), ['q1'], 'session-only keeps archived rows inside a full group')
+  assert.equal(q.visibleCount, 1)
+  assert.equal(p.visibleCount, 1)
+  assert.equal(sessionIdsIn(p.children).includes('p1'), false, 'path-only own rows stay hidden even when archived')
+})
+
+test('buildRenderTree groupFilter=hidden keeps group pruning under the session all filter', () => {
+  const tree = buildRenderTree(visibilityDoc(), visibilitySessions(), [], {
+    filter: 'all',
+    groupFilter: 'hidden',
+    archivedSessionIds: ['x1', 'u1'],
+  })
+  assert.deepEqual(tree.groups.map((node) => node.group.id), ['p', 'x'])
+  assert.deepEqual(sessionIdsIn(tree.groups).sort(), ['p1', 'x1'], 'archived rows inside visible groups still show')
+  assert.deepEqual(tree.ungrouped.map((node) => node.session.id), ['u1'])
+  assert.equal(sessionIdsIn(tree.groups).includes('q1'), false)
+})
+
+test('buildRenderTree: groupFilter defaults to hidden and old archived-free docs are unchanged', () => {
+  const doc = docDef([groupDef('a', null, { sessionIds: ['a1'] }), groupDef('b')], ['u1'])
+  const sessions = { a1: { id: 'a1', updatedAt: 1 }, u1: { id: 'u1', updatedAt: 2 } }
+  const implicit = buildRenderTree(doc, sessions, [], { filter: 'all' })
+  const explicit = buildRenderTree(doc, sessions, [], { filter: 'all', groupFilter: 'hidden' })
+  const bogus = buildRenderTree(doc, sessions, [], { filter: 'all', groupFilter: 'bogus' })
+  assert.deepEqual(implicit, explicit)
+  assert.deepEqual(bogus, explicit)
+  assert.deepEqual(implicit.groups.map((node) => node.group.id), ['a', 'b'])
+  assert.deepEqual(implicit.ungrouped.map((node) => node.session.id), ['u1'])
+  for (const node of implicit.groups) {
+    assert.equal(node.effectiveArchived, false)
+    assert.equal(node.ownArchived, false)
+    assert.equal(node.archivedBy, null)
+    assert.equal(node.pathOnly, false)
+  }
+})
+
+test('buildRenderTree groupFilter=only with no archived groups renders an empty view', () => {
+  const doc = docDef([groupDef('a', null, { sessionIds: ['a1'] })], ['u1'])
+  const sessions = { a1: { id: 'a1' }, u1: { id: 'u1' } }
+  const tree = buildRenderTree(doc, sessions, [], { filter: 'all', groupFilter: 'only' })
+  assert.deepEqual(tree.groups, [])
+  assert.deepEqual(tree.ungrouped, [], 'only hides ungrouped even though the session filter is all')
+})
+
+test('buildRenderTree groupFilter × session filter matrix keeps group pruning above the session tri-state', () => {
+  const doc = visibilityDoc()
+  const sessions = visibilitySessions()
+  const archivedSessionIds = ['p1', 'q1', 'u1']
+  const roots = { hidden: ['p', 'x'], all: ['p', 'x', 'z'], only: ['p', 'z'] }
+  // p1 (p) · q1+ghost (q) · r1 (r) · x1 (x) · u1 (ungrouped)
+  const expected = {
+    'hidden:hidden': ['x1'],
+    'hidden:all': ['p1', 'u1', 'x1'],
+    'hidden:only': ['p1', 'u1'],
+    'all:hidden': ['ghost', 'r1', 'x1'],
+    'all:all': ['ghost', 'p1', 'q1', 'r1', 'u1', 'x1'],
+    'all:only': ['p1', 'q1', 'u1'],
+    'only:hidden': ['ghost', 'r1'],
+    'only:all': ['ghost', 'q1', 'r1'],
+    'only:only': ['q1'],
+  }
+  for (const groupFilter of ['hidden', 'all', 'only']) {
+    for (const filter of ['hidden', 'all', 'only']) {
+      const tree = buildRenderTree(doc, sessions, [], { filter, groupFilter, archivedSessionIds })
+      const label = `${groupFilter}:${filter}`
+      assert.deepEqual(tree.groups.map((node) => node.group.id), roots[groupFilter], `root groups under ${groupFilter}`)
+      assert.deepEqual(
+        sessionIdsIn(tree.groups).concat(tree.ungrouped.map((node) => node.session.id)).sort(),
+        expected[label],
+        `session rows under ${label}`,
+      )
+    }
+  }
 })

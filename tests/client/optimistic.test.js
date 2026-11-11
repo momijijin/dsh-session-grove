@@ -402,3 +402,94 @@ test('optimistic: strict commit sends the loaded profileId and rejects profile-c
   assert.equal(store.getSnapshot().revision, 2)
   assert.equal(store.getSnapshot().banner.code, 'conflict')
 })
+
+// ---------------------------------------------------------------------------
+// 0.4.0-beta.62 §6.4/§8: archive-frozen failures keep rollback + precise reason
+// ---------------------------------------------------------------------------
+
+test('optimistic: archive-frozen rolls back, keeps the precise reason and never retries', async () => {
+  const base = seedDoc()
+  const store = makeStore(base, 6)
+  const commit = controlledCommit()
+  const toasts = []
+  const errors = []
+  const queue = createOptimisticQueue({
+    store,
+    commit: commit.commit,
+    notify: (toast) => toasts.push(toast),
+    t: (key) => key,
+    onError: (error) => errors.push(error),
+  })
+  const next = assignSession(base, 's3', base.groups[0].id, 0)
+  const task = queue.commitOptimistic(next)
+  await waitFor(() => commit.calls.length === 1, 'optimistic request')
+
+  commit.calls[0].resolve({
+    ok: false,
+    code: 'archive-frozen',
+    reason: 'group-archived',
+    groupId: base.groups[0].id,
+    field: 'sessionIds',
+    message: 'group-archived',
+  })
+  await assert.rejects(
+    task,
+    (error) =>
+      error.reported === true &&
+      error.code === 'archive-frozen' &&
+      error.reason === 'group-archived' &&
+      error.groupId === base.groups[0].id &&
+      error.field === 'sessionIds',
+  )
+  assert.equal(store.getSnapshot().doc, base, 'the frozen write is rolled back')
+  assert.equal(store.getSnapshot().revision, 6, 'the revision never advances')
+  assert.equal(store.getSnapshot().optimistic, false)
+  assert.deepEqual(toasts, [{ kind: 'error', message: 'drag.archivedDestination' }], 'no generic dropFailed toast')
+  assert.equal(errors.length, 1)
+  await flushTasks()
+  assert.equal(commit.calls.length, 1, 'archive-frozen failures are not retried')
+})
+
+test('optimistic: archive-frozen falls back to the generic archive toast for unknown reasons', async () => {
+  const base = seedDoc()
+  const store = makeStore(base, 1)
+  const commit = controlledCommit()
+  const toasts = []
+  const queue = createOptimisticQueue({
+    store,
+    commit: commit.commit,
+    notify: (toast) => toasts.push(toast),
+    t: (key) => key,
+  })
+  const task = queue.commitOptimistic((doc) => assignSession(doc, 's3', doc.groups[0].id, 0))
+  await waitFor(() => commit.calls.length === 1, 'optimistic request')
+  commit.calls[0].resolve({ ok: false, code: 'archive-frozen', message: 'archive-frozen' })
+  await assert.rejects(task, (error) => error.code === 'archive-frozen')
+  assert.deepEqual(toasts, [{ kind: 'error', message: 'toast.archiveFrozen' }])
+})
+
+test('optimistic: strict archive-frozen failure attaches the structured target', async () => {
+  const base = seedDoc()
+  const store = makeStore(base, 2)
+  const queue = createOptimisticQueue({
+    store,
+    commit: async () => ({
+      ok: false,
+      code: 'archive-frozen',
+      reason: 'group-position-locked',
+      groupId: 'g-2',
+      field: 'children',
+      message: 'group-position-locked',
+    }),
+  })
+  await assert.rejects(
+    () => queue.commitStrict((latest) => latest),
+    (error) =>
+      error.code === 'archive-frozen' &&
+      error.reason === 'group-position-locked' &&
+      error.groupId === 'g-2' &&
+      error.field === 'children',
+  )
+  assert.equal(store.getSnapshot().doc, base)
+  assert.equal(store.getSnapshot().banner.code, 'archive-frozen')
+})

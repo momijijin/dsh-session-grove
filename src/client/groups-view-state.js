@@ -55,8 +55,11 @@ export const useGroupsViewState = ({ store, props, onProfileReset = null }) => {
         statuses,
         workspaces?.archivedSessionIds ?? [],
         subagentCounts,
+        // 0.4.0-beta.62 §4.5: counters share the group visibility used by the
+        // tree so hidden archived subtrees/pathOnly ancestors never leak in.
+        store?.groupArchiveFilter,
       ),
-    [store?.doc, sessions?.byId, statuses, workspaces?.archivedSessionIds, subagentCounts],
+    [store?.doc, sessions?.byId, statuses, workspaces?.archivedSessionIds, subagentCounts, store?.groupArchiveFilter],
   )
   const runningSessions = statusBuckets.running
   const blockedSessions = statusBuckets.blocked
@@ -72,12 +75,15 @@ export const useGroupsViewState = ({ store, props, onProfileReset = null }) => {
         ? buildVisibleTree(store.doc, byId, workspaceItems, {
             archivedSessionIds,
             filter: store.archiveFilter,
+            // 0.4.0-beta.62 §4.2: the group tri-state prunes the tree on its
+            // own, before the session tri-state applies inside rendered groups.
+            groupFilter: store.groupArchiveFilter,
             currentSessionId: highlightCurrent,
             statuses: statuses instanceof Map ? statuses : null,
             subagentCounts,
           })
         : { groups: [], ungrouped: [] },
-    [store?.doc, store?.archiveFilter, byId, workspaceItems, archivedSessionIds, highlightCurrent, statuses, subagentCounts],
+    [store?.doc, store?.archiveFilter, store?.groupArchiveFilter, byId, workspaceItems, archivedSessionIds, highlightCurrent, statuses, subagentCounts],
   )
 
   return {

@@ -46,6 +46,13 @@ const jsonHeaders = { 'content-type': 'application/json' }
 const tokenFor = (input) =>
   createHash('sha256').update(JSON.stringify(input)).digest('hex')
 
+/**
+ * `store.save` persists the additive group `archived` flag explicitly
+ * (SPEC §3.3), so a document written through the routes carries
+ * `archived: false` on every group even though the fixture omits it.
+ */
+const savedGroups = () => sampleDoc().groups.map((group) => ({ ...group, archived: false }))
+
 const makeCaller = (mounted) => async (path, { method = 'GET', body, headers = {} } = {}) => {
   const request = makeRequest({
     method,
@@ -449,12 +456,12 @@ test('POST /profiles/create writes the clone doc first, then adds + activates in
   assert.equal(typeof json.profile.createdAt, 'string')
   assert.equal(typeof json.profile.updatedAt, 'string')
   assert.equal(json.doc.revision, 1)
-  assert.deepEqual(json.doc.groups, sampleDoc().groups, 'groups are copied verbatim')
+  assert.deepEqual(json.doc.groups, savedGroups(), 'groups are copied verbatim')
   assert.deepEqual(json.doc.ungrouped, sampleDoc().ungrouped)
 
   const created = JSON.parse(await readFile(profileDocPath(home, PROFILE_ID), 'utf8'))
   assert.equal(created.revision, 1)
-  assert.deepEqual(created.groups, sampleDoc().groups)
+  assert.deepEqual(created.groups, savedGroups())
 
   const registry = await readRegistry(home)
   assert.equal(registry.revision, 4)
@@ -667,7 +674,7 @@ test('POST /profiles/create keeps the orphan and the old active when the registr
   assert.equal(registry.profiles.some((profile) => profile.id === orphanId), false)
   const orphanDoc = JSON.parse(await readFile(profileDocPath(home, orphanId), 'utf8'))
   assert.equal(orphanDoc.revision, 1)
-  assert.deepEqual(orphanDoc.groups, sampleDoc().groups)
+  assert.deepEqual(orphanDoc.groups, savedGroups())
   assert.equal(await readFile(home.defaultFilePath, 'utf8'), defaultBefore)
 })
 

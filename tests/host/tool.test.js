@@ -541,3 +541,129 @@ test('native tool doctor reports the profile registry and document rows', async 
   assert.equal(rows.get(PROFILE_ID).quarantined, 1)
   assert.match(rows.get(PROFILE_ID).quarantinedTo, /dsh-session-grove\.corrupt-\*\.json$/)
 })
+
+// ---------------------------------------------------------------------------
+// P7 (0.4.0-beta.62): group.archive, archive guard codes and archive-frozen.
+// ---------------------------------------------------------------------------
+
+test('native tool plans and applies group.archive and exposes archive state', async () => {
+  const state = setup()
+  const operations = [{ op: 'group.archive', groupId: 'g-aaaaaaaaaaaa', archived: true }]
+  const plan = await state.tool.execute({ action: 'plan', baseRevision: 2, operations })
+  assert.equal(plan.ok, true)
+  assert.deepEqual(plan.changes, operations)
+
+  const applied = await state.tool.execute({
+    action: 'apply',
+    baseRevision: 2,
+    operations,
+    planHash: plan.planHash,
+  })
+  assert.equal(applied.ok, true)
+  assert.equal(applied.revision, 3)
+  assert.equal(state.getDoc().groups[0].archived, true)
+
+  const read = await state.tool.execute({ action: 'state' })
+  const byId = new Map(read.groups.map((group) => [group.id, group]))
+  assert.deepEqual(
+    {
+      archived: byId.get('g-aaaaaaaaaaaa').archived,
+      effectiveArchived: byId.get('g-aaaaaaaaaaaa').effectiveArchived,
+      archivedBy: byId.get('g-aaaaaaaaaaaa').archivedBy,
+    },
+    { archived: true, effectiveArchived: true, archivedBy: 'g-aaaaaaaaaaaa' },
+  )
+  assert.deepEqual(
+    {
+      archived: byId.get('g-bbbbbbbbbbbb').archived,
+      effectiveArchived: byId.get('g-bbbbbbbbbbbb').effectiveArchived,
+      archivedBy: byId.get('g-bbbbbbbbbbbb').archivedBy,
+    },
+    { archived: false, effectiveArchived: true, archivedBy: 'g-aaaaaaaaaaaa' },
+  )
+  for (const group of read.groups) assert.equal('pathOnly' in group, false)
+
+  // The same-value archive is a doc-level no-op, not a successful response.
+  const noChange = await state.tool.execute({ action: 'plan', baseRevision: 3, operations })
+  assert.equal(noChange.ok, false)
+  assert.equal(noChange.code, 'no-change')
+})
+
+test('native tool carries archive guard codes through plan/apply', async () => {
+  const state = setup()
+  const archiveOperations = [{ op: 'group.archive', groupId: 'g-aaaaaaaaaaaa', archived: true }]
+  const archivePlan = await state.tool.execute({ action: 'plan', baseRevision: 2, operations: archiveOperations })
+  assert.equal(archivePlan.ok, true)
+  const archived = await state.tool.execute({
+    action: 'apply',
+    baseRevision: 2,
+    operations: archiveOperations,
+    planHash: archivePlan.planHash,
+  })
+  assert.equal(archived.ok, true)
+
+  const rename = await state.tool.execute({
+    action: 'plan',
+    baseRevision: 3,
+    operations: [{ op: 'group.rename', groupId: 'g-aaaaaaaaaaaa', name: 'X' }],
+  })
+  assert.equal(rename.ok, false)
+  assert.equal(rename.code, 'group-archived')
+  assert.equal(rename.groupId, 'g-aaaaaaaaaaaa')
+  assert.equal(rename.field, 'groupId')
+  assert.equal(rename.operationIndex, 0)
+
+  const destination = await state.tool.execute({
+    action: 'plan',
+    baseRevision: 3,
+    operations: [{ op: 'group.move', groupId: 'g-bbbbbbbbbbbb', parentId: 'g-aaaaaaaaaaaa' }],
+  })
+  assert.equal(destination.code, 'group-archived')
+
+  const schema = await state.tool.execute({
+    action: 'plan',
+    baseRevision: 3,
+    operations: [{ op: 'group.update', groupId: 'g-bbbbbbbbbbbb', archived: true }],
+  })
+  assert.equal(schema.ok, false)
+  assert.equal(schema.code, 'invalid-operation')
+  assert.equal(schema.field, 'archived')
+})
+
+test('native tool reports an archive-frozen commit without joining missing errors', async () => {
+  const frozen = setup({
+    store: {
+      async load() {
+        return { kind: 'ok', doc: { ...sampleDoc(), revision: 2 }, revision: 2 }
+      },
+      async commit() {
+        return {
+          kind: 'archive-frozen',
+          code: 'group-archived',
+          groupId: 'g-aaaaaaaaaaaa',
+          field: 'name',
+          message: 'group-archived',
+        }
+      },
+    },
+  })
+  const operations = [{ op: 'group.rename', groupId: 'g-bbbbbbbbbbbb', name: 'Renamed' }]
+  const plan = await frozen.tool.execute({ action: 'plan', baseRevision: 2, operations })
+  assert.equal(plan.ok, true)
+
+  const applied = await frozen.tool.execute({
+    action: 'apply',
+    baseRevision: 2,
+    operations,
+    planHash: plan.planHash,
+  })
+  assert.equal(applied.ok, false)
+  assert.equal(applied.code, 'archive-frozen')
+  assert.equal(applied.reason, 'group-archived')
+  assert.equal(applied.groupId, 'g-aaaaaaaaaaaa')
+  assert.equal(applied.field, 'name')
+  assert.equal(applied.message, 'group-archived')
+  assert.equal('errors' in applied, false)
+  assert.equal(applied.changes, undefined)
+})
+

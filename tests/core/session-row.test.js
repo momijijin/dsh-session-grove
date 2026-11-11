@@ -58,6 +58,15 @@ test('sessionRowPropsEqual rejects identity and structural changes', () => {
   assert.equal(sessionRowPropsEqual(base, props(node({ workspace: { workspaceId: 'w2' } }))), false)
 })
 
+test('sessionRowPropsEqual tracks the container structural lock', () => {
+  const base = props(node())
+  // Missing and explicit false describe the same unlocked row.
+  assert.equal(sessionRowPropsEqual(base, props(node(), { structuralLocked: false })), true)
+  assert.equal(sessionRowPropsEqual(base, props(node(), { structuralLocked: true })), false)
+  assert.equal(sessionRowPropsEqual(props(node(), { structuralLocked: true }), props(node(), { structuralLocked: false })), false)
+  assert.equal(sessionRowPropsEqual(props(node(), { structuralLocked: true }), props(node(), { structuralLocked: true })), true)
+})
+
 test('sessionRowPropsEqual tracks active-session and status changes', () => {
   const base = props(node())
   assert.equal(sessionRowPropsEqual(base, props(node(), { store: { currentSessionId: 's1' } })), false)

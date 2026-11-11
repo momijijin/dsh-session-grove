@@ -8,8 +8,25 @@
  * the live services from the plugin shell.
  */
 import { assignSession, findGroup, inferWorkspaceId, workspaceLabel, workspaceOfSession } from '../shared/model.js'
+import { effectiveArchived } from '../shared/archive.js'
 
 export { workspaceLabel }
+
+/** Structured archive refusal (0.4.0-beta.62 §6.4) shared by the prechecks. */
+const archiveRefusal = (groupId) => {
+  const error = new Error('group-archived')
+  error.code = 'group-archived'
+  error.groupId = groupId
+  return error
+}
+
+/** Containing group id for a session, or `null` when ungrouped. */
+const groupIdOfSession = (doc, sessionId) => {
+  for (const group of Array.isArray(doc?.groups) ? doc.groups : []) {
+    if (Array.isArray(group.sessionIds) && group.sessionIds.includes(sessionId)) return group.id
+  }
+  return null
+}
 
 /** Error families reported by `workspace/session-active`. */
 export const ACTIVITY_KEYS = Object.freeze(['turn', 'subagent', 'job', 'schedule'])
@@ -119,6 +136,12 @@ export const createActions = ({ getServices, getDoc, commitDoc, notify, t, clipb
   const forkSession = async (sessionId, onCreated) => {
     const { uiWorkspace } = services()
     if (typeof uiWorkspace?.forkSession !== 'function') throw new Error('fork-unavailable')
+    // 0.4.0-beta.62 §8: a fork out of an archived container is structurally
+    // frozen; refuse before the host creates the child session.
+    const sourceGroupId = groupIdOfSession(getDoc(), sessionId)
+    if (sourceGroupId !== null && effectiveArchived(getDoc(), sourceGroupId)) {
+      throw archiveRefusal(sourceGroupId)
+    }
     let childId = null
     await uiWorkspace.forkSession(
       sessionId,
@@ -154,6 +177,9 @@ export const createActions = ({ getServices, getDoc, commitDoc, notify, t, clipb
     if (typeof workspaceId !== 'string' || workspaceId === '') throw new Error('workspace-required')
     const group = findGroup(getDoc(), groupId)
     if (!group) throw new Error('group-not-found')
+    // 0.4.0-beta.62 §8: refuse before creating the host session so an archived
+    // target never leaves a stray unplaced session behind.
+    if (effectiveArchived(getDoc(), groupId)) throw archiveRefusal(groupId)
 
     // DSH 0.2.1-rc.5 reuses the workspace's single reusable blank in
     // `startSession`/`connectWorkspace`; that is correct for normal navigation

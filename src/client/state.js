@@ -19,7 +19,7 @@
 import { ARCHIVE_FILTERS } from '../shared/constants.js'
 import { emptyDoc } from '../shared/model.js'
 import { MAX_PROFILES } from '../shared/profile-limits.js'
-import { DEFAULT_PROFILE_ID, readArchiveFilter, readCollapsed, readViewMode, safeStorage, writeArchiveFilter, writeCollapsed, writeViewMode } from './state/persistence.js'
+import { DEFAULT_PROFILE_ID, readArchiveFilter, readCollapsed, readGroupArchiveFilter, readViewMode, safeStorage, writeArchiveFilter, writeCollapsed, writeGroupArchiveFilter, writeViewMode } from './state/persistence.js'
 
 /** Fallback profile cap when a legacy host omits `limits` (SPEC §5.3). */
 const DEFAULT_PROFILE_LIMIT = MAX_PROFILES
@@ -61,6 +61,8 @@ const initialProfilePreview = () => ({
 const initialSnapshot = (storage) => ({
   viewMode: readViewMode(storage),
   archiveFilter: readArchiveFilter(storage),
+  /** group archive tri-state (0.4.0-beta.62 §4.1); independent of `archiveFilter` */
+  groupArchiveFilter: readGroupArchiveFilter(storage),
   doc: emptyDoc(),
   revision: 0,
   /** idle | loading | ready | error */
@@ -167,6 +169,14 @@ export const createStore = ({ storage = safeStorage() } = {}) => {
         if (filter === snapshot.archiveFilter) return snapshot
         writeArchiveFilter(filter, storage)
         return publish({ ...snapshot, archiveFilter: filter })
+      }
+      case 'group-archive-filter': {
+        // 0.4.0-beta.62 §4.1: the group tri-state is stored separately from the
+        // session tri-state; invalid payloads degrade to the hidden default.
+        const filter = ARCHIVE_FILTERS.includes(payload.filter) ? payload.filter : 'hidden'
+        if (filter === snapshot.groupArchiveFilter) return snapshot
+        writeGroupArchiveFilter(filter, storage)
+        return publish({ ...snapshot, groupArchiveFilter: filter })
       }
       case 'load-start':
         return publish({ ...snapshot, docState: 'loading', banner: null })
@@ -543,16 +553,19 @@ export {
   ARCHIVE_FILTER_KEY,
   COLLAPSED_KEY,
   DEFAULT_PROFILE_ID,
+  GROUP_ARCHIVE_FILTER_KEY,
   ONBOARDING_KEY,
   readArchiveFilter,
   readCollapsed,
   readCollapsedTable,
+  readGroupArchiveFilter,
   readOnboardingDone,
   readViewMode,
   safeStorage,
   VIEW_MODE_KEY,
   writeArchiveFilter,
   writeCollapsed,
+  writeGroupArchiveFilter,
   writeOnboardingDone,
   writeViewMode,
 } from './state/persistence.js'

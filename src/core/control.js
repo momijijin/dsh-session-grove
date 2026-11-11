@@ -22,15 +22,42 @@ import {
   moveGroup,
   normalizeColorHex,
   renameGroup,
+  setGroupArchived,
   setGroupColor,
   setGroupColorHex,
   setGroupIcon,
   validateDoc,
 } from '../shared/model.js'
+import {
+  ARCHIVE_FROZEN,
+  archivedInfo,
+  effectiveArchived,
+  findArchiveViolation,
+  GROUP_ARCHIVED,
+  GROUP_CONTAINS_ARCHIVED,
+  GROUP_DESTINATION_ARCHIVED,
+  GROUP_POSITION_LOCKED,
+  hasArchivedDescendant,
+} from '../shared/archive.js'
 import { GROUP_COLORS, GROUP_ICONS, MAX_DEPTH, MAX_GROUP_NAME } from '../shared/constants.js'
 
 export const CONTROL_PROTOCOL = 1
 export const MAX_CONTROL_OPERATIONS = 64
+
+/**
+ * Operation/result codes that describe an archive-state conflict (N6): the HTTP
+ * control routes must answer 409 for these, while schema/type/index mistakes
+ * stay 422. Reuses the shared error-code constants from `archive.js`.
+ */
+export const ARCHIVE_CONFLICT_CODES = Object.freeze([
+  GROUP_ARCHIVED,
+  GROUP_CONTAINS_ARCHIVED,
+  GROUP_DESTINATION_ARCHIVED,
+  GROUP_POSITION_LOCKED,
+  ARCHIVE_FROZEN,
+])
+
+export const isArchiveConflictCode = (code) => ARCHIVE_CONFLICT_CODES.includes(code)
 
 const fail = (code, message, operationIndex, extra = {}) => ({
   ok: false,
@@ -60,6 +87,13 @@ const OPERATION_SCHEMAS = Object.freeze({
     icon: { type: 'string', nonEmpty: true },
     color: { type: 'string', nonEmpty: true },
     colorHex: { type: 'string', nonEmpty: true },
+  },
+  // Deliberately separate from `group.update`: the archived switch has its own
+  // semantics (never cascades, always legal on its own) and `group.update`
+  // must keep accepting only icon/color/colorHex.
+  'group.archive': {
+    groupId: { type: 'string', required: true, nonEmpty: true },
+    archived: { type: 'boolean', required: true },
   },
   'group.move': {
     groupId: { type: 'string', required: true, nonEmpty: true },
@@ -96,6 +130,16 @@ const validateField = (operation, index, field, spec) => {
       return fail('invalid-operation', `field "${field}" must be a${spec.nonEmpty === true ? ' non-empty' : ''} string`, index, {
         field,
         expected: spec.nonEmpty === true ? 'non-empty string' : 'string',
+        receivedType: receivedType(value),
+      })
+    }
+    return null
+  }
+  if (spec.type === 'boolean') {
+    if (typeof value !== 'boolean') {
+      return fail('invalid-operation', `field "${field}" must be a boolean`, index, {
+        field,
+        expected: 'boolean',
         receivedType: receivedType(value),
       })
     }
@@ -209,16 +253,24 @@ const pathOfGroup = (doc, group) => {
 export const buildControlState = (doc, revision) => ({
   protocol: CONTROL_PROTOCOL,
   revision,
-  groups: doc.groups.map((group) => ({
-    id: group.id,
-    path: pathOfGroup(doc, group),
-    name: group.name,
-    parentId: group.parentId,
-    icon: group.icon,
-    color: groupColor(group),
-    ...(groupColorHex(group) ? { colorHex: groupColorHex(group) } : {}),
-    sessionIds: [...group.sessionIds],
-  })),
+  groups: doc.groups.map((group) => {
+    const archive = archivedInfo(doc, group.id)
+    return {
+      id: group.id,
+      path: pathOfGroup(doc, group),
+      name: group.name,
+      parentId: group.parentId,
+      icon: group.icon,
+      color: groupColor(group),
+      ...(groupColorHex(group) ? { colorHex: groupColorHex(group) } : {}),
+      sessionIds: [...group.sessionIds],
+      // 0.4.0-beta.62 (SPEC §7): own flag plus derived inheritance. `pathOnly`
+      // is view state and is deliberately not exposed here.
+      archived: archive.own,
+      effectiveArchived: archive.effective,
+      archivedBy: archive.archivedBy,
+    }
+  }),
   ungrouped: [...doc.ungrouped],
 })
 
@@ -261,8 +313,86 @@ export const resolveGroupPath = (doc, path) => {
   return { ok: true, groupId: parentId, path: [...path] }
 }
 
+/**
+ * Explicit archive guards (SPEC §7, 0.4.0-beta.62).
+ *
+ * The shared model mutators already enforce the frozen-subtree invariant, but
+ * the control layer needs stable codes/groupId/field *before* the mutation:
+ * the invariant alone cannot express every intent (for example deleting into an
+ * archived empty destination changes no fingerprint) and per-operation guards
+ * give the caller a precise `operationIndex`. These guards run against the
+ * current batch doc, so operations are rejected in order.
+ */
+const archiveGuard = (doc, operation) => {
+  const parentId = operation.parentId ?? null
+  switch (operation.op) {
+    case 'group.create':
+      if (parentId !== null && effectiveArchived(doc, parentId)) {
+        return { code: GROUP_ARCHIVED, groupId: parentId, field: 'parentId' }
+      }
+      return null
+    case 'group.rename':
+    case 'group.update':
+      if (effectiveArchived(doc, operation.groupId)) {
+        return { code: GROUP_ARCHIVED, groupId: operation.groupId, field: 'groupId' }
+      }
+      return null
+    case 'group.move': {
+      // An unknown source is a mutator concern (`group-not-found`), not an
+      // archive conflict: classify only existing groups here.
+      if (!doc.groups.some((group) => group.id === operation.groupId)) return null
+      if (effectiveArchived(doc, operation.groupId)) {
+        return { code: GROUP_ARCHIVED, groupId: operation.groupId, field: 'groupId' }
+      }
+      if (hasArchivedDescendant(doc, operation.groupId)) {
+        return { code: GROUP_CONTAINS_ARCHIVED, groupId: operation.groupId, field: 'groupId' }
+      }
+      if (parentId !== null && effectiveArchived(doc, parentId)) {
+        return { code: GROUP_DESTINATION_ARCHIVED, groupId: parentId, field: 'parentId' }
+      }
+      return null
+    }
+    case 'group.delete': {
+      if (!doc.groups.some((group) => group.id === operation.groupId)) return null
+      if (effectiveArchived(doc, operation.groupId)) {
+        return { code: GROUP_ARCHIVED, groupId: operation.groupId, field: 'groupId' }
+      }
+      if (hasArchivedDescendant(doc, operation.groupId)) {
+        return { code: GROUP_CONTAINS_ARCHIVED, groupId: operation.groupId, field: 'groupId' }
+      }
+      const destinationId = operation.destinationId ?? null
+      if (destinationId !== null && effectiveArchived(doc, destinationId)) {
+        return { code: GROUP_DESTINATION_ARCHIVED, groupId: destinationId, field: 'destinationId' }
+      }
+      return null
+    }
+    case 'session.assign': {
+      const source = doc.groups.find(
+        (group) => Array.isArray(group.sessionIds) && group.sessionIds.includes(operation.sessionId),
+      )
+      if (source !== undefined && effectiveArchived(doc, source.id)) {
+        return { code: GROUP_ARCHIVED, groupId: source.id, field: 'sessionId' }
+      }
+      const groupId = operation.groupId ?? null
+      if (groupId !== null && effectiveArchived(doc, groupId)) {
+        return { code: GROUP_DESTINATION_ARCHIVED, groupId, field: 'groupId' }
+      }
+      return null
+    }
+    default:
+      return null
+  }
+}
+
+/** Structured per-operation error; the batch loop adds `operationIndex`/`changes`. */
+const archiveError = ({ code, groupId, field }) => Object.assign(new Error(code), { code, groupId, field })
+
 const applyOne = (doc, operation, allowDestructive) => {
   const op = operation?.op
+  // The destructive gate is an authorization check and keeps precedence over
+  // archive-state conflicts, preserving the historic `operation-failed` answer.
+  const guard = op === 'group.delete' && !allowDestructive ? null : archiveGuard(doc, operation)
+  if (guard !== null) throw archiveError(guard)
   switch (op) {
     case 'group.create': {
       const next = createGroup(doc, {
@@ -292,6 +422,13 @@ const applyOne = (doc, operation, allowDestructive) => {
         doc: moveGroup(doc, operation.groupId, operation.parentId ?? null, operation.index),
         change: { op, groupId: operation.groupId },
       }
+    case 'group.archive': {
+      const next = setGroupArchived(doc, operation.groupId, operation.archived)
+      // The shared mutator returns the input doc for a same-value switch; that
+      // operation is a no-op and must not be reported as a change.
+      if (next === doc) return { doc, change: null }
+      return { doc: next, change: { op, groupId: operation.groupId, archived: operation.archived } }
+    }
     case 'group.delete':
       if (!allowDestructive) throw new Error('destructive-disabled')
       return {
@@ -332,8 +469,25 @@ export const applyControlOperations = (doc, operations, options = {}) => {
     try {
       const result = applyOne(next, operations[index], allowDestructive)
       next = result.doc
-      changes.push(result.change)
+      if (result.change !== null) changes.push(result.change)
     } catch (error) {
+      const code = typeof error?.code === 'string' ? error.code : null
+      if (code !== null) {
+        // Archive invariant errors thrown by the shared mutators already carry
+        // a stable code/groupId/field. Keep them instead of flattening every
+        // failure into `operation-failed` (SPEC §6.4/§7).
+        const extra = { changes }
+        if (typeof error.groupId === 'string') extra.groupId = error.groupId
+        if (typeof error.field === 'string') extra.field = error.field
+        return fail(code, error instanceof Error ? error.message : code, index, extra)
+      }
+      if (operations[index].op === 'group.archive' && error instanceof Error && error.message === 'group-not-found') {
+        return fail('group-not-found', 'group not found', index, {
+          groupId: operations[index].groupId,
+          field: 'groupId',
+          changes,
+        })
+      }
       return fail('operation-failed', error instanceof Error ? error.message : String(error), index, {
         changes,
       })
@@ -347,6 +501,17 @@ export const applyControlOperations = (doc, operations, options = {}) => {
   } catch (error) {
     return fail('invalid-result', error instanceof Error ? error.message : String(error), -1, { changes })
   }
+  // Whole-batch terminal check: the before-state is the *original* doc, so a
+  // sequence like `[unarchive, rename]` cannot hide a frozen-subtree edit
+  // behind individually legal steps. A violation rejects the entire batch.
+  const violation = findArchiveViolation(doc, next)
+  if (violation !== null) {
+    return fail(violation.code, violation.code, -1, {
+      groupId: violation.groupId,
+      field: violation.field,
+      changes,
+    })
+  }
   if (changes.length === 0) return fail('no-change', 'operations produced no change', -1)
   return { ok: true, doc: next, changes }
 }
@@ -356,6 +521,7 @@ export const CONTROL_OPERATIONS = Object.freeze([
   'group.create',
   'group.rename',
   'group.update',
+  'group.archive',
   'group.move',
   'group.delete',
   'session.assign',
