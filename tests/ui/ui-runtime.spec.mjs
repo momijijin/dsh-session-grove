@@ -80,16 +80,22 @@ test('client UI modules execute under a test React peer', async () => {
 })
 
 
-test('OnboardingCard renders localized copy and invokes create/dismiss', async () => {
+test('OnboardingCard renders localized copy, docs link and create/dismiss', async () => {
   const { OnboardingCard } = await import(new URL('../../src/client/components-header.js', import.meta.url))
   const calls = []
   const tree = OnboardingCard({
     t: (key) => 'T:' + key,
     onCreate: () => calls.push('create'),
     onDismiss: () => calls.push('dismiss'),
+    docsHref: 'https://example.test/README.zh.md',
   })
   assert.equal(tree.props.class, 'dsg-onboarding')
   assert.match(flatten(tree).map((node) => node.props?.children).filter((child) => typeof child === 'string').join(' '), /T:onboarding\.title/)
+  const docs = byTestId(tree, 'session-groups-onboarding-docs')
+  assert.ok(docs, 'docs link renders')
+  assert.equal(docs.props.href, 'https://example.test/README.zh.md')
+  assert.equal(docs.props.target, '_blank')
+  assert.equal(docs.props.children, 'T:onboarding.docs')
   byTestId(tree, 'session-groups-onboarding-create').props.onClick({ stopPropagation() {} })
   byTestId(tree, 'session-groups-onboarding-dismiss').props.onClick({ stopPropagation() {} })
   assert.deepEqual(calls, ['create', 'dismiss'])
@@ -373,6 +379,9 @@ test('ArchiveFilterPopover renders both tri-state segments with active checks', 
   const sections = childrenOf(popover).filter((child) => child?.props?.role === 'group')
   assert.equal(sections.length, 2)
   assert.deepEqual(sections.map((section) => section.props['aria-label']), ['T:archive.section.sessions', 'T:archive.section.groups'])
+  const filterHint = childrenOf(popover).find((child) => child?.props?.class === 'dsg-view-options-hint')
+  assert.ok(filterHint, 'view options carry the archive hint line')
+  assert.equal(filterHint.props.children, 'T:archive.hint')
   const checkOf = (row) => childrenOf(row).find((child) => child?.props?.class === 'dsg-view-option-check')
   assert.ok(checkOf(sessionRows[1]).props.children, 'active session row paints a check')
   assert.equal(checkOf(sessionRows[0]).props.children, null, 'inactive session row paints no check')
