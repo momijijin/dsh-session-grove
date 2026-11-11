@@ -30,17 +30,18 @@
 - restore 图标（compact circular reset glyph / 候选 B）
 - 16px 徽标（group archived lock / contains-archived）
 
-以上只覆盖这 4 个 UI 补丁项；**完整 A+ / locale sweeps 仍 manual pending**，不构成 `.62` A+ 通过结论。
+以上只覆盖这 4 个 UI 补丁项；自动化社区 A+ C 与 locale sweeps 见下节，用户桌面验收不替代 A+ 视觉检查。
 
-## 本轮手工待跑（不得写成已通过）
+## 本轮隔离宿主证据（2026-11-11，community）
 
-- `npm run test:isolated`：**manual pending**（`.62` 未跑）
-- `npm run test:ui-browser`：**manual pending**
-- `npm run test:locale-pack`：**manual pending**（385-key 字典）
-- `npm run test:all-locales`：**manual pending**（385-key 字典/19 语言）
-- 完整 A+ 视觉验收：**manual pending**（关注归档组 `.62` 变暗、pathOnly、disabled `+` 的 ~.28 有效透明度、RTL 徽标/锁语序；2026-11-11 用户桌面验收只覆盖上文 4 个 UI 补丁项，不是 A+）
+宿主：community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2` 隔离实例。被测包：`.62` tarball `dsh-session-grove-0.4.0-beta.62.tgz`，**829,055 bytes**，sha256 `47DFB392…11B34`（用户提供的截断摘要）。以下四项均为 **PASS**（exit 0）：
 
-最近一轮真实宿主证据仍是 `.61`（2026-11-10）：community 隔离宿主跑 `test:isolated`、`test:ui-browser`、`test:locale-pack`、`test:all-locales` 23/23（331 keys）；official A+ O 隔离宿主只跑 `test:isolated` + `test:ui-browser`，locale-pack / all-locales 是 community 宿主上的独立手工证据，不属于 official A+ O。见 `docs/TEST-MATRIX.md` 的 Historical 小节；那些数字不属于 `.62`。
+- `npm run test:isolated`：**PASS**。全量覆盖 onboarding/search/archive filter/drag/dialog/status/head insertion/collapse/264px/dark/host rail/external SSE/workspace refresh/rapid revision/multi-window SSE/CAS/reconnect/profiles/limits/session actions/clipboard/settings/localized title/diagnostics/switch/destructive confirm。preview geometry：dialog **560×560px**、narrow sidebar **252px**、body scroll **3659>466px**、row gaps **[0,0,0]**。
+- `npm run test:ui-browser`：**PASS**（fresh isolated host）：`bundleEntries:1`、`executedBytes:2538003`、`sourceBytes:2538003`、`executedRatio:1`。**fresh-host 约束（非阻断环境限制）**：第一次在刚跑完 `test:isolated` 的共享宿主上执行，profile 已达 20 上限、Save-as 按钮 disabled；这是宿主残留状态，不是代码失败。换 fresh host 重跑 PASS；`test:ui-browser` 必须在 fresh 隔离宿主上跑。
+- `npm run test:locale-pack`：**PASS**。third-party `ja` locale pack 激活日文 onboarding/dialog 文案。
+- `npm run test:all-locales`：**PASS 23/23**。19 languages + aliases：`en/zh/zh-Hant/zh-TW/zh-HK/zh-CN/ja/ko/de/fr/es/pt/pt-BR/it/nl/pl/tr/vi/th/id/ru/hi/ar`；含 settings/config；VISUAL ru/hi/ar root 252px、header 4px、scroll 124/57/96。
+
+**official A+ O `.62` 未重跑**：最新 official 证据仍是 `.61`（official DeepSeek Harness 0.2.2.0 / DSH `0.2.2-rc.1`，2026-11-10，`test:isolated` + `test:ui-browser`）；不得写成 official `.62` PASS。分组归档专用的 `e2e/groups.spec.mjs`（group 三态段、group 选择保持 popover 打开）不在这四项命令内，**未单独执行**；这四项里的 `archive filter` 是 session 归档三态路径。
 
 ## 0.4.0-beta.13 历史快照
 
