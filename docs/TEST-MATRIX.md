@@ -1,6 +1,6 @@
 # Test Matrix
 
-Status: `0.4.0-beta.62`  
+Status: `0.4.0-beta.63`  
 This file is the single source of truth for **what has actually been verified**
 and at which level. Other docs should link here instead of restating counts.
 
@@ -17,12 +17,34 @@ rows below are manual local evidence: the release workflow does not start an
 isolated DSH instance or run Playwright, so a release note cannot claim A+ or
 all-locales as an automated CI result.
 
-Counts in this file describe the current `dev` tree (`0.4.0-beta.62`,
-**unreleased**) unless a line says otherwise. The `.62` dev tree runs
-**907/907** unit/contract tests, 41/41 UI runtime cases (1 module-load + 40
+Counts in this file describe the current `dev` tree (`0.4.0-beta.63`,
+**unreleased**) unless a line says otherwise. The `.63` dev tree runs
+**914/914** unit/contract tests, 41/41 UI runtime cases (1 module-load + 40
 component tests, 18 components across 24 client modules) and 1 browser runtime
-spec, with **385 locale keys in 19 dictionaries** (331 → 385 in this batch:
-54 keys added by the group-archive batch, including 2 new plural keys).
+spec, with **394 locale keys in 19 dictionaries** (385 → 394 in this batch:
+9 keys for the entry hint, the onboarding docs link and four in-place hints;
+`onboarding.title` / `onboarding.body` were rewritten shorter). The `.63`
+`test:isolated` A+ C run passed on 2026-11-11 (community isolated host); the
+fresh-host browser spec and the locale sweeps were **not** run for `.63`. The
+`.62` four-command A+ C evidence below remains the latest complete sweep and
+applies to the `.62` tarball.
+
+**`.63` community A+ C evidence (partial): `test:isolated` PASS (2026-11-11).**
+The `.63` tarball (`dsh-session-grove-0.4.0-beta.63.tgz`, built from this tree)
+was exercised on a community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2`
+isolated host (new test home `%TEMP%\dsh-sg-e2e-20261111-131656`, port 4417):
+`npm run test:isolated` PASS (exit 0), including the new first-run assertions
+(entry hint copy and retirement on entering, onboarding title / docs link /
+dismiss and the reload non-reappearance) plus the full existing regression
+(onboarding/search/archive filter/drag/dialog/status/head insertion/collapse/
+264px/dark/host rail/external SSE/workspace round-trip/rapid revision/
+multi-window SSE/CAS/reconnect/profiles/limits/session actions/clipboard/
+settings/localized title/diagnostics/switch/destructive confirm; preview
+geometry dialog 560×560px, narrow sidebar 252px, body scroll 3659>466px, row
+gaps [0,0,0]). `test:ui-browser` (fresh host), `test:locale-pack` and
+`test:all-locales` were **not** run for `.63`, so no fresh-host browser PASS or
+locale sweep is claimed. The isolated web process was stopped; the test home was
+left in `%TEMP%`.
 
 **`.62` community A+ C evidence: PASS (2026-11-11).** The `.62` tarball
 (`dsh-session-grove-0.4.0-beta.62.tgz`, **829,055 bytes**, sha256

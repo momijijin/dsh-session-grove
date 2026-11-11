@@ -9,18 +9,27 @@
 - 会话标题、归档状态只在用户主动操作或开启 `controlSessions` 时由受控接口改变；
 - 不写入 `workspace.json`。
 
-当前版本：**0.4.0-beta.62**  
+当前版本：**0.4.0-beta.63**  
 主要支持：**DSH core/API `@deepseek-ai/dsh` 0.2.1-rc.2 与 0.2.1-rc.5**（`engines.dsh: >=0.2.0-rc.2 <0.3.0`）  
 已验证桌面壳：**社区版 DSH Desktop Stable 2.0.18**（rc.2）与**官方 DeepSeek Harness 桌面版 0.2.2.0**（rc.1，隔离运行时 A+）  
 不官方支持、不承诺兼容：**社区版 DSH Desktop Beta**、**社区版 DSH NEXT（`-next` 通道）**
 
-分发：`0.4.0-beta.61` 为最近发布版本（2026-11-10；GitHub Release 附件 `.tgz` + `SHA256SUMS`，共 2 个）；`0.4.0-beta.60`（2026-11-10）为上一版，并已上架 **dshmarket**。GitHub Release 附件与本地 tarball 仅维护者/调试路径。多配置（profiles）与切换预览布局修复随 `.60` 发布，模块拆分随 `.61` 发布；`.62`（分组归档）是未发布的 `dev` 批次，因此上面的“当前版本”指 dev 树，而不是已发布版本。
+分发：`0.4.0-beta.62` 为最近发布版本（2026-11-11；GitHub Release 附件 `.tgz` + `SHA256SUMS`，共 2 个）；`0.4.0-beta.61`（2026-11-10）为上一版，并已上架 **dshmarket**。GitHub Release 附件与本地 tarball 仅维护者/调试路径。分组归档随 `.62` 发布；`.63`（首次引导）是未发布的 `dev` 批次，因此上面的“当前版本”指 dev 树，而不是已发布版本。
 
 本地化：已打包**英文、中文、日文、韩文、德文、法文、西班牙文、巴西葡萄牙文、意大利文、荷兰文、波兰文、土耳其文、越南文、泰文、印度尼西亚文、俄文、印地文、繁体中文、阿拉伯文**字典；locale id 按基础语言解析（`ja-JP` → `ja`、`zh-Hant`/`zh-TW` → `zh-Hant`、`pt-BR` → `pt`），未支持语言回退英文。阿拉伯文会把插件根节点切到 RTL，并带核心列表/header/弹窗的 RTL 覆盖。会话数量与展开标签使用 CLDR 复数模板；分组配置切换器、切换预览与管理弹窗在 19 份字典中均已本地化。插件会把所有字典注册到 Host，但不会主动向 Host 语言目录添加语言。
 
 依赖声明：官方 `@deepseek-ai/*` 运行时包使用 `peerDependencies`，由 DSH 宿主提供，插件不再打包一份重复副本。
 
 兼容性说明见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)：支持范围、`engines.dsh`、`dsh-0.2` 适配器选择器和运行时能力检测。
+
+### 快速上手
+
+1. 从 **dshmarket** 安装 `dsh-session-grove`；宿主提示时重启 DSH Desktop。
+2. 点侧栏头部的网格图标进入**自由分组**视图；首次启动时该图标旁会有一条一次性提示说明它是什么。
+3. 新建一个分组，把任意工作区的会话拖进去；拖拽组头可以排序或嵌套。
+4. 把会话拖出分组，即可回到未归组列表。
+
+把会话归入分组不会改变它的官方工作区、日志或 `workspace.json`，只改变它在自由分组视图中的位置。首次进入视图会显示一次性说明卡，内容与上面几步一致，并带一个「完整说明」链接回到本 README。
 
 ### 平台支持
 
@@ -131,13 +140,14 @@ Beta 和 NEXT 即使能加载插件，也不构成发布门禁，不扩大支持
 
 ### 首次使用
 
-首次进入自由分组视图会显示一次性说明卡：
+首次安装后的引导是一条三级漏斗，不做包内 tour：
 
-- 分组只改变会话在自由分组视图中的编排，不改变官方工作区归属和日志
-- 如何新建分组、拖拽会话与组头
+- **入口**：官方侧栏头部的网格图标旁显示一次性提示（圆点 + 小气泡），说明自由分组是什么、不会改变官方归属；点「进去看看」或直接用图标进入视图后即不再出现，状态写入 `localStorage`（`dsh-session-grove.entry.v1`）。
+- **第一次进入**：没有分组时，一次性说明卡直接作为空状态内容出现，提供「新建分组」「完整说明」「知道了」；有数据时它保持为顶部紧凑提示。
+- **就地说明**：视图选项里的归档筛选、头部三状态弹层、会话分叉和分组归档菜单各自带一句说明，只在用到时出现。
+- 说明卡可 dismiss，状态写入 `localStorage`；「完整说明」链接指向仓库 README（中文宿主用 `README.zh.md`），长文不进入包内。
 
-说明卡可 dismiss，状态写入 `localStorage`。  
-没有分组且没有会话时会显示“新建第一个分组”的空状态入口。
+没有分组且没有会话时会显示这张动作卡；dismiss 后回到普通空状态入口。
 
 ### 视图选项
 
@@ -393,7 +403,7 @@ node scripts/session-grove-control.mjs doctor
 - 搜索最多返回 20 条，只匹配标题/工作区/组路径。
 - 宽度覆盖依赖 DSH 左侧栏 DOM；宿主大改布局时 fail-soft，分组功能不受影响。
 - 对话框移动/缩放已有键盘支持；全量 axe/对比度审计和整棵树的键盘拖拽仍为 deferred。
-- `0.4.0-beta.62` dev 树以 **907 项单元/契约测试 + 41 个 UI runtime case + 1 个浏览器 runtime spec** 和 385 个 locale key 验证（`.61` dev 树：726 + 39；`.60` 发布：699 + 39；`.59`：529 + 15）；手工证据不是每个候选版本的 CI 产物：`.62` 的 **community A+ C** 已于 2026-11-11 PASS（community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2` 隔离宿主；`.62` tarball 829,055 bytes，sha256 `47DFB392…11B34`）：`test:isolated` PASS（preview geometry dialog 560×560px、narrow sidebar 252px、body scroll 3659>466px、row gaps [0,0,0]）、`test:ui-browser` 在 fresh host PASS（`executedRatio` 1）、`test:locale-pack` PASS、`test:all-locales` PASS 23/23（19 languages + aliases，385 keys）。`test:ui-browser` 需要 fresh 隔离宿主：第一次在刚跑完 `test:isolated` 的宿主上执行，profile 达 20 上限、Save-as disabled（宿主状态，不是代码失败）。**official A+ O `.62` 未重跑**——最新 official 证据是 2026-11-10 的 `.61` 运行（official 0.2.2.0 / DSH `0.2.2-rc.1`：`test:isolated` PASS、`test:ui-browser` `executedRatio` 1）；不得写成 official `.62` 或分组归档 A+ 已通过。`.62` 的分组归档 A+ 流程在历史手工脚本 `e2e/groups.spec.mjs`（本批有更新但未执行）中，默认脚本化 A+ 是 `e2e/isolated.spec.mjs`（需手工对隔离宿主运行，不在 CI 内）；见 [docs/TEST-MATRIX.md](docs/TEST-MATRIX.md)。`npm run check:release` 是 release workflow 强制的发布结构门禁（版本一致、tag 匹配、release note、客户端版本戳、打包路径）；A+ 和 all-locales 是手工本地证据，不是 CI 产物。
+- `0.4.0-beta.63` dev 树以 **914 项单元/契约测试 + 41 个 UI runtime case + 1 个浏览器 runtime spec** 和 **394 个 locale key** 验证（`.62` dev 树：907 + 41 + 385；`.61` dev 树：726 + 39；`.60` 发布：699 + 39；`.59`：529 + 15）；`.63` 的 **`test:isolated` A+ C 已于 2026-11-11 PASS**（community 隔离宿主，新 test home、port 4417、`.63` tarball），覆盖入口提示/说明卡新断言与既有全量回归；`test:ui-browser`（fresh 宿主）与 locale sweeps **未对 `.63` 运行**，不作 PASS 声明。手工证据不是每个候选版本的 CI 产物：`.62` 的 **community A+ C** 已于 2026-11-11 PASS（community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2` 隔离宿主；`.62` tarball 829,055 bytes，sha256 `47DFB392…11B34`）：`test:isolated` PASS（preview geometry dialog 560×560px、narrow sidebar 252px、body scroll 3659>466px、row gaps [0,0,0]）、`test:ui-browser` 在 fresh host PASS（`executedRatio` 1）、`test:locale-pack` PASS、`test:all-locales` PASS 23/23（19 languages + aliases，385 keys）。`test:ui-browser` 需要 fresh 隔离宿主：第一次在刚跑完 `test:isolated` 的宿主上执行，profile 达 20 上限、Save-as disabled（宿主状态，不是代码失败）。**official A+ O 最新证据是 `.61`**（2026-11-10，official 0.2.2.0 / DSH `0.2.2-rc.1`：`test:isolated` PASS、`test:ui-browser` `executedRatio` 1）；不得写成 official `.62` 或 `.63` A+ 已通过。`.62` 的分组归档 A+ 流程在历史手工脚本 `e2e/groups.spec.mjs`（`.62` 批次更新但未执行）中，默认脚本化 A+ 是 `e2e/isolated.spec.mjs`（需手工对隔离宿主运行，不在 CI 内）；`.63` 批次已按入口提示与说明卡文案更新该脚本，其执行仍属手工本地证据；见 [docs/TEST-MATRIX.md](docs/TEST-MATRIX.md)。`npm run check:release` 是 release workflow 强制的发布结构门禁（版本一致、tag 匹配、release note、客户端版本戳、打包路径）；A+ 和 all-locales 是手工本地证据，不是 CI 产物。
 
 ## 文档
 
@@ -442,7 +452,7 @@ npm pack --pack-destination "$env:TEMP\dsh-grove-pack"
   - 必须先启动独立 web，取得 `web.json` 的 URL 和 testHome
   - Playwright 拒绝真实 43120 端口和真实 `~/.dsh`
 - 构建产物：`lib/client.js`
-- 发布包：`dsh-session-grove-0.4.0-beta.62.tgz`
+- 发布包：`dsh-session-grove-0.4.0-beta.63.tgz`
 - 详细发布步骤见 `docs/RELEASE.md`
 - 本地测试结果与 `0.4.0-beta.13` 历史快照见 `docs/TEST-RESULTS.md`（当前状态以 `docs/TEST-MATRIX.md` 为准）
 
