@@ -24,7 +24,7 @@ Unreleased `dev` batch. The latest published release is `0.4.0-beta.62` (2026-11
 
 ### Verification
 
-- Unit/contract **914/914 PASS**; UI runtime **41/41 PASS**; `check:style` **PASS**; build **PASS** (`lib/client.js` 638,346 bytes on disk — the build log's 630,577 is its character count — plus 17 lazy locale chunks 494,363 bytes, version stamp `0.4.0-beta.63`); `check:lib` **PASS**; `node --check lib/client.js` **PASS**; coverage **PASS 95.19% lines / 86.07% branches / 91.40% functions** (gates 92/80/85); `check:release` **PASS**; `npm pack --dry-run` **PASS** (**238 files**, package **848.8 kB**, unpacked **3.2 MB**).
+- Unit/contract **914/914 PASS**; UI runtime **41/41 PASS**; `check:style` **PASS**; build **PASS** (`lib/client.js` 638,346 bytes on disk — the build log's 630,577 is its character count — plus 17 lazy locale chunks 494,363 bytes, version stamp `0.4.0-beta.63`); `check:lib` **PASS**; `node --check lib/client.js` **PASS**; coverage **PASS 95.19% lines / 86.07% branches / 91.40% functions** (gates 92/80/85); `check:release` **PASS**; `npm pack --dry-run` **PASS** (**238 files**, package **850.6 kB**, unpacked **3.2 MB**).
 - Community isolated A+ C (partial): `test:isolated` **PASS** (exit 0) on 2026-11-11, community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2` isolated host (new test home, port 4417, `.63` tarball), including the new entry-hint / onboarding assertions plus the full existing regression. `test:ui-browser` (fresh host) and the locale sweeps were **not** run for `.63`.
 - User desktop acceptance: pending; the checklist is recorded in [docs/TEST-RESULTS.md](docs/TEST-RESULTS.md).
 
