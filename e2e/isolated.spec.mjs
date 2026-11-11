@@ -239,24 +239,47 @@ try {
   await closeGetStarted()
   await page.waitForTimeout(800)
 
-  // If the app opens on the shipped workspace view, use the plugin's overlay
-  // toggle; once the groups view is active the header toggle owns switching back.
+  // If the app opens on the shipped workspace view, the one-time entry hint (or
+  // the overlay toggle as a fallback) takes it into the groups view.
   if ((await groupView.count()) === 0) {
-    const toggle = page.locator('[data-testid="session-groups-workspace-toggle"], [data-testid="session-groups-toggle"]').first()
-    if ((await toggle.count()) === 0) {
-      console.error(`plugin test ids: ${JSON.stringify(await page.locator('[data-testid^="session-groups"]').evaluateAll((els) => els.map((el) => el.getAttribute('data-testid'))))}`)
-      await screenshot()
-      throw new Error('session groups view/toggle missing; check isolated profile boot')
+    const entryHint = page.locator('[data-testid="session-groups-workspace-entry-hint"]')
+    let hintVisible = false
+    try {
+      await entryHint.waitFor({ state: 'visible', timeout: 3000 })
+      hintVisible = true
+    } catch {
+      hintVisible = false
     }
-    await toggle.click()
+    if (hintVisible) {
+      const entryTitle = (await page.locator('.dsg-entry-hint-title').innerText()).trim()
+      if (entryTitle !== 'Free Groups is ready') {
+        throw new Error(`English host rendered a non-English entry hint: ${entryTitle}`)
+      }
+      await page.locator('[data-testid="session-groups-workspace-entry-hint-primary"]').click()
+    } else {
+      const toggle = page.locator('[data-testid="session-groups-workspace-toggle"], [data-testid="session-groups-toggle"]').first()
+      if ((await toggle.count()) === 0) {
+        console.error(`plugin test ids: ${JSON.stringify(await page.locator('[data-testid^="session-groups"]').evaluateAll((els) => els.map((el) => el.getAttribute('data-testid'))))}`)
+        await screenshot()
+        throw new Error('session groups view/toggle missing; check isolated profile boot')
+      }
+      await toggle.click()
+    }
   }
   await groupView.waitFor({ state: 'visible' })
+  if ((await page.locator('[data-testid="session-groups-workspace-entry-hint"]').count()) !== 0) {
+    throw new Error('entry hint did not retire after entering the groups view')
+  }
 
   const onboarding = page.locator('[data-testid="session-groups-onboarding"]')
   await onboarding.waitFor({ state: 'visible' })
   const onboardingTitle = (await page.locator('.dsg-onboarding-title').innerText()).trim()
-  if (onboardingTitle !== 'Welcome to Free Groups') {
+  if (onboardingTitle !== 'Free Groups') {
     throw new Error(`English host rendered a non-English onboarding title: ${onboardingTitle}`)
+  }
+  const docsHref = await page.locator('[data-testid="session-groups-onboarding-docs"]').getAttribute('href')
+  if (!docsHref || !docsHref.endsWith('README.md')) {
+    throw new Error(`onboarding docs link unexpected: ${docsHref}`)
   }
   const onboardingDismiss = (await page.locator('[data-testid="session-groups-onboarding-dismiss"]').innerText()).trim()
   if (onboardingDismiss !== 'Got it') {
@@ -703,6 +726,9 @@ try {
   if ((await backToggle.count()) !== 1) throw new Error('workspace overlay toggle missing for return')
   await page.evaluate(() => document.querySelector('[data-testid="session-groups-workspace-toggle"]')?.click())
   await page.waitForTimeout(1000)
+  if ((await page.locator('[data-testid="session-groups-workspace-entry-hint"]').count()) !== 0) {
+    throw new Error('entry hint reappeared after the first groups visit')
+  }
   await page.waitForFunction((name) => document.body.innerText.includes(name), hiddenName, { timeout: 6000 })
 
   // Rapid successive external revisions must converge on the newest snapshot.
