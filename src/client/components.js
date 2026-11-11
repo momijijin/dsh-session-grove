@@ -26,6 +26,7 @@ import { diagContext, diagDragEnd, diagDragStart, diagDropState, diagEnabled, di
 import { GROUP_DRAG_MIME, groupHeaderZoneFromRect } from '../core/group-drag.js'
 import { perfDragOver, perfDropTarget, perfEnabled, perfMark, perfNow, perfRender, perfSample } from './perf.js'
 import { readOnboardingDone, writeOnboardingDone } from './state.js'
+import { DOCS_BASE_URL } from '../shared/constants.js'
 import { SIDEBAR_WIDTH_MIN } from './sidebar-width.js'
 import { expandAncestors, isExpanded } from '../core/tree.js'
 import { GROUP_DROP_NOOP, useViewStore, usePerfCommit, dispatch, toast, TextButton, DropPlaceholder, GROUP_PLACEHOLDER_HEIGHT } from './components-primitives.js'
@@ -229,6 +230,9 @@ export const GroupsView = (props) => {
     handleWidthReset,
   } = useGroupsSidebarWidth({ wide, docState: store?.docState, rootRef })
   const t = rt()?.t ?? ((key) => key)
+  // 0.4.0-beta.63: the one-time card links to the repository README instead of
+  // bundling long-form docs. `zh*` hosts get the Chinese README.
+  const docsHref = `${DOCS_BASE_URL}${(rt()?.locale ?? 'en').startsWith('zh') ? 'README.zh.md' : 'README.md'}`
   const { clearSearchHit, revealSearchRow, selectSearchResult } = useGroupsSearchReveal({ rootRef, tree, store, t, virtualRef })
   const direction = rt()?.direction === 'rtl' ? 'rtl' : 'ltr'
   // Auto-expand ancestors of the current session when the view opens.
@@ -1030,9 +1034,12 @@ export const GroupsView = (props) => {
         })
       : null,
     h(Banner, { store, handlers: stableHandlers }),
-    onboardingOpen
+    // 0.4.0-beta.63: with data present the card stays a compact note at the top;
+    // a genuinely empty tree renders the same card as the empty state itself.
+    !treeEmpty && onboardingOpen
       ? h(OnboardingCard, {
           t,
+          docsHref,
           onCreate: () => {
             dismissOnboarding()
             stableHandlers.openNewGroup(null, null)
@@ -1040,8 +1047,18 @@ export const GroupsView = (props) => {
           onDismiss: dismissOnboarding,
         })
       : null,
-    !onboardingOpen && treeEmpty && store.docState !== 'loading'
-      ? h(
+    treeEmpty && store.docState !== 'loading'
+      ? onboardingOpen && filterEmptyKind === 'none'
+        ? h(OnboardingCard, {
+            t,
+            docsHref,
+            onCreate: () => {
+              dismissOnboarding()
+              stableHandlers.openNewGroup(null, null)
+            },
+            onDismiss: dismissOnboarding,
+          })
+        : h(
           'div',
           {
             class: 'dsg-empty-state',

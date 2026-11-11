@@ -349,6 +349,9 @@ export const createPlugin = () => {
       get direction() {
         return localeRuntime?.direction() ?? 'ltr'
       },
+      get locale() {
+        return localeRuntime?.localeId() ?? 'en'
+      },
       formatAbsoluteTime: (value) => localeRuntime?.formatAbsoluteTime(value) ?? null,
       api,
       actions: host.actions,
