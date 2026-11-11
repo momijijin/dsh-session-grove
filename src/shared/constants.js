@@ -1,7 +1,14 @@
 export const DOC_VERSION = 1
 
 /** Plugin version shipped in this build (also stamped into diagnostics traces). */
-export const PLUGIN_VERSION = '0.4.0-beta.62'
+export const PLUGIN_VERSION = '0.4.0-beta.63'
+
+/**
+ * Public documentation base (the README lives at the repository root). The
+ * one-time onboarding card appends the locale-appropriate README file; the
+ * plugin never bundles long-form docs itself.
+ */
+export const DOCS_BASE_URL = 'https://github.com/momijijin/dsh-session-grove/blob/main/'
 
 export const GROUP_ICONS = Object.freeze([
   'folder',
