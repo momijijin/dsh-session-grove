@@ -24,11 +24,15 @@ DSH 的 plugin client 是 **单个客户端 bundle**，没有为插件准备 `#i
 ```text
 主支持：@deepseek-ai/dsh 0.2.1-rc.2 / 0.2.1-rc.5
 插件 engines.dsh: >=0.2.0-rc.2 <0.3.0
-当前 dev 树：0.4.0-beta.63（已发布，2026-11-12；当前 dev 与发布基线一致）
+当前 dev 树：0.4.0-beta.64（未发布 dev 批次；最近发布为 0.4.0-beta.63，2026-11-12）
 
-已验证（最新一轮 community 证据：0.4.0-beta.63（2026-11-12，`test:isolated` +
-`test:locale-pack` + `test:all-locales` PASS；`test:ui-browser` 未跑）；
-official A+ O：0.4.0-beta.61；0.4.0-beta.62 / .63 的 official A+ O 未重跑）：
+已验证（最新一轮 community 证据：0.4.0-beta.64（2026-11-12，插件 `.64` 包 +
+fresh home：`test:isolated` PASS，30 格窄视口矩阵、0 skip、69 截图；
+`test:ui-browser` PASS，另一 fresh home；`test:locale-pack` /
+`test:all-locales` 未重跑）；历史序列：0.4.0-beta.63（2026-11-12，
+`test:isolated` + `test:locale-pack` + `test:all-locales` PASS，
+`test:ui-browser` 未跑）；official A+ O：0.4.0-beta.61；0.4.0-beta.62 / .63 /
+.64 的 official A+ O 未重跑）：
   community DSH Desktop Stable 2.0.18 (anywhere-labs) / DSH 0.2.1-rc.2
   official DeepSeek Harness desktop 0.2.2.0 / DSH 0.2.2-rc.1
     （官方 bundle DSH host/core 隔离 A+；0.4.0-beta.60 在 0.2.1.0 / rc.5 上另含维护者桌面窗口验收）

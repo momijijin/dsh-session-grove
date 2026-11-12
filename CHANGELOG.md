@@ -2,7 +2,7 @@
 
 ## 0.4.0-beta.64 (floating panels, 2026-11-12)
 
-Unreleased `dev` batch: the package version is still `0.4.0-beta.63` and there is no `v0.4.0-beta.64` tag or GitHub Release; the version bump belongs to the release step. The latest published release is `0.4.0-beta.63` (2026-11-12; GitHub Release assets: `.tgz` + `SHA256SUMS`, two assets).
+Unreleased `dev` batch: the package version is now `0.4.0-beta.64` and there is no `v0.4.0-beta.64` tag or GitHub Release yet. The latest published release is `0.4.0-beta.63` (2026-11-12; GitHub Release assets: `.tgz` + `SHA256SUMS`, two assets).
 
 ### Feature
 
@@ -27,9 +27,10 @@ Unreleased `dev` batch: the package version is still `0.4.0-beta.63` and there i
 
 - Unit/contract **938/938 PASS** (914 at the `.63` tree; +24 across the resolver, the floating-controller pure functions, the menu box limits and the new ui-layout contract assertions). UI runtime **44/44 PASS** (1 module-load + 43 component tests, 19 components across 26 client modules; was 42/25).
 - `check:style` **PASS**; `npm run build` **PASS** — `lib/client.js` was rebuilt from source by the build (the last commit is test-only, so the bundle is unchanged), and `check:lib` **PASS** after the last source change.
-- Community isolated evidence (2026-11-12, `.63` plugin tarball built from this tree): `test:isolated` **PASS** with the new narrow matrix — **30 cells, 30 pass, 0 failure, 0 `SKIP(host-rail)`** (Tier A 8 / B 12 / C 4 / D 4, RTL 1, menu 1) and **69 screenshots**; `test:ui-browser` **PASS** on a fresh test home (reusing the home after `test:isolated` hits the 20-profile limit — the documented fresh-host requirement).
-- Launcher note: `scripts/qa/start-isolated-web.ps1`'s URL polling timed out on this run; the same test home was served by a manually started isolated web process, so the instance and the plugin under test are unchanged.
-- No locale resource changed (**397 keys × 19 dictionaries** unchanged); `test:locale-pack` / `test:all-locales`, `check:coverage`, `check:release` and `npm pack` belong to the release step and were not run for this dev batch.
+- `check:coverage` **PASS** — **≈94.3% lines / 86.3% branches / 91.0% functions** (94.29–94.31 / 86.26–86.28 / 90.97 across repeated runs; 0.02pp run-to-run variation) against the 92/80/85 thresholds; `check:release` **PASS** (four version sources agree, the `v0.4.0-beta.64` release note exists, the bundle carries `PLUGIN_VERSION = "0.4.0-beta.64"`, every `package.json.files` path exists); `npm pack --dry-run` — **241 files, 3.2 MB unpacked** (the tested `.64` tarball is 824,070 bytes / 824.1 kB). Shipped bundle: `lib/client.js` **660,226 B** plus 17 locale chunks totalling **497,865 B**.
+- Community isolated evidence (2026-11-12, `dsh-session-grove-0.4.0-beta.64.tgz`, **824,070 bytes**, packed from this tree): `test:isolated` **PASS** (exit 0) on a **fresh** test home (`<temp>\<isolated-home>`) with the new narrow matrix — **30 cells, 30 pass, 0 failure, 0 `SKIP(host-rail)`** (Tier A 8 / B 12 / C 4 / D 4, RTL 1, menu 1) and **69 screenshots**; `test:ui-browser` **PASS** (exit 0) on a **second fresh** test home (`<temp>\<isolated-home>`, port <ephemeral>): `bundleEntries:1`, `executedBytes:2570294`, `sourceBytes:2570294`, `executedRatio:1`. Reusing the home right after `test:isolated` hits the 20-profile limit, hence the second fresh host (documented requirement, not a code failure).
+- Launcher note: `scripts/qa/start-isolated-web.ps1`'s URL polling timed out again on the first home; that same test home was served by a manually started isolated web process, so the instance and the plugin under test are unchanged. Port 4490 was already held by an unrelated local process, so the manual instance used port <ephemeral>; the second fresh home launched through the script without a workaround.
+- No locale resource changed (**397 keys × 19 dictionaries** unchanged); `test:locale-pack` / `test:all-locales` were not re-run for this dev batch and stay manual release-step evidence.
 
 ## 0.4.0-beta.63 (first-run guide + docs site, 2026-11-12)
 
