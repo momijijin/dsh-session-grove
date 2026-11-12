@@ -143,6 +143,25 @@ test('header is a 36px official section row: neutral 自由分组 title and 28px
   assert.equal(components.includes("glyph: 'sliders'"), false)
 })
 
+test('0.4.0-beta.64 compact header is measured: root width drives data-narrow, title width drives collapse', () => {
+  // Both flags come from layout measurements; `appliedWidth` only seeds the
+  // first frame as root = sidebar − 12 (spec §6.6).
+  assert.match(components, /import \{ resolveNarrow, shouldCollapseTitle \} from '\.\/floating-panel\.js'/)
+  assert.match(components, /narrow: appliedWidth !== null && appliedWidth - 12 <= 377/)
+  assert.match(components, /const rootWidth = rect \? rect\.width : NaN/)
+  assert.match(components, /const title = root\.querySelector\?\.\('\.dsg-header-title'\)/)
+  assert.match(components, /const titleWidth = title \? title\.clientWidth : NaN/)
+  assert.match(components, /const narrow = resolveNarrow\(rootWidth, current\.narrow\)/)
+  assert.match(components, /const collapsed = shouldCollapseTitle\(titleWidth, current\.collapsed, narrow\)/)
+  // Re-measure on a root resize and on a window resize; the collapse decision
+  // re-runs after `data-narrow` swaps the title gap 4px -> 2px.
+  assert.match(components, /globalThis\.addEventListener\?\.\('resize', measure\)/)
+  assert.match(components, /new Observer\(measure\)/)
+  assert.match(components, /useEffect\(\(\) => \{\r?\n\s+measureChromeRef\.current\?\.\(\)\r?\n\s+\}, \[chrome\.narrow\]\)/)
+  // Collapse hides only the label; the measured title box stays in layout.
+  assert.match(CSS, /\[data-title-collapsed="true"\] \.dsg-header-label \{ display: none; \}/)
+})
+
 test('0.2.39 dialog restores the compact 0.2.30 chrome with theme tokens', () => {
   const dialog = block('.dsg-dialog {')
   assert.match(dialog, /background:\s*var\(--dsw-alias-bg-layer-2/)
@@ -926,7 +945,11 @@ test('0.2.11 row order: title → workspace → actions → archived → time', 
   assert.match(CSS, /\.dsg-group-row:focus-visible, \.dsg-session-row:focus-visible \{[^}]*outline:\s*2px/s)
   // The applied-width flag hides the workspace badge at the narrow minimum.
   assert.match(CSS, /\.dsg-root\[data-narrow="true"\] \.dsg-workspace-badge \{ display: none; \}/)
-  assert.match(components, /'data-narrow': appliedWidth !== null && appliedWidth <= 320/)
+  // 0.4.0-beta.64: the root flags now come from the measured chrome state, not
+  // from the stored width preference (spec §6.6).
+  assert.match(components, /'data-narrow': chrome\.narrow \? 'true' : 'false'/)
+  assert.match(components, /'data-title-collapsed': chrome\.collapsed \? 'true' : 'false'/)
+  assert.match(components, /'data-width': String\(Math\.round\(chrome\.width\)\)/)
 })
 
 test('0.2.8 session status: official 16x20 slot, spinner, dots, hidden labels and compact trailing', () => {
@@ -1290,6 +1313,9 @@ test('0.4.0 profiles: header chevron is a fixed 24px target beside the title', (
   const label = block('.dsg-header-label {')
   assert.match(label, /min-width:\s*0/)
   assert.match(label, /text-overflow:\s*ellipsis/)
+  // Tiny sidebar: the collapsed title hides only the label, never the measured
+  // `.dsg-header-title` box that drives the flag (spec §6.3/§6.6).
+  assert.match(CSS, /\[data-title-collapsed="true"\] \.dsg-header-label \{ display: none; \}/)
   assert.match(CSS, /\.dsg-root\[data-narrow="true"\] \.dsg-header-title \{ gap:\s*2px; \}/)
   assert.match(componentProfiles, /renderGlyph\(h, 'chevronDown', 14\)/)
   assert.match(componentProfiles, /'aria-haspopup': 'menu'/)

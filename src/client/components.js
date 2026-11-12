@@ -8,6 +8,7 @@
  */
 import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useGroupsSidebarWidth } from './groups-view-width.js'
+import { resolveNarrow, shouldCollapseTitle } from './floating-panel.js'
 import { useGroupsViewState } from './groups-view-state.js'
 import { useGroupsSearchReveal } from './groups-view-search.js'
 import { createMenuHandlers } from './groups-view-menu-handlers.js'
@@ -229,6 +230,61 @@ export const GroupsView = (props) => {
     handleWidthCommit,
     handleWidthReset,
   } = useGroupsSidebarWidth({ wide, docState: store?.docState, rootRef })
+  // Compact chrome (0.4.0-beta.64, spec §6.6): both flags are driven by
+  // measurements of the committed layout, never by the stored width preference
+  // (`appliedWidth` is only the viewport clamp of the preference). The initial
+  // values only cover the first frame with root = sidebar − 12, so a narrow host
+  // never paints the full header first.
+  const [chrome, setChrome] = useState(() => ({
+    narrow: appliedWidth !== null && appliedWidth - 12 <= 377,
+    collapsed: false,
+    width: 0,
+  }))
+  const chromeRef = useRef(chrome)
+  chromeRef.current = chrome
+  const measureChromeRef = useRef(null)
+  useEffect(() => {
+    if (!wide) return undefined
+    const root = rootRef.current
+    if (!root || typeof root.getBoundingClientRect !== 'function') return undefined
+    // The measured `.dsg-root` box is the only narrow signal: the header row
+    // never overflows (all probed widths show `scrollWidth === clientWidth`,
+    // because the flex row shrinks the title instead of overflowing), so an
+    // overflow check would never fire. `data-title-collapsed` measures the
+    // always-laid-out `.dsg-header-title`, never the label it hides (a hidden
+    // label reads 0 and would lock itself away).
+    const measure = () => {
+      const rect = root.getBoundingClientRect()
+      const rootWidth = rect ? rect.width : NaN
+      const title = root.querySelector?.('.dsg-header-title')
+      const titleWidth = title ? title.clientWidth : NaN
+      const current = chromeRef.current
+      const narrow = resolveNarrow(rootWidth, current.narrow)
+      const collapsed = shouldCollapseTitle(titleWidth, current.collapsed, narrow)
+      const width = Math.round(Number.isFinite(rootWidth) ? rootWidth : current.width)
+      if (narrow === current.narrow && collapsed === current.collapsed && width === current.width) return
+      const next = { narrow, collapsed, width }
+      chromeRef.current = next
+      setChrome(next)
+    }
+    measureChromeRef.current = measure
+    measure()
+    globalThis.addEventListener?.('resize', measure)
+    const Observer = globalThis.ResizeObserver
+    const observer = typeof Observer === 'function' ? new Observer(measure) : null
+    observer?.observe?.(root)
+    return () => {
+      measureChromeRef.current = null
+      globalThis.removeEventListener?.('resize', measure)
+      observer?.disconnect?.()
+    }
+  }, [wide, store?.docState])
+  // `data-narrow` swaps the title inline gap 4px -> 2px, which nudges the
+  // measured title width: re-measure once after that style flush so the collapse
+  // decision sees the compact gap (spec §6.6).
+  useEffect(() => {
+    measureChromeRef.current?.()
+  }, [chrome.narrow])
   const t = rt()?.t ?? ((key) => key)
   // 0.4.0-beta.63: the one-time card and the entry hint link to the illustrated
   // documentation site instead of bundling long-form docs.
@@ -1021,7 +1077,7 @@ export const GroupsView = (props) => {
   handlersRef.current = handlers
   return h(
     'div',
-    { ref: rootRef, class: 'dsg-root', 'data-testid': 'session-groups-view', dir: direction, 'data-mode': store.viewMode, 'data-wide': 'true', 'data-narrow': appliedWidth !== null && appliedWidth <= 320 ? 'true' : 'false', 'data-optimistic': store.optimistic ? 'true' : 'false' },
+    { ref: rootRef, class: 'dsg-root', 'data-testid': 'session-groups-view', dir: direction, 'data-mode': store.viewMode, 'data-wide': 'true', 'data-narrow': chrome.narrow ? 'true' : 'false', 'data-title-collapsed': chrome.collapsed ? 'true' : 'false', 'data-width': String(Math.round(chrome.width)), 'data-optimistic': store.optimistic ? 'true' : 'false' },
     h(Header, { store: viewState, handlers: stableHandlers, sessionsById: byId, workspaces: workspaceItems, archivedSessionIds, runningSessions, blockedSessions, unreadSessions }),
     wide && widthSupported && appliedWidth !== null
       ? h(ResizeHandle, {
