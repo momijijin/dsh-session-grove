@@ -768,6 +768,14 @@ test('0.4.0-beta.64 header popovers are placed by the floating-panel controller'
   assert.match(componentProfiles, /align:\s*'inline-start'/)
   assert.match(componentProfiles, /designWidth:\s*300/)
   assert.match(componentProfiles, /'data-placement': panel\.placement/)
+  // The status panel root carries the same additive placement hook plus the
+  // controller's inline style; 0.4.0-beta.64 P8 cannot open the local
+  // `useState` panel under the test React stub, so the runtime ui-runtime spec
+  // covers the two content-sized roots and this pins the third.
+  assert.match(
+    componentHeader,
+    /class: 'dsg-running-popover',\s*ref: panel\.ref,\s*style: panel\.style,\s*'data-placement': panel\.placement/
+  )
   // The status panel is a fixed, border-box box: no CSS side anchor positions
   // it anymore, so the 248px width lives in the component, not in the sheet.
   const running = block('.dsg-running-popover {')
