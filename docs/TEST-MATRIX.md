@@ -10,25 +10,86 @@ Automated gates are `npm run check:style`, `npm run check:lib`, `npm test`,
 `npm run check:release` in the release workflow. Since the `.61` batch both
 workflows also run a production dependency audit
 (`npm audit --omit=dev --audit-level=high`) and the two third-party actions are
-pinned to immutable commit SHAs. `check:ui` is now 42 UI runtime cases (1
-module-load + 41 component tests, covering 19 components across 25 client
+pinned to immutable commit SHAs. `check:ui` is now 44 UI runtime cases (1
+module-load + 43 component tests, covering 19 components across 26 client
 modules) + 1 browser runtime spec, not full browser UI coverage. The A+ / LP
 rows below are manual local evidence: the release workflow does not start an
 isolated DSH instance or run Playwright, so a release note cannot claim A+ or
 all-locales as an automated CI result.
 
-Counts in this file describe the current `dev` tree (`0.4.0-beta.63`,
-**released as `v0.4.0-beta.63` on 2026-11-12**) unless a line says otherwise.
-The `.63` dev tree runs **914/914** unit/contract tests, 42/42 UI runtime cases
-(1 module-load + 41 component tests, 19 components across 25 client modules)
-and 1 browser runtime spec, with **397 locale keys in 19 dictionaries**
-(385 → 397 in this batch: 12 keys for the entry hint, in-place hints and the
-documentation-site entries; `onboarding.title` / `onboarding.body` were
-rewritten shorter). The `.63` community run passed `test:isolated`,
-`test:locale-pack` and `test:all-locales` on 2026-11-12; only the fresh-host
+Counts in this file describe the current `dev` tree unless a line says
+otherwise; the **`.64` batch evidence** below is the current count, and the
+published `.63` figures that follow are historical. The `.63` tree (released as
+`v0.4.0-beta.63` on 2026-11-12) ran **914/914** unit/contract tests and 42/42
+`check:ui` cases with **397 locale keys in 19 dictionaries** (385 → 397 in this
+batch: 12 keys for the entry hint, in-place hints and the documentation-site
+entries; `onboarding.title` / `onboarding.body` were rewritten shorter). The
+`.63` community run passed `test:isolated`, `test:locale-pack` and
+`test:all-locales` on 2026-11-12; only the fresh-host
 browser spec (`test:ui-browser`) was **not** run for `.63`. The `.62`
 four-command A+ C evidence below remains the latest complete sweep and applies
 to the `.62` tarball.
+
+**`.64` batch evidence (narrow-viewport floating panels, 2026-11-12).**
+This is the `0.4.0-beta.64` dev batch: the package version is still
+`0.4.0-beta.63` until the release step, so the plugin tarball used below carries
+the `.63` version string. The batch supersedes the `.63` counts in the status
+paragraph above: the dev tree now runs **938/938** unit/contract tests and
+**44/44** UI runtime cases (1 module-load + 43 component tests, 19 components
+across 26 client modules; `floating-panel.js` is the new module), with the same
+**397** locale keys in 19 dictionaries (no locale resource changed).
+
+- `npm run test:isolated` — **PASS** (exit 0) on a local isolated DSH Desktop
+  instance (community-host A+ C lane, `.63` plugin tarball built from this
+  tree). The new narrow-viewport matrix ran **30 cells: 30 pass, 0 failure,
+  0 `SKIP(host-rail)`**. The 4-key `HOST_RAIL_ALLOWLIST` (264/420 × 960×600 and
+  264/420 × 823×514) was not needed this run, so the 150%/175% zoom geometries
+  were reachable:
+  - **Tier A** — all five surfaces (running/blocked/unread counts, view options,
+    profile) × sidebar {264, 420} × viewport {1440×900, 1152×720 (125%),
+    823×514 (175%), 1440×480 (short)} = **8 cells**; I1/I2/I3/I7.
+  - **Tier B** — blocked + view options × {320, 340, 380} × {1440×900,
+    1152×720} and × {264, 420} × {1280×800, 960×600, 1280×400} = **12 cells**,
+    with the compact flags (`data-narrow` true at 264/320/340/380 and false at
+    420; `data-title-collapsed` true only at 264).
+  - **Tier C** — focus return, two-frame stability, exact outer width equal to
+    the computed border-box width and internal scrolling × {264, 420} ×
+    1440×900, plus a 1440×480 short-viewport sub-cell where view options really
+    overflow (content 402 > box 228, `scrollTop` 174 > 0) = **4 cells**.
+  - **Tier D** — data-* only × {280, 300, 360} × 1440×900 (280/300
+    `data-title-collapsed=true`, 360 false, all three `data-narrow=true`) plus
+    the 264 → 420 → 340 → 420 re-expand cell = **4 cells**.
+  - **RTL subset** — 264 × 1440×900 with `dir=rtl` (`data-placement` mirrors:
+    the profile panel stays `inline-start`, the status panel is `flipped` in LTR
+    and `inline-end` in RTL, four corners still hit) = **1 cell**.
+  - **Menu cell** — 264 × 800×600 with a >40-character group name: width ≤
+    min(360, vw−16), `box-sizing: border-box`, label span + `title` +
+    single-line ellipsis, long row label 576 > 88 = **1 cell**.
+- **69 screenshots** were written to the test home as
+  `narrow-<sidebar>-<vw>x<vh>-<surface>.png`. Key names:
+  `narrow-264-1440x900-running.png`, `-blocked`, `-unread`, `-view-options`,
+  `-profile`, `narrow-420-1440x900-blocked.png`,
+  `narrow-264-1152x720-view-options.png`, `narrow-264-823x514-profile.png`,
+  `narrow-264-1440x480-unread.png`, `narrow-320-1440x900-blocked.png`,
+  `narrow-380-1152x720-view-options.png`, `narrow-264-1280x400-view-options.png`,
+  `narrow-264-1440x480-view-options-scroll.png`,
+  `narrow-264-1440x900-rtl-profile.png`, `narrow-264-1440x900-rtl-blocked.png`,
+  `narrow-264-800x600-menu-long-label.png`.
+- `npm run test:ui-browser` — **PASS** on a fresh test home. Reusing the home
+  right after `test:isolated` fails at the 20-profile limit (Save-as disabled):
+  the fresh-host requirement already recorded for `.62`, not a code failure.
+- **Launcher note (non-blocking):** `scripts/qa/start-isolated-web.ps1`'s URL
+  polling timed out on this run. The suite was executed against the **same test
+  home** with the isolated web process started manually (`web.json` →
+  `DSH_TEST_URL` / `DSH_TEST_HOME`), so the instance, the plugin package and the
+  isolation are unchanged; only the launcher path differed. Recorded as
+  environment evidence, not as a product failure.
+- Not claimed for `.64`: `test:locale-pack` / `test:all-locales` were not re-run
+  (no locale resource changed; the `.63` 397-key sweeps stay the locale
+  evidence), official A+ O was not run (the latest official evidence remains
+  `.61`), and the plan's manual ru/de long-locale and ar RTL spot checks were
+  **not** performed — the RTL geometry above comes from the injected `dir=rtl`
+  cell, not from an Arabic screenshot review.
 
 **`.63` community evidence (partial: `test:isolated` + locale sweeps PASS,
 2026-11-12).**
@@ -301,7 +362,7 @@ cells remain historical through `.61` (no official `.62` run).
 | Drag labels | U + `.62` community A+ C (drag auto-expand/group edges) + English A+ O (historical) | |
 | Search/empty/flat fallback | U + `.62` community A+ C (search) + English A+ O (historical) | |
 | Plural objects | U parity for all 19 locales | translations are not native-reviewed |
-| Long strings / narrow sidebar | `.62` community A+ C (264px, English) | ru/hi/ar 264px-min sidebar (252px content) screenshots: no root overflow; title ellipsizes at minimum width |
+| Long strings / narrow sidebar | `.62` community A+ C (264px, English) | ru/hi/ar 264px-min sidebar (252px content) screenshots: no root overflow; at 264/280/300px the header title is hidden as a whole (`data-title-collapsed`, `.64`), the wrapper's `title` and the chevron's `aria-label` stay readable, and the full title returns from 320px |
 | RTL | Root `dir`, menu/dialog bounds, settings direction | fine geometry/drag mirroring still not exhaustively audited |
 
 ## Not verified

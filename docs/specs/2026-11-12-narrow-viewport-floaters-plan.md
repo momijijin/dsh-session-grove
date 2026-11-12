@@ -2,7 +2,7 @@
 
 > 输入：`2026-11-12-narrow-viewport-floaters.md` **v6**（第 5 轮独立复审 **GO**）
 > 版本：**plan v2 定稿**。第 2 轮独立定向复审 **GO**（2026-11-12，0 新阻断；6 条非阻断见文末 §9）。
-> 状态：**plan 草稿**。用户当前指令「先设计，不要先开工」：不建分支、不 bump 版本、不写仓库。
+> 状态：**已开工**（2026-11-12）：分支 `feature/narrow-viewport-floaters`，P1–P8 已实现并各自双审通过；本文件为批次设计记录。
 > 基线（2026-11-12 复核）：`dev = 146149e`（PR #9 已合并、package.json `0.4.0-beta.63`）。因此 spec §11 的 (a) 已满足：**从 `dev` 切 `feature/narrow-viewport-floaters`，消费 beta.64**。
 
 ## 0. 勘误与口径统一（不改已 GO 的 spec 文本）

@@ -41,6 +41,28 @@ src/index.js     Cordis host 入口
   - `src/index.js` 是 composition root，可依赖 `host` / `core` / `shared` / `adapters`；`adapters` 只承载 DSH 版本相关能力检测，不向上依赖 client/host。
 - `npm run check:core` 独立加载全部核心模块，不启动 DSH。
 
+## 浮层统一策略（0.4.0-beta.64）
+
+所有浮在分组视图之上的表面共用一套定位策略，窄侧栏、小窗口、缩放视口与 RTL 不再各自发明几何。
+
+- `src/core/popover-position.js`（纯几何，无 DOM/React）
+  - `resolvePopoverRect({ anchor, size, viewport, align, rtl, gap, padding, maxWidth, maxHeight, flip })`；`size` 是 **border-box 外框**，所以把测得的 `offsetWidth`/`offsetHeight` 回灌不会让面板被自身的 padding/border 撑大；
+  - `align` 是逻辑边（`inline-end`/`inline-start`），RTL 镜像到相反的物理边；
+  - 解析顺序：首选边 → 越界翻边（flip）→ 仍越界才 clamp；`horizontal` 返回实际策略（`inline-end`/`inline-start`/`flipped`/`clamped`）；
+  - 高度按所选一侧的剩余空间限高（下方 `vh - pad - topBelow`，上方 `anchor.top - gap - pad`，两侧都放不下才用整个 `vh - 2*pad` 并标 `vertical: 'clamped'`）；设计高不会压过视口；
+  - 非有限/负值/零视口回退到 `padding`，不产出 NaN 坐标；常量 `POPOVER_GAP` / `POPOVER_VIEWPORT_PADDING` / `POPOVER_MIN_USABLE_HEIGHT`。
+- `src/client/floating-panel.js`（`useFloatingPanel`）
+  - 同一个 `useLayoutEffect` 里两段测量：设计常量 → 真实 `offsetWidth`/`offsetHeight`，都在首帧绘制前完成；
+  - 只有任一数值变动 ≥1px 才写 DOM，测得的宽度回灌因此收敛而不是逐轮增长（I5）；
+  - `window.resize` + 触发器上的 `ResizeObserver` 重排；
+  - I2 自检：每次打开用 `elementFromPoint` 探测面板四角内缩点；未命中则把面板折进最近的 `overflow != visible` 祖先并写 `data-fallback="clip"`（正常路径该属性不存在），宿主 `transform`/`filter` 让 fixed 重新被包含时退化为被裁剪的盒子而不是直接消失；
+  - `maxHeightCap`：内容自适应面板按视口高减 `2*padding` 取上限，避免“设计高 0”被当成 `max-height: 0` 而恒零高。
+- 三个状态 popover（running/blocked/unread）与配置 popover 改为 `position: fixed`，`left`/`top`/`width`/`max-height` 由挂载器写入；CSS 只留静态首帧约束：`box-sizing: border-box`、`max-width: min(<设计值>, calc(100vw - 16px))`、`max-height: calc(100vh - 24px)`（配置 popover 沿用自身的 `60vh` 静态兜底）。原来的物理 `left`/`right` 边锚与 RTL 物理边覆盖已删除（逻辑边在 JS 里解析）。
+- `src/core/menu-position.js` 的 `menuBoxLimits({ viewport, top, maxWidth })` 只把 **box** 委托给 `resolvePopoverRect`：宽度上限 `min(maxWidth, vw - 2*pad)`、高度取 `top` 以下的剩余空间；**位移夹取保留原实现、不委托**（`clampMenuPosition` 的实现与返回形状逐值不变，指针锚定的菜单不继承元素锚定的翻边语义）。
+- additive 属性（不改 testid / class 契约）：`data-placement`（实际策略：逻辑 token、`flipped` 或 `clamped`）、`data-width`（取整的实测 root 宽）、`data-title-collapsed`、`data-fallback="clip"`。
+- 紧凑态由实测驱动：`data-narrow` 取 `.dsg-root` 实测宽，377/385 滞回（首帧用 `appliedWidth - 12` 估计），不取头部行溢出——flex 行只会压缩标题、不会溢出，溢出判据永远不会触发。`data-title-collapsed` 量的是始终参与布局的 `.dsg-header-title` 可用宽（扣 24px chevron 与 4px/窄态 2px 内联间距，<42 折叠、≥50 恢复），绝不量被隐藏的 label（隐藏后读 0，会把自己永久锁在折叠态）。
+- 5 个 header 触发器（3 个状态按钮、视图选项、配置 chevron）关闭后统一 `focus({ preventScroll: true })` 回焦：`wasOpen` 记录，回焦放在关闭后的 `useEffect` 里，避免被浏览器默认聚焦覆盖；首帧不抢焦。行菜单既有回焦不动。
+
 ## 分组归档与子树冻结（0.4.0-beta.62）
 
 `src/shared/archive.js` 是分组归档的共享领域内核（只依赖 `constants.js`；`model.js` 从它导入，反向导入会成环）：
@@ -150,6 +172,7 @@ Host 权威守卫：
 - `src/client/plugin-locale.js`：locale service 注册/订阅、translator/direction/time 运行时
 - `src/client/plugin-settings.js`：`plugins.bundle.config` slot 注册与 config form
 - `src/client/plugin-workspace-chrome.js`：workspace overlay toggle + width retry 生命周期
+- `src/client/floating-panel.js`：header popover 与配置 popover 的统一挂载器（两段测量 / 1px 收敛写 / I2 四角自检）
 
 边界规则：
 
@@ -192,6 +215,9 @@ Host 权威守卫：
   - `groupHeaderZoneFromRect`：上/下 25% 边缘 zone
 - `src/core/menu-position.js`
   - 菜单 anchor/clamp 纯数学；viewport 由调用方注入
+  - `menuBoxLimits`：菜单外框的宽度上限与锚点下方剩余高度（`.64`）
+- `src/core/popover-position.js`
+  - 浮层视口几何：border-box 外框、逻辑边 + RTL 镜像、翻边 → clamp、按剩余空间限高、非有限输入回退
 - `src/core/control.js`
   - `resolveGroupPath`：完整根路径 → 唯一 ID；不存在/同名歧义/控制字符均结构化失败
   - AI 控制协议：catalog（共享图标/色板词表）、state、结构化 operation、plan/apply 候选 doc
