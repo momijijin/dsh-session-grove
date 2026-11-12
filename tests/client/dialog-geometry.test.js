@@ -5,8 +5,10 @@ import {
   clampDialogRect,
   centeredDialogRect,
   clearDialogGeometries,
+  dialogRectFromElement,
   dragDialogRect,
   readDialogGeometries,
+  resolveDialogRect,
   resizeDialogRect,
   saveDialogGeometry,
 } from '../../src/client/dialog-geometry.js'
@@ -38,6 +40,39 @@ test('centered, drag and edge resize stay inside the viewport', () => {
   assert.equal(shrunk.height, 250)
   assert.equal(shrunk.x, 460)
   assert.equal(shrunk.y, 300)
+})
+
+test('dialogRectFromElement reads a live DOM rect and rejects unusable boxes', () => {
+  const box = (left, top, width, height) => ({ left, top, width, height })
+  assert.deepEqual(
+    dialogRectFromElement({ getBoundingClientRect: () => box(12, 34, 480, 320) }),
+    { x: 12, y: 34, width: 480, height: 320 }
+  )
+  // Fractional client coordinates survive unrounded (non-1 DPR borders/offsets).
+  assert.deepEqual(
+    dialogRectFromElement({ getBoundingClientRect: () => box(12.5, 34.25, 480.75, 320.5) }),
+    { x: 12.5, y: 34.25, width: 480.75, height: 320.5 }
+  )
+  assert.equal(dialogRectFromElement(null), null)
+  assert.equal(dialogRectFromElement(undefined), null)
+  assert.equal(dialogRectFromElement({}), null)
+  assert.equal(dialogRectFromElement({ getBoundingClientRect: () => null }), null)
+  assert.equal(dialogRectFromElement({ getBoundingClientRect: () => box(0, 0, 0, 320) }), null)
+  assert.equal(dialogRectFromElement({ getBoundingClientRect: () => box(0, 0, 320, 0) }), null)
+  assert.equal(dialogRectFromElement({ getBoundingClientRect: () => box(0, 0, 320, -10) }), null)
+  assert.equal(dialogRectFromElement({ getBoundingClientRect: () => box(Number.NaN, 0, 320, 320) }), null)
+  assert.equal(dialogRectFromElement({ getBoundingClientRect: () => box(0, 0, Number.POSITIVE_INFINITY, 320) }), null)
+})
+
+test('resolveDialogRect prefers the in-memory rect and clamps only a measured one', () => {
+  const refRect = { x: 20, y: 30, width: 400, height: 260 }
+  const measured = { x: -500, y: -500, width: 100, height: 100 }
+  // The ref is the gesture source of truth: returned as-is, never re-clamped.
+  assert.equal(resolveDialogRect(refRect, measured, 1200, 800), refRect)
+  assert.deepEqual(resolveDialogRect(null, measured, 1200, 800), { x: 8, y: 8, width: 320, height: 120 })
+  assert.deepEqual(measured, { x: -500, y: -500, width: 100, height: 100 })
+  assert.equal(resolveDialogRect(null, null, 1200, 800), null)
+  assert.equal(resolveDialogRect(undefined, undefined, 1200, 800), null)
 })
 
 test('dialog geometry persists per kind without touching other storage', () => {

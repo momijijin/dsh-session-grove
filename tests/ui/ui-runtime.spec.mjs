@@ -81,6 +81,19 @@ test('client UI modules execute under a test React peer', async () => {
   assert.equal(typeof menus.MenuPopover, 'function')
 })
 
+test('shouldFocusDialogTarget skips a target that already sits inside the dialog', async () => {
+  const { shouldFocusDialogTarget } = await import(new URL('../../src/client/dialog-host.js', import.meta.url))
+  const child = { tagName: 'INPUT' }
+  const dialog = { contains: (element) => element === child }
+  // The delayed focus must not steal focus the user (or a test) already placed.
+  assert.equal(shouldFocusDialogTarget(child, dialog), false)
+  // The dialog chrome itself, an outside element, a body-like object and the
+  // initial null activeElement all keep the old auto-focus behavior.
+  assert.equal(shouldFocusDialogTarget(dialog, dialog), true)
+  assert.equal(shouldFocusDialogTarget({ tagName: 'BUTTON' }, dialog), true)
+  assert.equal(shouldFocusDialogTarget({}, dialog), true)
+  assert.equal(shouldFocusDialogTarget(null, dialog), true)
+})
 
 test('OnboardingCard renders localized copy, docs link and create/dismiss', async () => {
   const { OnboardingCard } = await import(new URL('../../src/client/components-header.js', import.meta.url))

@@ -8,7 +8,7 @@ import { deleteGroupDestinationVerdict, deleteGroupOptions, dialogConfirmPayload
 import { GROUP_COLORS, GROUP_COLOR_HEX, MAX_GROUP_NAME, PLUGIN_VERSION } from '../shared/constants.js'
 import { isColorHex, normalizeColorHex } from '../shared/model.js'
 import { formatActivity } from './actions.js'
-import { centeredDialogRect, clampDialogRect, dragDialogRect, readDialogGeometries, resizeDialogRect, saveDialogGeometry } from './dialog-geometry.js'
+import { centeredDialogRect, clampDialogRect, dialogRectFromElement, dragDialogRect, readDialogGeometries, resolveDialogRect, resizeDialogRect, saveDialogGeometry } from './dialog-geometry.js'
 import { dialogKeyboardDelta } from './dialog-keyboard.js'
 import { GroupListPicker } from './group-list-picker.js'
 import { ICON_GROUPS, renderGlyph, renderIcon } from './icons.js'
@@ -52,6 +52,14 @@ const focusableIn = (element) =>
       !candidate.closest('[aria-hidden="true"]') &&
       candidate.getClientRects().length > 0
   )
+
+/**
+ * The delayed auto-focus must not steal focus that the user (or a test) has
+ * already placed inside the open dialog. The dialog element itself, an outside
+ * element, a body-like object and a null activeElement all keep auto-focus.
+ */
+export const shouldFocusDialogTarget = (activeElement, dialogElement) =>
+  !(activeElement && dialogElement?.contains?.(activeElement) && activeElement !== dialogElement)
 
 
 export const DialogHost = ({ store, props, sessionsById }) => {
@@ -121,6 +129,7 @@ export const DialogHost = ({ store, props, sessionsById }) => {
       if (active && active !== globalThis.document?.body) restoreFocusRef.current = active
     }
     const timer = setTimeout(() => {
+      if (!shouldFocusDialogTarget(globalThis.document?.activeElement, dialogRef.current)) return
       if (needsNameInput) {
         inputRef.current?.focus()
         return
@@ -353,10 +362,22 @@ export const DialogHost = ({ store, props, sessionsById }) => {
     return () => clearTimeout(timer)
   }, [dialog?.kind])
 
+  // The explicit in-memory rect is the gesture source of truth; before the
+  // natural measurement lands (or after a reset clears it) fall back to the
+  // element's rendered box so keyboard move/resize still work instead of
+  // silently doing nothing.
+  const currentDialogRect = () =>
+    resolveDialogRect(
+      dialogRectRef.current,
+      dialogRectFromElement(dialogRef.current),
+      globalThis.innerWidth,
+      globalThis.innerHeight
+    )
+
   const beginDialogGesture = (event, dir = null) => {
     if (!dialog || event.button !== 0) return
     if (dir === null && event.target?.closest?.('button, input, textarea, select, a')) return
-    const start = dialogRectRef.current
+    const start = currentDialogRect()
     if (!start) return
     event.preventDefault()
     event.stopPropagation()
@@ -418,11 +439,6 @@ export const DialogHost = ({ store, props, sessionsById }) => {
     const initial = dialog ? initialDialogSelection(dialog, store.doc) : undefined
     setSelection(initial)
     setHexInput(dialog?.kind === 'group-color' && isColorHex(initial) ? initial : '')
-    if (dialog && (dialog.kind === 'new-group' || dialog.kind === 'rename-group' || dialog.kind === 'rename-session')) {
-      const timer = setTimeout(() => inputRef.current?.focus(), 10)
-      return () => clearTimeout(timer)
-    }
-    return undefined
   }, [dialog])
   if (!dialog) return null
   const close = () => {
@@ -439,7 +455,7 @@ export const DialogHost = ({ store, props, sessionsById }) => {
     const delta = dialogKeyboardDelta(event.key, event.shiftKey)
     if (delta.dx === 0 && delta.dy === 0) return false
     event.preventDefault()
-    const current = dialogRectRef.current
+    const current = currentDialogRect()
     if (!current) return true
     const next = dragDialogRect(current, delta.dx, delta.dy, globalThis.innerWidth, globalThis.innerHeight)
     dialogRectRef.current = next
@@ -450,7 +466,7 @@ export const DialogHost = ({ store, props, sessionsById }) => {
     const delta = dialogKeyboardDelta(event.key, event.shiftKey)
     if (delta.dx === 0 && delta.dy === 0) return false
     event.preventDefault()
-    const current = dialogRectRef.current
+    const current = currentDialogRect()
     if (!current) return true
     const next = resizeDialogRect(current, 'se', delta.dx, delta.dy, globalThis.innerWidth, globalThis.innerHeight)
     dialogRectRef.current = next

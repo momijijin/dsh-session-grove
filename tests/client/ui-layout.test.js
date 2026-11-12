@@ -1129,6 +1129,16 @@ test('0.3.0-beta.71 dialog exposes keyboard move and resize controls', () => {
   assert.match(dialogHost, /dialogKeyboardDelta/)
 })
 
+test('0.4.0-beta.65 dialog reuses the focus guard and the measured-rect fallback once', () => {
+  assert.match(dialogHost, /dialogRectFromElement\(/)
+  assert.match(dialogHost, /resolveDialogRect\(/)
+  assert.match(dialogHost, /shouldFocusDialogTarget\(/)
+  // Only the [dialog] effect keeps its delayed focus; a second timer in the
+  // seed effect would fight the user's own focus on inline-error re-dispatches.
+  const delayedFocuses = dialogHost.match(/inputRef\.current\?\.focus\(\)/g) ?? []
+  assert.equal(delayedFocuses.length, 1, 'inputRef.current?.focus() must appear exactly once')
+})
+
 test('0.3.0-beta.71 group menu supports roving keyboard focus', () => {
   assert.match(sessionMenu, /role: 'menuitem'/)
   assert.match(sessionMenu, /event\.key === 'ArrowDown'/)
