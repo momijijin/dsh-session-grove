@@ -57,6 +57,53 @@ const resolveTarget = (fromFile, specifier) => {
   return null
 }
 
+const importGraph = () => {
+  const files = walk(srcDir).sort()
+  const graph = new Map(files.map((file) => [file, []]))
+  for (const file of files) {
+    for (const specifier of specifiers(readFileSync(file, 'utf8'))) {
+      if (!specifier.startsWith('.') || specifier.endsWith('.json')) continue
+      const target = resolveTarget(file, specifier)
+      // Unresolved imports are reported by the layer test below.
+      if (target === null || !graph.has(target)) continue
+      graph.get(file).push(target)
+    }
+  }
+  return graph
+}
+
+const findImportCycles = (graph) => {
+  const state = new Map()
+  const stack = []
+  const cycles = []
+  const visit = (file) => {
+    state.set(file, 'visiting')
+    stack.push(file)
+    for (const target of graph.get(file)) {
+      const seen = state.get(target)
+      if (seen === 'visiting') {
+        cycles.push([...stack.slice(stack.indexOf(target)), target])
+      } else if (seen === undefined) {
+        visit(target)
+      }
+    }
+    stack.pop()
+    state.set(file, 'visited')
+  }
+  for (const file of graph.keys()) {
+    if (!state.has(file)) visit(file)
+  }
+  return cycles
+}
+
+const formatCycle = (cycle) => cycle.map((file) => relative(srcDir, file).replace(/\\/g, '/')).join(' -> ')
+
+test('relative imports between src modules form no cycles', () => {
+  const graph = importGraph()
+  const cycles = findImportCycles(graph).map(formatCycle)
+  assert.deepEqual(cycles, [])
+})
+
 test('static, side-effect and dynamic imports point only inward', () => {
   const violations = []
   for (const file of walk(srcDir)) {
