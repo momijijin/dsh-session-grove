@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.4.0-beta.65 (timing fix and architecture cleanup, 2026-11-13)
+
+Unreleased `dev` batch (not tagged, not published). The latest published release is `0.4.0-beta.64` (2026-11-12; GitHub Release assets: `.tgz` + `SHA256SUMS`). No public API, control-protocol, storage-format, locale or UX contract changed: `DOC_VERSION` stays 1, the 21-key `createHostIntegration` surface is intact, and the 397 keys in 19 dictionaries are untouched.
+
+### Fix
+
+- Dialog keyboard timing: the isolated suite could fail at `keyboard dialog move did not move right` when an arrow key arrived before the dialog geometry had stored a rect, or after a duplicate 10ms seed timer stole the focus the test had just placed. The duplicate timer is removed and the single deferred focus now goes through `shouldFocusDialogTarget` (skip only when focus is already on a dialog descendant).
+- Added a measured-rect fallback (`dialogRectFromElement` / `resolveDialogRect`, wired through `currentDialogRect()`) so keyboard move/resize and gesture start work before the geometry effect lands; the fallback is not persisted, and non-finite or non-positive rects are rejected.
+- e2e hardening: the dialog waits for `data-positioned="true"` before the keyboard section, and a `focusAndSettle` helper focuses the titlebar/resizer, settles 150ms, retries once, asserts `document.activeElement` and reports the active test id on failure (no silent retry loop).
+
+### Refactor
+
+- `src/client/plugin-host.js` split into the 312-line mount shell and the new 682-line `src/client/plugin-host-commands.js` (command layer, one-way shell → commands dependency, no DSH imports in commands; the 21-key return surface is unchanged).
+- `src/client/dialog-host.js` split into the 710-line modal shell and the new 315-line `src/client/dialog-bodies.js` (group/session dialog bodies plus `DIALOG_KEYS` / `DESTINATION_REASON_KEYS`).
+- Host deduplication: the atomic write sequence and the cross-process file lock are now `src/host/atomic-write.js` (69 lines) and `src/host/file-lock.js` (149 lines), shared by the document store and the profile registry with the same error codes and busy message.
+- Client deduplication: one `sessionContainer` tree lookup in `src/client/actions.js`, one registry classifier driving both the registry and `src/host/storage-health.js`, and direct `MAX_PROFILES` use instead of the removed `DEFAULT_PROFILE_LIMIT` alias.
+
+### Tests
+
+- Unit/contract **1027/1027 PASS** (938 at `.64`, +89): new `tests/client/plugin-host-commands.test.js` (68 cases), `tests/host/atomic-write.test.js`, `tests/host/file-lock.test.js`, the dialog-geometry fallback cases, the classifier comparison and the import-cycle guard.
+- UI runtime **45/45 PASS** (was 44; the new case covers the four `shouldFocusDialogTarget` branches), 19 components across 28 client modules. Coverage **PASS 94.81% lines / 86.81% branches / 91.44% functions** (92/80/85; batch range 94.68–94.83 / 86.80–86.86 / 91.44–91.55).
+- Architecture guards: import graph 116 source modules / 335 adjacency edges / **0 cycles** (negative fixture detects cycles); `createHostCommands` 17 documented keys; `uiModules` 28.
+
+### Verification
+
+- `check:style` **PASS** (227 files); `npm test` **1027/1027 PASS**; `npm run build` **PASS** (`lib/client.js` 662,098 bytes on disk plus 17 lazy locale chunks 497,865 bytes, version stamp `.65`); `check:lib` **PASS**; `node --check lib/client.js` **PASS**; `check:coverage` **PASS**; `check:ui` **PASS** 45/45; `check:release` **PASS** (four version sources agree, `.65` release note present, bundle stamp, 25/25 packaged paths); `npm pack --dry-run` **PASS** (246 files, 835.3 kB package, 3.2 MB unpacked).
+- The acceptance tarball `dsh-session-grove-0.4.0-beta.65.tgz` is packed to the system temporary directory `%TEMP%\dsh-grove-pack\` (not in the repository); its byte size and sha256 are recorded in the batch handoff.
+- **Pending, not PASS**: `test:isolated` and `test:ui-browser` were not run by the AI for `.65`; they await the user's fresh isolated host with the tarball above. No locale sweep (no locale resource changed) and no official A+ O claim.
+
 ## 0.4.0-beta.64 (floating panels, 2026-11-12)
 
 Published as `v0.4.0-beta.64` (2026-11-12; GitHub Release assets: `.tgz` + `SHA256SUMS`). The previous published release is `0.4.0-beta.63` (2026-11-12).

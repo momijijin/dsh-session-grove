@@ -24,9 +24,10 @@ DSH 的 plugin client 是 **单个客户端 bundle**，没有为插件准备 `#i
 ```text
 主支持：@deepseek-ai/dsh 0.2.1-rc.2 / 0.2.1-rc.5
 插件 engines.dsh: >=0.2.0-rc.2 <0.3.0
-当前 dev 树：0.4.0-beta.64（已发布 v0.4.0-beta.64，2026-11-12；上一版 v0.4.0-beta.63）
+当前 dev 树：0.4.0-beta.65（dev 批次，**未发布**；最新已发布仍为 v0.4.0-beta.64，2026-11-12）
 
-已验证（最新一轮 community 证据：0.4.0-beta.64（2026-11-12，插件 `.64` 包 +
+已验证（`.65` 的真实宿主证据 pending（待用户 fresh host，见 TEST-MATRIX），
+不得写成已跑；最新一轮 community 证据仍是 0.4.0-beta.64（2026-11-12，插件 `.64` 包 +
 fresh home：`test:isolated` PASS，30 格窄视口矩阵、0 skip、69 截图；
 `test:ui-browser` PASS，另一 fresh home；`test:locale-pack` PASS 与
 `test:all-locales` 23/23 PASS，均在带 `e2e/fixtures/ja-locale-pack` 的隔离实例
@@ -146,7 +147,7 @@ dsh-0.2  >=0.2.0-rc.2 <0.3.0
 
 ## 为什么优先能力检测
 
-- 目前 community Stable 与 official 两个桌面族都已有隔离实例证据（最新一轮 community A+ C 为 `0.4.0-beta.64`，2026-11-12 四项 PASS（locale 两项在独立 fresh home）；official A+ O 为 `0.4.0-beta.61`；`.64` 的 official A+ O 未重跑）；仍不为“壳名”写死版本分支，写死分支等于发布未测试代码。
+- 目前 community Stable 与 official 两个桌面族都已有隔离实例证据（最新一轮 community A+ C 为 `0.4.0-beta.64`，2026-11-12 四项 PASS（locale 两项在独立 fresh home）；official A+ O 为 `0.4.0-beta.61`；`.64` 的 official A+ O 未重跑；`.65` 的真实宿主证据 **pending**（用户 fresh host），不得写成已跑）；仍不为“壳名”写死版本分支，写死分支等于发布未测试代码。
 - DSH 的扩展点本身是 service/slot 组合，能力检测比版本判断更精确。
 - 插件管理器已经承担版本范围拒绝；插件内部重复版本判断会制造双重真相源。
 

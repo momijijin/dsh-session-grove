@@ -1,6 +1,6 @@
 # Test Matrix
 
-Status: `0.4.0-beta.64`  
+Status: `0.4.0-beta.65`  
 This file is the single source of truth for **what has actually been verified**
 and at which level. Other docs should link here instead of restating counts.
 
@@ -10,33 +10,76 @@ Automated gates are `npm run check:style`, `npm run check:lib`, `npm test`,
 `npm run check:release` in the release workflow. Since the `.61` batch both
 workflows also run a production dependency audit
 (`npm audit --omit=dev --audit-level=high`) and the two third-party actions are
-pinned to immutable commit SHAs. `check:ui` is now 44 UI runtime cases (1
-module-load + 43 component tests, covering 19 components across 26 client
+pinned to immutable commit SHAs. `check:ui` is now 45 UI runtime cases (1
+module-load + 44 component tests, covering 19 components across 28 client
 modules) + 1 browser runtime spec, not full browser UI coverage. The A+ / LP
 rows below are manual local evidence: the release workflow does not start an
 isolated DSH instance or run Playwright, so a release note cannot claim A+ or
 all-locales as an automated CI result.
 
 Counts in this file describe the current `dev` tree unless a line says
-otherwise; the **`.64` batch evidence** below is the current count, and the
-published `.63` figures that follow are historical. The `.63` tree (released as
+otherwise; the **`.65` batch evidence** below is the current count, and the
+published `.64` and `.63` figures that follow are historical. The `.65` dev tree
+runs **1027/1027** unit/contract tests and **45/45** `check:ui` cases with
+**397 locale keys in 19 dictionaries** (no locale resource changed), and its
+real-host `test:isolated` / `test:ui-browser` evidence is **pending** (user
+fresh host). The `.64` tree (released as `v0.4.0-beta.64` on 2026-11-12) ran
+**938/938** unit/contract tests and 44/44 `check:ui` cases; the `.64` community
+run passed `test:isolated`, `test:ui-browser`, `test:locale-pack` and
+`test:all-locales` on 2026-11-12. The `.63` tree (released as
 `v0.4.0-beta.63` on 2026-11-12) ran **914/914** unit/contract tests and 42/42
-`check:ui` cases with **397 locale keys in 19 dictionaries** (385 → 397 in this
+`check:ui` cases with **397 locale keys in 19 dictionaries** (385 → 397 in that
 batch: 12 keys for the entry hint, in-place hints and the documentation-site
 entries; `onboarding.title` / `onboarding.body` were rewritten shorter). The
 `.63` community run passed `test:isolated`, `test:locale-pack` and
-`test:all-locales` on 2026-11-12; only the fresh-host
-browser spec (`test:ui-browser`) was **not** run for `.63`. The `.62`
-four-command A+ C evidence below is the previous complete sweep and applies
-to the `.62` tarball; the `.64` batch above now also has all four commands.
+`test:all-locales` on 2026-11-12; only the fresh-host browser spec
+(`test:ui-browser`) was **not** run for `.63`. The `.62` four-command A+ C
+evidence below is the previous complete sweep and applies to the `.62` tarball;
+the `.64` batch below also has all four commands.
+
+**`.65` batch evidence (dialog keyboard timing + architecture cleanup,
+2026-11-13).** This is the current `dev` batch; `0.4.0-beta.65` is **not tagged
+or published** (latest published: `v0.4.0-beta.64`, 2026-11-12). The dev tree
+runs **1027/1027** unit/contract tests and **45/45** UI runtime cases (1
+module-load + 44 component tests, 19 components across 28 client modules;
+`plugin-host-commands.js` and `dialog-bodies.js` are the new client modules),
+with the same **397** locale keys in 19 dictionaries (no locale resource
+changed). No public API, control-protocol, storage-format or UX contract
+changed; `DOC_VERSION` stays 1.
+
+- `npm run check:coverage` — **PASS**: **94.81% lines / 86.81% branches /
+  91.44% functions** on the final local run (thresholds 92/80/85; batch runs
+  varied within 94.68–94.83 / 86.80–86.86 / 91.44–91.55).
+- `npm run check:style` — **PASS** (227 files); `npm run build` — **PASS**
+  (`lib/client.js` **662,098 bytes** on disk plus 17 lazy locale chunks
+  **497,865 bytes**, version stamp `0.4.0-beta.65`); `npm run check:lib` —
+  **PASS**; `node --check lib/client.js` — **PASS**; `npm run check:release` —
+  **PASS** (four version sources agree, `.65` release note present, bundle
+  stamp, 25/25 packaged paths); `npm pack --dry-run` — **PASS**
+  (**246 files**, package **835.3 kB**, unpacked **3.2 MB**). The acceptance
+  tarball `dsh-session-grove-0.4.0-beta.65.tgz` is packed to
+  `%TEMP%\dsh-grove-pack\` (outside the repository).
+- `npm run test:isolated` — **pending (user fresh host)**: not run by the AI
+  for `.65`; it must be executed on a fresh isolated home with the `.65`
+  tarball. **Not PASS.**
+- `npm run test:ui-browser` — **pending (user fresh host)**: same fresh-host
+  requirement; **not PASS.** No locale sweep is required for `.65` (no locale
+  resource changed) and no official A+ O run is claimed.
+- Architecture guards: import graph **116 source modules / 335 adjacency edges
+  / 0 cycles** (the negative fixture detects a cycle); `createHostCommands`
+  exposes the **17** documented keys; the shell returns the **21**-key
+  `createHostIntegration` contract; `uiModules` is **28**.
+
+The `.64` section below records the previous release (historical; not `.65`
+evidence).
 
 **`.64` batch evidence (narrow-viewport floating panels, 2026-11-12).**
 This is the `.64` release (`v0.4.0-beta.64`, published 2026-11-12). The plugin
 tarball used below was packed from this tree, so it carries the `.64` version
 string:
-`dsh-session-grove-0.4.0-beta.64.tgz` (**824,070 bytes**). The batch supersedes
-the `.63` counts in the status
-paragraph above: the dev tree now runs **938/938** unit/contract tests and
+`dsh-session-grove-0.4.0-beta.64.tgz` (**824,070 bytes**). The batch superseded
+the `.63` counts in the then-current status
+paragraph: the `.64` dev tree ran **938/938** unit/contract tests and
 **44/44** UI runtime cases (1 module-load + 43 component tests, 19 components
 across 26 client modules; `floating-panel.js` is the new module), with the same
 **397** locale keys in 19 dictionaries (no locale resource changed).
@@ -173,7 +216,7 @@ are historical and must not be quoted as `.62` evidence.
 | Code | Meaning |
 |---|---|
 | `U` | Unit/contract tests: `npm test` (907 tests on the current `.62` dev tree; 726 at the `.61` dev tree; 699 at the `.60` release; 529 at the `.59` release) |
-| `A+ C` | Isolated Playwright, community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2` (`.62`: 2026-11-11 PASS, `.62` tarball 829,055 bytes) |
+| `A+ C` | Isolated Playwright, community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2` (`.62`: 2026-11-11 PASS, `.62` tarball 829,055 bytes; `.64`: 2026-11-12 PASS; `.65`: **pending, user fresh host**) |
 | `A+ O` | Isolated Playwright on an official DeepSeek Harness desktop host (`.60`: 0.2.1.0 / DSH `0.2.1-rc.5`; `.61`: 0.2.2.0 / DSH `0.2.2-rc.1`; `.62`: **not run**) |
 | `LP` | Test-only all-locale pack (`e2e/fixtures/ja-locale-pack`): host catalog injection + active locale switch |
 | `H` | Historical/manual evidence in an earlier release note or test-results snapshot; not a current default automation |

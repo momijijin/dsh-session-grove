@@ -1,13 +1,36 @@
-# 0.4.0-beta.63 本地测试结果（当前轮）
+# 0.4.0-beta.65 本地测试结果（当前轮）
 
-> `docs/TEST-MATRIX.md` 仍是当前可重复验证状态、语言覆盖与测试缺口的**真相源**；本文件记录 2026-11-12 本地候选树的实际执行结果，并保留 `0.4.0-beta.13` 历史快照（见文末）。`.63` 已发布（`v0.4.0-beta.63`，2026-11-12）。
+> `docs/TEST-MATRIX.md` 仍是当前可重复验证状态、语言覆盖与测试缺口的**真相源**；本文件记录 2026-11-13 本地候选树的实际执行结果，并保留 `0.4.0-beta.63` 历史轮与 `0.4.0-beta.13` 历史快照（见文末）。`.65` 是未发布的 dev 批次（未 tag、未发布）；最新已发布仍为 `0.4.0-beta.64`（2026-11-12）。
 
-日期：2026-11-12  
-版本：`0.4.0-beta.63`（已发布，2026-11-12；上一发布为 `0.4.0-beta.62`，2026-11-11）  
+日期：2026-11-13  
+版本：`0.4.0-beta.65`（dev，未发布；最新已发布 `0.4.0-beta.64`，2026-11-12）  
 宿主基线：`@deepseek-ai/dsh` 0.2.1-rc.2（community）/ 0.2.2-rc.1（official，`.61` A+ 证据；0.2.1-rc.5 为 `.60` 历史）  
+变更范围：对话框键盘时序修复（焦点守卫 + rect 兜底 + e2e 定位/焦点断言）+ 架构债清理（plugin-host / dialog-host 拆分、host 原子写/文件锁去重、sessionContainer / registry 分类器 / MAX_PROFILES 去重、import-cycle 守卫）；无公开 API/存储/locale/UX 契约变更
+
+## 本轮自动门禁（2026-11-13，本地 Windows）
+
+- `npm run check:style`：**PASS**（227 files）
+- `npm test`：**1027/1027 PASS**（0 failed / 0 skipped）
+- `npm run build`：**PASS**（`lib/client.js` 实际 662,098 bytes；构建日志打印的 654,255 是字符数；17 个 lazy locale chunks 497,865 bytes；版本戳 `0.4.0-beta.65`）
+- `npm run check:lib`：**PASS**
+- `node --check lib/client.js`：**PASS**
+- `npm run check:coverage`：**PASS**，all files **94.81% lines / 86.81% branches / 91.44% functions**（门禁 92/80/85；同批运行在 94.68–94.83 / 86.80–86.86 / 91.44–91.55 波动，最终门禁轮为 94.81 / 86.81 / 91.44）
+- `npm run check:ui`：**45/45 PASS**（1 module-load + 44 component tests，覆盖 19 components / 28 client modules）
+- `npm run check:release`：**PASS**（五处版本一致、`.65` release note 存在、bundle 版本戳、`package.json.files` 路径 25/25 存在）
+- `npm pack --dry-run`：**PASS**，**246 files**，package **835.3 kB**，unpacked **3.2 MB**（dry-run 不修改仓库）
+- 验收 tarball：`dsh-session-grove-0.4.0-beta.65.tgz`，位于系统临时目录 `%TEMP%\dsh-grove-pack\`（不进仓库；字节数与 sha256 记在批次回报里）
+- locale：**397 keys × 19 dictionaries** 不变（本批无 locale 资源改动）
+
+## 真实宿主证据（`.65`，pending，AI 未执行）
+
+`npm run test:isolated` 与 `npm run test:ui-browser` 在本轮**未由 AI 执行**，必须由用户在 fresh isolated home 上用上面的 `.65` tarball 运行；在用户记录前**不得写成 PASS**。建议同包第二个 fresh home 复跑 `test:isolated`。`.65` 无 locale 改动，不需要 `test:locale-pack` / `test:all-locales`；official A+ O 未跑、不声称。
+
+## 0.4.0-beta.63 历史轮（2026-11-12，已发布）
+
+版本：`0.4.0-beta.63`（已发布，2026-11-12；上一发布为 `0.4.0-beta.62`，2026-11-11）  
 变更范围：首次引导漏斗（入口一次性提示 + 动作化说明卡）+ 4 处就地提示 + 三处文档站点入口（入口提示 / 说明卡 / 设置页）+ README 瘦身为入口页（长文迁移到文档站点）+ 移除 QQ 群图片 + 19 语言 397 keys；无文档 schema 变更
 
-## 本轮自动门禁（2026-11-12，本地 Windows）
+### 本轮自动门禁（2026-11-12，本地 Windows）
 
 - `npm run check:style`：**PASS**（217 files）
 - `npm test`：**914/914 PASS**（0 failed / 0 skipped）
@@ -20,7 +43,7 @@
 - `npm pack --dry-run`：**PASS**，**238 files**，package **797.7 kB**，unpacked **3.1 MB**（tarball `dsh-session-grove-0.4.0-beta.63.tgz`；QQ 群图片已移出插件仓并同步移出 `package.json.files`；dry-run 不修改仓库）
 - locale：**397 keys × 19 dictionaries**（385 → 397，新增 12 个 key；`onboarding.title/body` 改写、`onboarding.docs` 指向文档站点）
 
-## 用户本地桌面验收（`.63`，2026-11-12，PASS）
+### 用户本地桌面验收（`.63`，2026-11-12，PASS）
 
 用户在真实桌面宿主安装 `0.4.0-beta.63` 后验收通过（2026-11-12），覆盖：
 
@@ -32,7 +55,7 @@
 
 这是用户本地验收记录，不替代 A+ / locale sweeps；自动化证据见下节。
 
-## 本轮隔离宿主证据（`.63`，2026-11-12，community）
+### 本轮隔离宿主证据（`.63`，2026-11-12，community）
 
 A+ 宿主：community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2` 隔离实例（新 test home `<temp>\<isolated-home>`，port <ephemeral>；安装包 `dsh-session-grove-0.4.0-beta.63.tgz`，安装版本 `0.4.0-beta.63`）。
 
