@@ -28,7 +28,6 @@
     "lib",
     "locale",
     "assets/icon-180.png",
-    "assets/qrcode-qq-group.jpg",
     "scripts/session-grove-control.mjs",
     "skills",
     "cordis.patch.yml",

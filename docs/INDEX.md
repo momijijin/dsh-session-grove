@@ -1,21 +1,25 @@
 # Documentation index
 
-## Current documentation
+## User documentation
+
+- [Illustrated guides](https://momijijin.github.io/dsh-session-grove-docs-site/) — installation and the 60-second start, groups, sessions, profiles, search, header status, settings/AI control, data and backups, FAQ and per-version update notes (Chinese). The in-app first-run hint/card and the plugin settings page link here; the README is a short landing page.
+
+## Maintainer documentation
 
 Use these for the current `0.4.0-beta.63` codebase (unreleased `dev` batch;
 the latest published release is `v0.4.0-beta.62`, 2026-11-11, two GitHub
 Release assets). `.62` shipped group archive, the second view-options tri-state
 and the recursive structural lock; `.63` adds the first-run funnel (entry hint
-+ action-first onboarding card) and four in-place hints:
++ action-first onboarding card), four in-place hints and the documentation-site
+entries, and trims the READMEs to a landing page:
 
-- [README](../README.md) — English default
-- [README.zh.md](../README.zh.md) — Chinese
+- [README](../README.md) — short landing page (English); [README.zh.md](../README.zh.md) — Chinese
 - [ARCHITECTURE.md](ARCHITECTURE.md) — layering, adapters, host/client boundaries, group archive
 - [COMPATIBILITY.md](COMPATIBILITY.md) — DSH version policy, capability detection, distribution
 - [I18N.md](I18N.md) — localized resources, resolution, aliases and language limits
 - [TEST-MATRIX.md](TEST-MATRIX.md) — **single source of truth** for tested surfaces, languages and evidence levels
 - [RELEASE.md](RELEASE.md) — release, install, update and verification
-- [TEST-RESULTS.md](TEST-RESULTS.md) — `.62` local run plus the dated `0.4.0-beta.13` historical snapshot (TEST-MATRIX is current status)
+- [TEST-RESULTS.md](TEST-RESULTS.md) — `.63` local run plus the dated `0.4.0-beta.13` historical snapshot (TEST-MATRIX is current status)
 - [MIGRATION-0.4.md](MIGRATION-0.4.md) — manual old-identity migration
 - [BACKLOG.md](BACKLOG.md) — deferred render/performance work
 

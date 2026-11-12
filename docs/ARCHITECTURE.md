@@ -4,8 +4,8 @@
 支持宿主：`@deepseek-ai/dsh` 0.2.1-rc.2 / 0.2.1-rc.5  
 已验证壳：社区版 DSH Desktop **Stable** 2.0.18（rc.2）；官方 DeepSeek Harness 桌面版 0.2.2.0（rc.1，隔离 A+）；0.2.1.0（rc.5）为 `.60` 历史验证（隔离 A+ + 桌面窗口验收）  
 明确不支持：社区版 DSH Desktop Beta、社区版 DSH NEXT（`-next`）  
-分发状态：`.60` 已上架 dshmarket；GitHub Release 附件与本地 beta tarball 仅维护者/调试路径。`.62` 是最近发布版本（分组归档 + 双三态 + 结构锁）；`.63` 是首次引导漏斗 + 就地提示的未发布 dev 批次。  
-测试基线（`.63` dev tree）：914/914 unit/contract、41/41 UI runtime（1 module-load + 40 component tests，18 components / 24 client modules）+ 1 browser spec；394 locale keys × 19 dictionaries。
+分发状态：`.60` 已上架 dshmarket；GitHub Release 附件与本地 beta tarball 仅维护者/调试路径。`.62` 是最近发布版本（分组归档 + 双三态 + 结构锁）；`.63` 是首次引导漏斗 + 就地提示 + 文档站点入口（入口提示、说明卡、设置页）的未发布 dev 批次，README 已瘦身为入口页。  
+测试基线（`.63` dev tree）：914/914 unit/contract、42/42 UI runtime（1 module-load + 41 component tests，19 components / 25 client modules）+ 1 browser spec；397 locale keys × 19 dictionaries。
 
 插件按洋葱圈分层，宿主升级时只改外圈。
 
