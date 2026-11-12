@@ -144,20 +144,20 @@ const dismissShippedOverlays = async () => {
   }
 }
 
-const closeGetStarted = async () => {
+const closeGetStarted = async (targetPage = page) => {
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const dialog = page.locator('[role="dialog"][aria-label="Get started"]')
+    const dialog = targetPage.locator('[role="dialog"][aria-label="Get started"]')
     if ((await dialog.count()) > 0) {
       const close = dialog.locator('button[aria-label="Close"]')
       if ((await close.count()) > 0) await close.first().click()
-      else await page.keyboard.press('Escape')
-      await page.waitForTimeout(400)
+      else await targetPage.keyboard.press('Escape')
+      await targetPage.waitForTimeout(400)
       if ((await dialog.count()) === 0) return true
-      await page.keyboard.press('Escape')
-      await page.waitForTimeout(300)
+      await targetPage.keyboard.press('Escape')
+      await targetPage.waitForTimeout(300)
       if ((await dialog.count()) === 0) return true
     }
-    await page.waitForTimeout(300)
+    await targetPage.waitForTimeout(300)
   }
   return false
 }
@@ -225,6 +225,425 @@ const readTestRegistry = () =>
 const groupSessionIds = (groupId) => {
   const doc = readTestDoc()
   return doc.groups.find((group) => group.id === groupId)?.sessionIds ?? []
+}
+
+// ---------------------------------------------------------------------------
+// Narrow-viewport floating-panel matrix (SPEC §4/§9.5, plan P8).
+//
+// Every header surface is a `position: fixed` panel placed by the shared
+// floating-panel controller, so each cell proves the four geometry invariants
+// against the real viewport: inside the 8px inset (I1), not clipped by a host
+// ancestor (I2: four hit tests 3px inside each edge), readable without
+// horizontal scrolling (I3) and above the bottom inset (I7). The tiers follow
+// the spec: all five surfaces (A), the two wide-coverage surfaces plus the
+// compact flags (B), focus / two-frame / box stability (C) and data-* only
+// flags (D); the RTL subset and the row context menu are appended.
+//
+// The isolated host may collapse its own sidebar into the 56px rail at narrow
+// window widths (spec §9.5). Each cell first tries to expand it; a failed
+// expansion skips the cell only when its key is listed in
+// HOST_RAIL_ALLOWLIST. A green matrix means 0 failures and `skipped` subset of
+// the allowlist - never that a skipped geometry passed.
+// ---------------------------------------------------------------------------
+const HOST_RAIL_ALLOWLIST = new Set(['264x960x600', '420x960x600', '264x823x514', '420x823x514'])
+const PANEL_VIEWPORT_PADDING_PX = 8
+const PANEL_PROBE_INSET_PX = 3
+const PANEL_PLACEMENTS = new Set(['inline-end', 'inline-start', 'flipped', 'clamped'])
+const NARROW_SURFACES = {
+  running: { trigger: 'session-groups-running-button', popover: 'session-groups-running-popover' },
+  blocked: { trigger: 'session-groups-blocked-button', popover: 'session-groups-blocked-popover' },
+  unread: { trigger: 'session-groups-unread-button', popover: 'session-groups-unread-popover' },
+  'view-options': { trigger: 'session-groups-view-options', popover: 'session-groups-view-options-popover' },
+  profile: { trigger: 'session-groups-profile-trigger', popover: 'session-groups-profile-popover' },
+}
+const ALL_NARROW_SURFACES = ['running', 'blocked', 'unread', 'view-options', 'profile']
+const TIER_A_VIEWPORTS = [
+  { width: 1440, height: 900 },
+  { width: 1152, height: 720 },
+  { width: 823, height: 514 },
+  { width: 1440, height: 480 },
+]
+const narrowCellKey = (width, viewport) => `${width}x${viewport.width}x${viewport.height}`
+const narrowViewportLabel = (viewport) => `${viewport.width}x${viewport.height}`
+const narrowMatrix = { passed: 0, skipped: new Set(), failures: [] }
+
+/** Wait for two animation frames so a layout-effect correction has landed. */
+const nextFrame = (targetPage) =>
+  targetPage.evaluate(
+    () =>
+      new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      })
+  )
+
+/** The plugin renders either the groups view or the 56px rail entry. */
+const waitForGroupsOrRail = async (targetPage) => {
+  await targetPage.waitForFunction(
+    () =>
+      document.querySelector('[data-testid="session-groups-view"]') !== null ||
+      document.querySelector('[data-testid="session-groups-rail"]') !== null,
+    null,
+    { timeout: 12_000 }
+  )
+}
+
+/**
+ * Persist a sidebar width preference and reload into the groups view.
+ *
+ * Mirrors the shipped narrow-layout gate: the preference is stored, the page
+ * reloads and the host applies the width. A reload that lands in the host rail
+ * shape returns without a groups view; the caller decides whether that cell is
+ * an allowlisted SKIP. Onboarding is dismissed when it is present, but the
+ * helper never waits for a dialog that is already gone.
+ */
+const setSidebarWidth = async (targetPage, width) => {
+  await targetPage.evaluate((value) => localStorage.setItem('dsh-session-grove.width.v1', String(value)), width)
+  await targetPage.reload({ waitUntil: 'domcontentloaded' })
+  await targetPage.waitForTimeout(1200)
+  if ((await targetPage.locator('[role="dialog"][aria-label="Get started"]').count()) > 0) {
+    await closeGetStarted(targetPage)
+  }
+  await waitForGroupsOrRail(targetPage)
+  const view = targetPage.locator('[data-testid="session-groups-view"]')
+  const rail = targetPage.locator('[data-testid="session-groups-rail"]')
+  if ((await view.count()) === 0 && (await rail.count()) === 0) {
+    // The workspace view can be the sticky mode across reloads.
+    const toggle = targetPage
+      .locator('[data-testid="session-groups-workspace-toggle"], [data-testid="session-groups-toggle"]')
+      .first()
+    if (await toggle.count()) await toggle.click()
+    await waitForGroupsOrRail(targetPage)
+  }
+  if ((await view.count()) === 0) return
+  await view.waitFor({ state: 'visible' })
+  const onboarding = targetPage.locator('[data-testid="session-groups-onboarding"]')
+  if ((await onboarding.count()) !== 0) {
+    await targetPage.locator('[data-testid="session-groups-onboarding-dismiss"]').click().catch(() => {})
+    await onboarding.waitFor({ state: 'detached' }).catch(() => {})
+  }
+  await waitForChrome(targetPage)
+}
+
+/** Wait until the measured root width reached the committed layout. */
+const waitForChrome = async (targetPage) => {
+  await targetPage.waitForFunction(
+    () => {
+      const root = document.querySelector('.dsg-root')
+      const width = Number(root?.getAttribute('data-width') ?? '0')
+      return Number.isFinite(width) && width > 0
+    },
+    null,
+    { timeout: 8000 }
+  )
+  await nextFrame(targetPage)
+}
+
+/** Wait for one of the additive flags written by the compact-state effect. */
+const waitForChromeFlag = async (targetPage, attribute, expected) => {
+  await targetPage.waitForFunction(
+    ({ attribute, expected }) => document.querySelector('.dsg-root')?.getAttribute(attribute) === expected,
+    { attribute, expected },
+    { timeout: 8000 }
+  )
+}
+
+/** Wait until the measured `.dsg-root` width is near the expected value. */
+const waitForRootWidth = async (targetPage, expected, tolerance = 8) => {
+  await targetPage.waitForFunction(
+    ({ expected, tolerance }) => {
+      const root = document.querySelector('.dsg-root')
+      const width = Number(root?.getAttribute('data-width') ?? '0')
+      return width > 0 && Math.abs(width - expected) <= tolerance
+    },
+    { expected, tolerance },
+    { timeout: 8000 }
+  )
+}
+
+const readChrome = async (targetPage) =>
+  targetPage.evaluate(() => {
+    const root = document.querySelector('.dsg-root')
+    return root
+      ? {
+          width: Number(root.getAttribute('data-width') ?? '0'),
+          narrow: root.getAttribute('data-narrow'),
+          collapsed: root.getAttribute('data-title-collapsed'),
+        }
+      : null
+  })
+
+const hasHeaderSurface = async (targetPage) =>
+  (await targetPage.locator(`[data-testid="${NARROW_SURFACES.blocked.trigger}"]`).count()) > 0
+
+/** Host controls that reopen a collapsed sidebar (English isolated host). */
+const HOST_OPEN_SIDEBAR_SELECTORS = [
+  'button[aria-label="Open sidebar"]',
+  'button[title="Open sidebar"]',
+  '[data-testid="session-groups-rail-expand"]',
+]
+
+/**
+ * Try to leave the host rail shape. Returns false when the header never
+ * renders, which is the only case a matrix cell may SKIP.
+ */
+const ensureHostSidebar = async (targetPage) => {
+  if (await hasHeaderSurface(targetPage)) return true
+  for (const selector of HOST_OPEN_SIDEBAR_SELECTORS) {
+    const opener = targetPage.locator(selector).first()
+    if ((await opener.count()) === 0) continue
+    await opener.click({ force: true }).catch(() => {})
+    await targetPage.waitForTimeout(800)
+    if (await hasHeaderSurface(targetPage)) return true
+  }
+  return false
+}
+
+/**
+ * Rail shape contract: no groups root and no header popover trigger at all.
+ * The plugin rail entry must still be there, so a boot failure is not silently
+ * accepted as a rail SKIP.
+ */
+const assertRailShape = async (targetPage) => {
+  const shape = await targetPage.evaluate(
+    (triggers) => ({
+      root: document.querySelector('.dsg-root') !== null,
+      rail: document.querySelector('[data-testid="session-groups-rail"]') !== null,
+      headerTriggers: triggers.filter((id) => document.querySelector(`[data-testid="${id}"]`) !== null),
+    }),
+    Object.values(NARROW_SURFACES).map((surface) => surface.trigger)
+  )
+  if (shape.root) throw new Error(`host rail shape kept the groups root: ${JSON.stringify(shape)}`)
+  if (!shape.rail) throw new Error(`host rail shape lost the plugin rail entry: ${JSON.stringify(shape)}`)
+  if (shape.headerTriggers.length > 0) {
+    throw new Error(`host rail shape exposed header popover triggers: ${JSON.stringify(shape.headerTriggers)}`)
+  }
+}
+
+/** Expanded host sidebar or an allowlisted rail SKIP for this cell. */
+const requireExpandedGroupsView = async (key, sidebarWidth = NaN) => {
+  if (!(await ensureHostSidebar(page))) {
+    await assertRailShape(page)
+    if (!HOST_RAIL_ALLOWLIST.has(key)) {
+      throw new Error(`host sidebar stayed collapsed outside HOST_RAIL_ALLOWLIST (${key})`)
+    }
+    narrowMatrix.skipped.add(key)
+    console.log(`SKIP(host-rail): ${key}`)
+    return false
+  }
+  if (Number.isFinite(sidebarWidth)) {
+    // Wait for the committed layout before the compact flags are trusted: the
+    // isolated host insets the plugin root by 12px, so `data-width` settles
+    // near `sidebarWidth - 12` after the width controller applied the track.
+    await waitForRootWidth(page, sidebarWidth - 12)
+    await nextFrame(page)
+  }
+  return true
+}
+
+const surfaceByName = (name) =>
+  NARROW_SURFACES[name] ??
+  Object.values(NARROW_SURFACES).find((surface) => surface.trigger === name || surface.popover === name) ??
+  null
+
+/** Click a trigger and wait for its popover. `name` may be the trigger testid. */
+const openSurface = async (targetPage, name) => {
+  const surface = surfaceByName(name)
+  if (!surface) throw new Error(`unknown floating surface: ${name}`)
+  await targetPage.locator(`[data-testid="${surface.trigger}"]`).first().click({ force: true })
+  const popover = targetPage.locator(`[data-testid="${surface.popover}"]`)
+  await popover.waitFor({ state: 'visible' })
+  // The placement effect writes the final style before paint; one frame pair
+  // after the panel is visible keeps assertions off the first-paint box.
+  await nextFrame(targetPage)
+  return popover
+}
+
+/** Escape closes every header surface; the panel unmounts. */
+const closeSurface = async (targetPage, name) => {
+  const surface = surfaceByName(name)
+  if (!surface) throw new Error(`unknown floating surface: ${name}`)
+  await targetPage.keyboard.press('Escape')
+  await targetPage.locator(`[data-testid="${surface.popover}"]`).waitFor({ state: 'detached' })
+}
+
+/** Rect, scroll box, placement and the four I2 corner probes of one panel. */
+const readPanel = async (targetPage, testid) =>
+  targetPage.evaluate(
+    ({ testid: panelTestId, inset }) => {
+      const panel = document.querySelector(`[data-testid="${panelTestId}"]`)
+      if (!panel) return null
+      const rect = panel.getBoundingClientRect()
+      const style = getComputedStyle(panel)
+      const hitsSelf = (x, y) => {
+        const node = document.elementFromPoint(x, y)
+        return node !== null && (node === panel || panel.contains(node))
+      }
+      return {
+        testid: panelTestId,
+        rect: {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        },
+        viewport: {
+          width: window.visualViewport?.width ?? window.innerWidth,
+          height: window.visualViewport?.height ?? window.innerHeight,
+        },
+        corners: {
+          topLeft: hitsSelf(rect.left + inset, rect.top + inset),
+          topRight: hitsSelf(rect.right - inset, rect.top + inset),
+          bottomLeft: hitsSelf(rect.left + inset, rect.bottom - inset),
+          bottomRight: hitsSelf(rect.right - inset, rect.bottom - inset),
+        },
+        scrollWidth: panel.scrollWidth,
+        clientWidth: panel.clientWidth,
+        scrollHeight: panel.scrollHeight,
+        clientHeight: panel.clientHeight,
+        overflowY: style.overflowY,
+        computedWidth: Number.parseFloat(style.width),
+        placement: panel.getAttribute('data-placement'),
+        fallback: panel.getAttribute('data-fallback'),
+      }
+    },
+    { testid, inset: PANEL_PROBE_INSET_PX }
+  )
+
+/**
+ * Assert I1/I2/I3/I7 plus the additive placement contract on one panel.
+ *
+ * `viewport` is the cell geometry, so a panel measured after a failed resize
+ * cannot accidentally pass against a different viewport. The normal path must
+ * not carry `data-fallback`; only a simulated host transform may produce it.
+ */
+const assertPanel = async (targetPage, testid, viewport, { requirePlacement = true } = {}) => {
+  const panel = await readPanel(targetPage, testid)
+  if (!panel) throw new Error(`${testid} is not mounted`)
+  const expected = viewport ?? panel.viewport
+  if (Math.abs(panel.viewport.width - expected.width) > 1 || Math.abs(panel.viewport.height - expected.height) > 1) {
+    throw new Error(
+      `${testid}: viewport ${JSON.stringify(panel.viewport)} does not match the cell ${JSON.stringify(expected)}`
+    )
+  }
+  const rect = panel.rect
+  const pad = PANEL_VIEWPORT_PADDING_PX
+  if (!(rect.left >= pad && rect.top >= pad && rect.right <= expected.width - pad && rect.bottom <= expected.height - pad)) {
+    throw new Error(
+      `${testid}: I1 rect ${JSON.stringify(rect)} leaves the ${pad}px viewport inset (viewport ${JSON.stringify(expected)})`
+    )
+  }
+  const missed = Object.entries(panel.corners)
+    .filter(([, hit]) => hit !== true)
+    .map(([corner]) => corner)
+  if (missed.length > 0) {
+    throw new Error(`${testid}: I2 hit test missed the panel at ${missed.join(', ')} (rect ${JSON.stringify(rect)})`)
+  }
+  if (!(panel.scrollWidth <= panel.clientWidth + 1)) {
+    throw new Error(`${testid}: I3 horizontal overflow ${panel.scrollWidth} > ${panel.clientWidth} + 1`)
+  }
+  if (!(rect.bottom <= expected.height - pad)) {
+    throw new Error(`${testid}: I7 bottom ${rect.bottom} > ${expected.height - pad} (viewport ${JSON.stringify(expected)})`)
+  }
+  if (requirePlacement && !PANEL_PLACEMENTS.has(panel.placement)) {
+    throw new Error(
+      `${testid}: data-placement ${JSON.stringify(panel.placement)} is not one of ${[...PANEL_PLACEMENTS].join('/')}`
+    )
+  }
+  if (panel.fallback !== null) {
+    throw new Error(`${testid}: the normal path must not record data-fallback (got ${panel.fallback})`)
+  }
+  return panel
+}
+
+/** Open, assert and close one surface, keeping the trigger rect for mirror checks. */
+const measureSurface = async (targetPage, name, viewport) => {
+  const surface = surfaceByName(name)
+  if (!surface) throw new Error(`unknown floating surface: ${name}`)
+  await openSurface(targetPage, name)
+  const panel = await assertPanel(targetPage, surface.popover, viewport)
+  const trigger = await targetPage.evaluate((testid) => {
+    const element = document.querySelector(`[data-testid="${testid}"]`)
+    const rect = element?.getBoundingClientRect()
+    return rect
+      ? { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height }
+      : null
+  }, surface.trigger)
+  await closeSurface(targetPage, name)
+  if (!trigger) throw new Error(`${surface.trigger} is not mounted`)
+  return { panel, trigger }
+}
+
+const resizeHandle = (targetPage) => targetPage.locator('[data-testid="session-groups-resize-handle"]').first()
+
+/**
+ * Reset the width through the handle's real double-click handler (264 -> 420).
+ *
+ * A synthetic `dblclick` is dispatched because the handle calls
+ * `preventDefault()` on pointerdown, which suppresses the compatibility
+ * mousedown/click/dblclick sequence a real double-click would need.
+ */
+const resetSidebarWidth = async (targetPage) => {
+  const handle = resizeHandle(targetPage)
+  await handle.waitFor({ state: 'visible' })
+  await handle.evaluate((element) => {
+    element.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
+  })
+  await targetPage.waitForFunction(
+    () => document.querySelector('[data-testid="session-groups-resize-handle"]')?.getAttribute('aria-valuenow') === '420',
+    null,
+    { timeout: 6000 }
+  )
+  await waitForChrome(targetPage)
+}
+
+/** Keyboard-resize the sidebar exactly to `target` (16px per arrow press). */
+const stepSidebarWidthTo = async (targetPage, target) => {
+  const handle = resizeHandle(targetPage)
+  await handle.focus()
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const current = Number(await handle.getAttribute('aria-valuenow'))
+    if (current === target) {
+      await waitForChrome(targetPage)
+      return
+    }
+    const expected = current > target ? Math.max(target, current - 16) : Math.min(target, current + 16)
+    await targetPage.keyboard.press(current > target ? 'ArrowLeft' : 'ArrowRight')
+    await targetPage.waitForFunction(
+      (value) =>
+        Number(document.querySelector('[data-testid="session-groups-resize-handle"]')?.getAttribute('aria-valuenow')) ===
+        value,
+      expected,
+      { timeout: 2000 }
+    )
+  }
+  throw new Error(`sidebar keyboard resize did not reach ${target}px`)
+}
+
+/** Run one matrix cell; failures are collected so every cell still reports. */
+const runNarrowCell = async (label, body) => {
+  try {
+    const outcome = await body()
+    if (outcome === 'skip') return
+    narrowMatrix.passed += 1
+    console.log(`PASS(narrow): ${label}`)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    narrowMatrix.failures.push({ label, message })
+    console.error(`FAIL(narrow): ${label}: ${message}`)
+    await page
+      .screenshot({
+        path: `${testHome}/narrow-failure-${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`,
+      })
+      .catch(() => {})
+  }
+}
+
+/** Set the viewport, persist the sidebar width and re-enter the groups view. */
+const prepareMatrixCell = async (targetPage, width, viewport) => {
+  await targetPage.setViewportSize({ width: viewport.width, height: viewport.height })
+  await setSidebarWidth(targetPage, width)
 }
 
 try {
@@ -674,6 +1093,400 @@ try {
   if ((await expand.count()) > 0) await page.evaluate(() => document.querySelector('[data-testid="session-groups-rail-expand"]')?.click())
   await page.waitForTimeout(800)
   await groupView.waitFor({ state: 'visible' })
+
+  // -------------------------------------------------------------------------
+  // Narrow-viewport floating-panel matrix (SPEC §4/§9.5, plan P8).
+  //
+  // Tier A: all five surfaces x sidebar {264,420} x viewport {1440x900,
+  // 1152x720 (125%), 823x514 (175%), 1440x480 (short)}; I1/I2/I3/I7 + one
+  // screenshot per surface. Tier B: blocked + view-options x {320,340,380} x
+  // {1440x900,1152x720} and x {264,420} x {1280x800,960x600,1280x400}, with
+  // the compact-state flags. Tier C: focus return, two-frame stability, exact
+  // outer width at {264,420}x1440x900, plus a 1440x480 short-viewport sub-cell
+  // that forces the view-options panel to overflow and scroll (A12). Tier D:
+  // data-* only at {280,300,360}x1440x900 plus the two live re-expands from 264.
+  // The menu cell seeds a >40-char group name before opening the row menu; the
+  // fixed i18n menu labels never reach the 360px cap in English, so the long
+  // user label also pins the row's single-line ellipsis + title contract.
+  // -------------------------------------------------------------------------
+  // Each matrix cell reloads the page, which boots the default light theme, so
+  // the screenshots below document the appearance users see out of the box;
+  // the theme gate's dark attribute is restored after the cleanup.
+  for (const width of [264, 420]) {
+    for (const viewport of TIER_A_VIEWPORTS) {
+      const key = narrowCellKey(width, viewport)
+      await runNarrowCell(`Tier A ${width}/${narrowViewportLabel(viewport)}`, async () => {
+        await prepareMatrixCell(page, width, viewport)
+        if (!(await requireExpandedGroupsView(key, width))) return 'skip'
+        await waitForChromeFlag(page, 'data-narrow', width === 264 ? 'true' : 'false')
+        for (const name of ALL_NARROW_SURFACES) {
+          const surface = NARROW_SURFACES[name]
+          await openSurface(page, name)
+          const panel = await assertPanel(page, surface.popover, viewport)
+          await page.screenshot({
+            path: `${testHome}/narrow-${width}-${narrowViewportLabel(viewport)}-${name}.png`,
+          })
+          await closeSurface(page, name)
+          console.log(
+            `narrow panel: ${width}/${narrowViewportLabel(viewport)} ${name} ` +
+              `${panel.placement} ${Math.round(panel.rect.width)}x${Math.round(panel.rect.height)}`
+          )
+        }
+      })
+    }
+  }
+
+  const tierBGrid = [
+    ...[320, 340, 380].flatMap((width) => [
+      { width, viewport: { width: 1440, height: 900 } },
+      { width, viewport: { width: 1152, height: 720 } },
+    ]),
+    ...[264, 420].flatMap((width) => [
+      { width, viewport: { width: 1280, height: 800 } },
+      { width, viewport: { width: 960, height: 600 } },
+      { width, viewport: { width: 1280, height: 400 } },
+    ]),
+  ]
+  for (const cell of tierBGrid) {
+    const key = narrowCellKey(cell.width, cell.viewport)
+    await runNarrowCell(`Tier B ${cell.width}/${narrowViewportLabel(cell.viewport)}`, async () => {
+      await prepareMatrixCell(page, cell.width, cell.viewport)
+      if (!(await requireExpandedGroupsView(key, cell.width))) return 'skip'
+      // 264 is already in the compact state; 320/340/380 are compact but keep
+      // the full label; 420 leaves the compact state entirely (spec §6.6).
+      await waitForChromeFlag(page, 'data-narrow', cell.width === 420 ? 'false' : 'true')
+      await waitForChromeFlag(page, 'data-title-collapsed', cell.width === 264 ? 'true' : 'false')
+      const chrome = await readChrome(page)
+      for (const name of ['blocked', 'view-options']) {
+        const surface = NARROW_SURFACES[name]
+        await openSurface(page, name)
+        await assertPanel(page, surface.popover, cell.viewport)
+        await page.screenshot({
+          path: `${testHome}/narrow-${cell.width}-${narrowViewportLabel(cell.viewport)}-${name}.png`,
+        })
+        await closeSurface(page, name)
+      }
+      console.log(`narrow chrome: ${key} ${JSON.stringify(chrome)}`)
+    })
+  }
+
+  for (const width of [264, 420]) {
+    const viewport = { width: 1440, height: 900 }
+    const key = narrowCellKey(width, viewport)
+    await runNarrowCell(`Tier C ${width}/${narrowViewportLabel(viewport)}`, async () => {
+      await prepareMatrixCell(page, width, viewport)
+      if (!(await requireExpandedGroupsView(key, width))) return 'skip'
+      for (const name of ALL_NARROW_SURFACES) {
+        const surface = NARROW_SURFACES[name]
+        await openSurface(page, name)
+        await assertPanel(page, surface.popover, viewport)
+        // I5: the layout effect may correct once before paint; two frame pairs
+        // after the panel is visible must report the same rect.
+        await nextFrame(page)
+        const first = await readPanel(page, surface.popover)
+        await nextFrame(page)
+        const second = await readPanel(page, surface.popover)
+        if (!first || !second) throw new Error(`${name}: panel disappeared during the two-frame check`)
+        for (const edge of ['left', 'top', 'right', 'bottom', 'width', 'height']) {
+          if (Math.abs(first.rect[edge] - second.rect[edge]) > 1) {
+            throw new Error(`${name}: I5 rect.${edge} moved ${first.rect[edge]} -> ${second.rect[edge]}`)
+          }
+        }
+        // A12: the outer box equals the computed border-box width, so a
+        // measured width can never grow by the panel's own padding/border.
+        if (!(first.rect.width === first.computedWidth)) {
+          throw new Error(`${name}: A12 outer width ${first.rect.width} != computed width ${first.computedWidth}`)
+        }
+        if (first.scrollHeight > first.clientHeight + 1 && !['auto', 'scroll'].includes(first.overflowY)) {
+          throw new Error(`${name}: overflowing panel is not scrollable (overflow-y: ${first.overflowY})`)
+        }
+        await closeSurface(page, name)
+        // I4/A13: Escape closes and returns focus to the trigger.
+        await page.waitForFunction(
+          (testid) => document.activeElement?.getAttribute?.('data-testid') === testid,
+          surface.trigger,
+          { timeout: 4000 }
+        )
+      }
+    })
+  }
+
+  // Tier C short-viewport sub-cell (SPEC §4 "短视口", A12). At 1440×480 the
+  // view-options trigger sits near y=225, so the panel's top lands near 242 and
+  // the controller caps it to the ~230px left above the 8px inset while its
+  // content is ~400px tall. That is the geometry where A12's overflow branch is
+  // reachable: the 1440×900 Tier C cells above fit their content, so the old
+  // conditional check there could never run. The panel must scroll internally
+  // instead of clipping, and a real scrollTop write must land above 0.
+  for (const width of [264, 420]) {
+    const viewport = { width: 1440, height: 480 }
+    const key = narrowCellKey(width, viewport)
+    await runNarrowCell(`Tier C short ${width}/${narrowViewportLabel(viewport)}`, async () => {
+      await prepareMatrixCell(page, width, viewport)
+      if (!(await requireExpandedGroupsView(key, width))) return 'skip'
+      const surface = NARROW_SURFACES['view-options']
+      await openSurface(page, 'view-options')
+      const panel = await assertPanel(page, surface.popover, viewport)
+      const scroll = await page.evaluate(
+        (testid) => {
+          const element = document.querySelector(`[data-testid="${testid}"]`)
+          const style = getComputedStyle(element)
+          const rect = element.getBoundingClientRect()
+          const before = element.scrollTop
+          element.scrollTop = 9999
+          return {
+            rect: { top: rect.top, height: rect.height },
+            scrollHeight: element.scrollHeight,
+            clientHeight: element.clientHeight,
+            overflowY: style.overflowY,
+            before,
+            after: element.scrollTop,
+          }
+        },
+        surface.popover
+      )
+      if (!(panel.rect.height < scroll.scrollHeight)) {
+        throw new Error(`A12: panel box ${panel.rect.height} is not shorter than its content ${scroll.scrollHeight}`)
+      }
+      if (!(scroll.scrollHeight > scroll.clientHeight + 1)) {
+        throw new Error(`A12: view-options does not overflow at 1440x480: ${JSON.stringify(scroll)}`)
+      }
+      if (!['auto', 'scroll'].includes(scroll.overflowY)) {
+        throw new Error(`A12: view-options is not scrollable at 1440x480: overflow-y ${scroll.overflowY}`)
+      }
+      if (!(scroll.after > 0)) {
+        throw new Error(`A12: view-options scrollTop stayed ${scroll.after} after writing 9999: ${JSON.stringify(scroll)}`)
+      }
+      await page.screenshot({ path: `${testHome}/narrow-${width}-1440x480-view-options-scroll.png` })
+      await closeSurface(page, 'view-options')
+      console.log(
+        `narrow A12 scroll: ${key} ${Math.round(scroll.scrollHeight)}>${Math.round(scroll.clientHeight)} ` +
+          `top=${Math.round(scroll.rect.top)} h=${Math.round(scroll.rect.height)} scrollTop=${Math.round(scroll.after)}`
+      )
+    })
+  }
+
+  for (const cell of [
+    { width: 280, collapsed: 'true' },
+    { width: 300, collapsed: 'true' },
+    { width: 360, collapsed: 'false' },
+  ]) {
+    const viewport = { width: 1440, height: 900 }
+    const key = narrowCellKey(cell.width, viewport)
+    await runNarrowCell(`Tier D ${key}`, async () => {
+      await prepareMatrixCell(page, cell.width, viewport)
+      if (!(await requireExpandedGroupsView(key, cell.width))) return 'skip'
+      await waitForChromeFlag(page, 'data-narrow', 'true')
+      await waitForChromeFlag(page, 'data-title-collapsed', cell.collapsed)
+      console.log(`narrow chrome: ${key} ${JSON.stringify(await readChrome(page))}`)
+    })
+  }
+  await runNarrowCell('Tier D re-expand 264/1440x900', async () => {
+    const viewport = { width: 1440, height: 900 }
+    const key = narrowCellKey(264, viewport)
+    await prepareMatrixCell(page, 264, viewport)
+    if (!(await requireExpandedGroupsView(key, 264))) return 'skip'
+    await waitForChromeFlag(page, 'data-narrow', 'true')
+    await waitForChromeFlag(page, 'data-title-collapsed', 'true')
+    // 264 -> 420 through the handle's reset path.
+    await resetSidebarWidth(page)
+    await waitForRootWidth(page, 408)
+    await waitForChromeFlag(page, 'data-title-collapsed', 'false')
+    // 420 -> 340 (keyboard) -> 420 (reset): the flag must not self-lock after
+    // the label was hidden once (spec §6.6 / A6).
+    await stepSidebarWidthTo(page, 340)
+    await waitForRootWidth(page, 328)
+    await waitForChromeFlag(page, 'data-narrow', 'true')
+    await waitForChromeFlag(page, 'data-title-collapsed', 'false')
+    await resetSidebarWidth(page)
+    await waitForRootWidth(page, 408)
+    await waitForChromeFlag(page, 'data-narrow', 'false')
+    await waitForChromeFlag(page, 'data-title-collapsed', 'false')
+  })
+
+  await runNarrowCell('RTL 264/1440x900', async () => {
+    const viewport = { width: 1440, height: 900 }
+    await prepareMatrixCell(page, 264, viewport)
+    if (!(await requireExpandedGroupsView(narrowCellKey(264, viewport), 264))) return 'skip'
+    const ltrProfile = await measureSurface(page, 'profile', viewport)
+    const ltrBlocked = await measureSurface(page, 'blocked', viewport)
+    // The hook resolves the direction from the panel's nearest `[dir]`
+    // ancestor, so flipping `.dsg-root` exercises the real RTL path.
+    await page.evaluate(() => document.querySelector('.dsg-root')?.setAttribute('dir', 'rtl'))
+    const rtlProfile = await measureSurface(page, 'profile', viewport)
+    const rtlBlocked = await measureSurface(page, 'blocked', viewport)
+    await openSurface(page, 'profile')
+    await page.screenshot({ path: `${testHome}/narrow-264-1440x900-rtl-profile.png` })
+    await closeSurface(page, 'profile')
+    await openSurface(page, 'blocked')
+    await page.screenshot({ path: `${testHome}/narrow-264-1440x900-rtl-blocked.png` })
+    await closeSurface(page, 'blocked')
+    // The profile panel is `inline-start`: LTR aligns its left edge to the
+    // trigger's left, RTL must mirror that to the trigger's right edge. The
+    // status panel is `inline-end`: in LTR the right edge overflows the
+    // viewport and flips to the trigger's left, while in RTL the logical end is
+    // already the physical left. Both tokens are recorded, not inferred.
+    if (ltrProfile.panel.placement !== 'inline-start' || rtlProfile.panel.placement !== 'inline-start') {
+      throw new Error(
+        `profile popover placement must stay inline-start on both directions: ` +
+          `LTR ${ltrProfile.panel.placement}, RTL ${rtlProfile.panel.placement}`
+      )
+    }
+    if (Math.abs(ltrProfile.panel.rect.left - ltrProfile.trigger.left) > 1) {
+      throw new Error(
+        `LTR profile popover is not aligned to the trigger's left edge: ` +
+          `${ltrProfile.panel.rect.left} vs ${ltrProfile.trigger.left}`
+      )
+    }
+    if (Math.abs(rtlProfile.panel.rect.right - rtlProfile.trigger.right) > 1) {
+      throw new Error(
+        `RTL profile popover is not mirrored to the trigger's right edge: ` +
+          `${rtlProfile.panel.rect.right} vs ${rtlProfile.trigger.right}`
+      )
+    }
+    if (ltrBlocked.panel.placement !== 'flipped') {
+      throw new Error(`LTR blocked popover placement ${ltrBlocked.panel.placement} != flipped`)
+    }
+    if (rtlBlocked.panel.placement !== 'inline-end') {
+      throw new Error(`RTL blocked popover placement ${rtlBlocked.panel.placement} != inline-end`)
+    }
+    console.log(
+      `narrow RTL: profile ${ltrProfile.panel.placement} ` +
+        `[${Math.round(ltrProfile.panel.rect.left)}..${Math.round(ltrProfile.panel.rect.right)}] -> ` +
+        `${rtlProfile.panel.placement} ` +
+        `[${Math.round(rtlProfile.panel.rect.left)}..${Math.round(rtlProfile.panel.rect.right)}], blocked ` +
+        `${ltrBlocked.panel.placement} -> ${rtlBlocked.panel.placement}`
+    )
+  })
+
+  await runNarrowCell('menu 264/800x600 long label', async () => {
+    const viewport = { width: 800, height: 600 }
+    await prepareMatrixCell(page, 264, viewport)
+    if (!(await requireExpandedGroupsView(narrowCellKey(264, viewport), 264))) return 'skip'
+    // Seed the one user-controlled label that wants more room than the menu
+    // allows: a group name far beyond 40 characters. The menu's own labels are
+    // fixed i18n strings, so this is what a row-anchored surface can stress.
+    const stamp = Date.now().toString(36).slice(-4)
+    const longName = `很长的分组名称用于验证菜单宽度上限与省略号行为，并留下充分的运行时截断证据——${stamp}`
+    if ([...longName].length < 40) throw new Error(`menu seed name is shorter than 40 chars: ${[...longName].length}`)
+    const longGroupId = await createGroup(longName)
+    const row = groupRowById(longGroupId)
+    await row.waitFor({ state: 'visible' })
+    const rowLabel = await row.evaluate((element) => {
+      const label = element.querySelector('.dsg-group-name')
+      const style = label ? getComputedStyle(label) : null
+      return label && style
+        ? {
+            text: (label.textContent ?? '').trim(),
+            title: element.getAttribute('title') ?? '',
+            scrollWidth: label.scrollWidth,
+            clientWidth: label.clientWidth,
+            overflow: style.overflow,
+            textOverflow: style.textOverflow,
+            whiteSpace: style.whiteSpace,
+          }
+        : null
+    })
+    if (!rowLabel) throw new Error('long group row has no .dsg-group-name label')
+    if (!rowLabel.title.includes(longName)) {
+      throw new Error(`long group row lost the full name in title: ${JSON.stringify(rowLabel)}`)
+    }
+    if (!(rowLabel.scrollWidth > rowLabel.clientWidth + 1)) {
+      throw new Error(`long group row label is not truncated: ${JSON.stringify(rowLabel)}`)
+    }
+    if (rowLabel.overflow !== 'hidden' || rowLabel.textOverflow !== 'ellipsis' || rowLabel.whiteSpace !== 'nowrap') {
+      throw new Error(`long group row label is not a single-line ellipsis: ${JSON.stringify(rowLabel)}`)
+    }
+
+    // The seeded row is appended at the end of the tree, so bring it into view
+    // before opening the menu: the menu closes on scroll, and a click-time
+    // auto-scroll would otherwise dismiss it right after mount.
+    await row.scrollIntoViewIfNeeded()
+    await page.waitForTimeout(400)
+    await row.click({ button: 'right', position: { x: 24, y: 12 } })
+    const menu = page.locator('[data-testid="session-groups-menu"]')
+    await menu.waitFor({ state: 'visible' })
+    await nextFrame(page)
+    const panel = await assertPanel(page, 'session-groups-menu', viewport, { requirePlacement: false })
+    const widthLimit = Math.min(360, viewport.width - PANEL_VIEWPORT_PADDING_PX * 2)
+    if (!(panel.rect.width <= widthLimit)) {
+      throw new Error(`menu width ${panel.rect.width} exceeds min(360, innerWidth-16)=${widthLimit}`)
+    }
+    const box = await page.evaluate((testid) => {
+      const element = document.querySelector(`[data-testid="${testid}"]`)
+      const style = getComputedStyle(element)
+      return {
+        boxSizing: style.boxSizing,
+        maxWidth: style.maxWidth,
+        overflowY: style.overflowY,
+        items: Array.from(element.querySelectorAll('[role="menuitem"]')).map((item) => {
+          const label = item.querySelector('.dsg-menu-item-label')
+          const labelStyle = label ? getComputedStyle(label) : null
+          return {
+            text: (label?.textContent ?? item.textContent ?? '').trim(),
+            title: item.getAttribute('title') ?? '',
+            labelScrollWidth: label ? label.scrollWidth : null,
+            labelClientWidth: label ? label.clientWidth : null,
+            minWidth: labelStyle?.minWidth ?? null,
+            overflow: labelStyle?.overflow ?? null,
+            textOverflow: labelStyle?.textOverflow ?? null,
+            whiteSpace: labelStyle?.whiteSpace ?? null,
+          }
+        }),
+      }
+    }, 'session-groups-menu')
+    if (box.boxSizing !== 'border-box') throw new Error(`menu box-sizing is ${box.boxSizing}, expected border-box`)
+    if (box.maxWidth !== `${widthLimit}px`) {
+      throw new Error(`menu computed max-width ${box.maxWidth} != ${widthLimit}px (A7 cap)`)
+    }
+    if (box.items.length === 0) throw new Error('menu rendered no items')
+    for (const item of box.items) {
+      if (!item.title) throw new Error(`menu item ${item.text} has no title`)
+      if (item.labelScrollWidth === null) throw new Error(`menu item ${item.text} has no .dsg-menu-item-label span`)
+      if (item.minWidth !== '0px' || item.overflow !== 'hidden' || item.textOverflow !== 'ellipsis' || item.whiteSpace !== 'nowrap') {
+        throw new Error(`menu item ${item.text} does not carry the single-line ellipsis rule: ${JSON.stringify(item)}`)
+      }
+    }
+    // A7's truncation path is only reachable when a label wants more than the
+    // cap; the English menu is content-sized well below it, so record the
+    // longest row instead of pretending it clipped. The long group row above
+    // proves the same single-line ellipsis + title contract with real overflow.
+    const widest = box.items.reduce((left, right) =>
+      left.labelScrollWidth >= right.labelScrollWidth ? left : right
+    )
+    await page.screenshot({ path: `${testHome}/narrow-264-800x600-menu-long-label.png` })
+    await page.keyboard.press('Escape')
+    await menu.waitFor({ state: 'hidden' })
+    console.log(
+      `narrow menu: 264/800x600 width=${Math.round(panel.rect.width)}<=${widthLimit} ` +
+        `${box.items.length} items, widest "${widest.text}" ${widest.labelScrollWidth}px, ` +
+        `row label ${rowLabel.scrollWidth}>${rowLabel.clientWidth}px`
+    )
+  })
+
+  // The later sections (the profile-preview geometry gate in particular) still
+  // assume the 1280x900 / 264px narrow layout from the gate above.
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await setSidebarWidth(page, 264)
+  if (!(await ensureHostSidebar(page))) throw new Error('narrow matrix cleanup could not restore the groups view')
+  await page.evaluate(() => document.body.setAttribute('data-ds-dark-theme', ''))
+
+  const unexpectedSkips = [...narrowMatrix.skipped].filter((key) => !HOST_RAIL_ALLOWLIST.has(key))
+  if (narrowMatrix.failures.length > 0 || unexpectedSkips.length > 0) {
+    throw new Error(
+      `narrow matrix: ${narrowMatrix.failures.length} failure(s), ${unexpectedSkips.length} unexpected skip(s): ` +
+        JSON.stringify({ failures: narrowMatrix.failures, unexpectedSkips })
+    )
+  }
+  if ([...HOST_RAIL_ALLOWLIST].every((key) => narrowMatrix.skipped.has(key))) {
+    console.log(
+      'SKIP(host-rail): 150%/175% 缩放在隔离宿主上因 rail 形态不可达，侧栏浮层在该形态下不存在；' +
+        '该维度由 1152×720（125% 等效）与 1440×480/1280×400（短视口）覆盖。'
+    )
+  }
+  console.log(
+    `narrow matrix: ${narrowMatrix.passed} pass, ${narrowMatrix.skipped.size} skip (allowlist), 0 failure`
+  )
 
   // Native-tool/HTTP commits are Host-side writes. The sidebar must invalidate
   // its local snapshot through the revision SSE stream instead of waiting for
@@ -1461,7 +2274,7 @@ try {
     await reconnectPage.close().catch(() => {})
   }
 
-  console.log('PASS: isolated onboarding, search, archive filter, drag auto-expand, group edges, dialog geometry, status buttons, head insertion, collapse/expand, 264px, dark, host rail, external SSE refresh, workspace round-trip refresh, rapid revision convergence, multi-window SSE, concurrent CAS, forced reconnect, profiles (save-as, preview, undo, rename/archive, dual-window active/409, scoped collapse, limit 20), preview geometry (SPEC §8.1), session actions, clipboard copy, search, first-layer settings, localized title, option details, live diagnostics HUD, switch interaction and destructive confirmation')
+  console.log('PASS: isolated onboarding, search, archive filter, drag auto-expand, group edges, dialog geometry, status buttons, head insertion, collapse/expand, 264px, narrow floating-panel matrix (Tier A/B/C/D, RTL subset, menu, host-rail allowlist), dark, host rail, external SSE refresh, workspace round-trip refresh, rapid revision convergence, multi-window SSE, concurrent CAS, forced reconnect, profiles (save-as, preview, undo, rename/archive, dual-window active/409, scoped collapse, limit 20), preview geometry (SPEC §8.1), session actions, clipboard copy, search, first-layer settings, localized title, option details, live diagnostics HUD, switch interaction and destructive confirmation')
 } catch (error) {
   await screenshot()
   console.error(`FAIL: ${error instanceof Error ? error.message : String(error)}`)
