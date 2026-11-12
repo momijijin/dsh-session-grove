@@ -6,9 +6,9 @@
 
 ## Maintainer documentation
 
-Use these for the current `0.4.0-beta.63` codebase (unreleased `dev` batch;
-the latest published release is `v0.4.0-beta.62`, 2026-11-11, two GitHub
-Release assets). `.62` shipped group archive, the second view-options tri-state
+Use these for the current `0.4.0-beta.63` codebase (released as
+`v0.4.0-beta.63`, 2026-11-12, two GitHub Release assets). `.62` shipped group
+archive, the second view-options tri-state
 and the recursive structural lock; `.63` adds the first-run funnel (entry hint
 + action-first onboarding card), four in-place hints and the documentation-site
 entries, and trims the READMEs to a landing page:

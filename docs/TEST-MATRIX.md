@@ -18,21 +18,23 @@ isolated DSH instance or run Playwright, so a release note cannot claim A+ or
 all-locales as an automated CI result.
 
 Counts in this file describe the current `dev` tree (`0.4.0-beta.63`,
-**unreleased**) unless a line says otherwise. The `.63` dev tree runs
-**914/914** unit/contract tests, 42/42 UI runtime cases (1 module-load + 41
-component tests, 19 components across 25 client modules) and 1 browser runtime
-spec, with **397 locale keys in 19 dictionaries** (385 → 397 in this batch:
-12 keys for the entry hint, in-place hints and the documentation-site entries;
-`onboarding.title` / `onboarding.body` were rewritten shorter). The `.63`
-`test:isolated` A+ C run passed on 2026-11-12 (community isolated host); the
-fresh-host browser spec and the locale sweeps were **not** run for `.63`. The
-`.62` four-command A+ C evidence below remains the latest complete sweep and
-applies to the `.62` tarball.
+**released as `v0.4.0-beta.63` on 2026-11-12**) unless a line says otherwise.
+The `.63` dev tree runs **914/914** unit/contract tests, 42/42 UI runtime cases
+(1 module-load + 41 component tests, 19 components across 25 client modules)
+and 1 browser runtime spec, with **397 locale keys in 19 dictionaries**
+(385 → 397 in this batch: 12 keys for the entry hint, in-place hints and the
+documentation-site entries; `onboarding.title` / `onboarding.body` were
+rewritten shorter). The `.63` community run passed `test:isolated`,
+`test:locale-pack` and `test:all-locales` on 2026-11-12; only the fresh-host
+browser spec (`test:ui-browser`) was **not** run for `.63`. The `.62`
+four-command A+ C evidence below remains the latest complete sweep and applies
+to the `.62` tarball.
 
-**`.63` community A+ C evidence (partial): `test:isolated` PASS (2026-11-12).**
+**`.63` community evidence (partial: `test:isolated` + locale sweeps PASS,
+2026-11-12).**
 The `.63` tarball (`dsh-session-grove-0.4.0-beta.63.tgz`, built from this tree)
 was exercised on a community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2`
-isolated host (new test home `%TEMP%\dsh-sg-e2e-20261112-103210`, port 4419):
+isolated host (new test home `%TEMP%\dsh-sg-e2e-20261112-114220`, port 4420):
 `npm run test:isolated` PASS (exit 0), including the first-run additions (entry
 hint copy + docs link + retirement on entering, onboarding title / docs-site
 link / dismiss and the reload non-reappearance) plus the full existing
@@ -41,10 +43,14 @@ collapse/264px/dark/host rail/external SSE/workspace round-trip/rapid revision/
 multi-window SSE/CAS/reconnect/profiles/limits/session actions/clipboard/
 settings/localized title/diagnostics/switch/destructive confirm; preview
 geometry dialog 560×560px, narrow sidebar 252px, body scroll 3659>466px, row
-gaps [0,0,0]). `test:ui-browser` (fresh host), `test:locale-pack` and
-`test:all-locales` were **not** run for `.63`, so no fresh-host browser PASS or
-locale sweep is claimed. The isolated web process was stopped; the test home was
-left in `%TEMP%`.
+gaps [0,0,0]). A second locale host (`%TEMP%\dsh-sg-e2e-20261112-114312`, port
+4421, with `e2e/fixtures/ja-locale-pack`) then passed `npm run test:locale-pack`
+(third-party `ja` pack; fixture expectation updated to the shortened
+`フリーグループ` onboarding title) and `npm run test:all-locales` **23/23** (19
+languages + aliases, 397 keys, including settings/config). `test:ui-browser`
+(fresh host) was **not** run for `.63`, so no fresh-host browser PASS is
+claimed. Both isolated web processes were stopped; the test homes were left in
+`%TEMP%`.
 
 **`.62` community A+ C evidence: PASS (2026-11-11).** The `.62` tarball
 (`dsh-session-grove-0.4.0-beta.62.tgz`, **829,055 bytes**, sha256
