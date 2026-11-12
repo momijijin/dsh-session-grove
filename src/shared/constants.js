@@ -1,7 +1,14 @@
 export const DOC_VERSION = 1
 
 /** Plugin version shipped in this build (also stamped into diagnostics traces). */
-export const PLUGIN_VERSION = '0.4.0-beta.62'
+export const PLUGIN_VERSION = '0.4.0-beta.63'
+
+/**
+ * Public illustrated documentation site. The one-time onboarding card, the
+ * workspace entry hint and the plugin settings card all link here; the plugin
+ * never bundles long-form docs itself.
+ */
+export const DOCS_SITE_URL = 'https://momijijin.github.io/dsh-session-grove-docs-site/'
 
 export const GROUP_ICONS = Object.freeze([
   'folder',

@@ -123,12 +123,14 @@ test('createTranslator follows the host locale snapshot active field', () => {
 test('createTranslator falls back to the document language when the host service is absent', () => {
   withDocumentLang('en-US', () => {
     const english = createTranslator(() => null)
-    assert.equal(english('onboarding.title'), 'Welcome to Free Groups')
+    assert.equal(english('onboarding.title'), 'Free Groups')
+    assert.equal(english('entry.primary'), 'Take a look')
     assert.equal(english('dialog.newGroup'), 'New group')
   })
   withDocumentLang('zh-CN', () => {
     const chinese = createTranslator(() => null)
-    assert.equal(chinese('onboarding.title'), '欢迎使用自由分组')
+    assert.equal(chinese('onboarding.title'), '自由分组')
+    assert.equal(chinese('entry.primary'), '进去看看')
   })
 })
 
@@ -229,5 +231,6 @@ test('a supported regional locale uses its base-language dictionary', () => {
 test('an unsupported host locale follows the English fallback instead of Chinese', () => {
   const unsupported = createTranslator(() => ({ active: 'xx-XX' }))
   assert.equal(unsupported('view.title'), 'Free Groups')
-  assert.equal(unsupported('onboarding.title'), 'Welcome to Free Groups')
+  assert.equal(unsupported('onboarding.title'), 'Free Groups')
+  assert.equal(unsupported('status.hint'), 'Running, waiting and unread are exclusive and exclude background jobs.')
 })

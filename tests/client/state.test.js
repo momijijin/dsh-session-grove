@@ -8,15 +8,18 @@ import {
 import {
   ARCHIVE_FILTER_KEY,
   COLLAPSED_KEY,
+  ENTRY_HINT_KEY,
   GROUP_ARCHIVE_FILTER_KEY,
   ONBOARDING_KEY,
   VIEW_MODE_KEY,
   createStore,
   readArchiveFilter,
+  readEntryHintDone,
   readGroupArchiveFilter,
   readOnboardingDone,
   readViewMode,
   writeArchiveFilter,
+  writeEntryHintDone,
   writeGroupArchiveFilter,
   writeOnboardingDone,
   writeViewMode,
@@ -158,6 +161,29 @@ test('onboarding dismissal persists once', () => {
   assert.equal(readOnboardingDone(storage), true)
   storage.setItem(ONBOARDING_KEY, 'broken')
   assert.equal(readOnboardingDone(storage), false)
+})
+
+test('entry-hint dismissal uses its own key and never blocks storage failures', () => {
+  assert.equal(ENTRY_HINT_KEY, 'dsh-session-grove.entry.v1')
+  assert.notEqual(ENTRY_HINT_KEY, ONBOARDING_KEY)
+  const storage = fakeStorage()
+  assert.equal(readEntryHintDone(storage), false)
+  writeEntryHintDone(storage)
+  assert.equal(storage.getItem(ENTRY_HINT_KEY), '1')
+  assert.equal(readEntryHintDone(storage), true)
+  // Entering the groups view (writeEntryHintDone from plugin-host) and the
+  // onboarding card dismissal stay independent.
+  assert.equal(readOnboardingDone(storage), false)
+  const blocked = {
+    getItem() {
+      throw new Error('blocked')
+    },
+    setItem() {
+      throw new Error('blocked')
+    },
+  }
+  assert.equal(readEntryHintDone(blocked), false)
+  assert.doesNotThrow(() => writeEntryHintDone(blocked))
 })
 
 test('reset-collapsed clears and persists the expansion defaults', () => {

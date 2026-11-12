@@ -79,6 +79,13 @@ export const createLocaleRuntime = ({ ctx, store }) => {
   return {
     t,
     getLocaleSnapshot,
+    localeId: () => {
+      try {
+        return resolveLocaleId(getLocaleSnapshot)
+      } catch {
+        return 'en'
+      }
+    },
     direction: () => {
       try {
         return directionForLocale(resolveLocaleId(getLocaleSnapshot))

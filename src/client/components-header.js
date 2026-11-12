@@ -112,6 +112,8 @@ const ArchiveFilterPopover = ({ filter, groupFilter, t, onPick, onPickGroup, onR
         )
       })
     ),
+    // 0.4.0-beta.63: one line that says what the two tri-states do not change.
+    h('div', { class: 'dsg-view-options-hint' }, t('archive.hint')),
     h('div', { class: 'dsg-view-options-divider' }),
     h(
       'button',
@@ -138,7 +140,12 @@ const ArchiveFilterPopover = ({ filter, groupFilter, t, onPick, onPickGroup, onR
     )
   )
 
-const OnboardingCard = ({ t, onCreate, onDismiss }) =>
+/**
+ * One-time onboarding card. 0.4.0-beta.63 keeps it action-first: one sentence
+ * about the non-destructive layer, then create / full guide / dismiss. The
+ * long-form reference lives in the repository README, not in the bundle.
+ */
+const OnboardingCard = ({ t, onCreate, onDismiss, docsHref }) =>
   h(
     'div',
     { class: 'dsg-onboarding', 'data-testid': 'session-groups-onboarding', role: 'note' },
@@ -148,6 +155,19 @@ const OnboardingCard = ({ t, onCreate, onDismiss }) =>
       'div',
       { class: 'dsg-onboarding-actions' },
       TextButton({ label: t('onboarding.create'), testId: 'session-groups-onboarding-create', onClick: onCreate }),
+      docsHref
+        ? h(
+            'a',
+            {
+              class: 'dsg-onboarding-docs',
+              'data-testid': 'session-groups-onboarding-docs',
+              href: docsHref,
+              target: '_blank',
+              rel: 'noreferrer noopener',
+            },
+            t('onboarding.docs')
+          )
+        : null,
       TextButton({ label: t('onboarding.dismiss'), testId: 'session-groups-onboarding-dismiss', onClick: onDismiss })
     )
   )
@@ -212,6 +232,8 @@ const StatusSessionsButton = ({
       ? h(
           'div',
           { class: 'dsg-running-popover', role: 'menu', 'data-testid': popoverTestId },
+          // 0.4.0-beta.63: the three counters are exclusive and job-free.
+          h('div', { class: 'dsg-status-hint' }, t('status.hint')),
           sections.length === 0
             ? h('div', { class: 'dsg-running-empty' }, emptyLabel)
             : sections.map((section, index) =>

@@ -1,38 +1,49 @@
-# 0.4.0-beta.62 本地测试结果（当前轮）
+# 0.4.0-beta.63 本地测试结果（当前轮）
 
-> `docs/TEST-MATRIX.md` 仍是当前可重复验证状态、语言覆盖与测试缺口的**真相源**；本文件记录 2026-11-11 本地候选树的实际执行结果，并保留 `0.4.0-beta.13` 历史快照（见文末）。`.62` 是未发布 dev 批次。
+> `docs/TEST-MATRIX.md` 仍是当前可重复验证状态、语言覆盖与测试缺口的**真相源**；本文件记录 2026-11-12 本地候选树的实际执行结果，并保留 `0.4.0-beta.13` 历史快照（见文末）。`.63` 已发布（`v0.4.0-beta.63`，2026-11-12）。
 
-日期：2026-11-11  
-版本：`0.4.0-beta.62`（dev，未发布；最近发布为 `0.4.0-beta.61`，2026-11-10）  
+日期：2026-11-12  
+版本：`0.4.0-beta.63`（已发布，2026-11-12；上一发布为 `0.4.0-beta.62`，2026-11-11）  
 宿主基线：`@deepseek-ai/dsh` 0.2.1-rc.2（community）/ 0.2.2-rc.1（official，`.61` A+ 证据；0.2.1-rc.5 为 `.60` 历史）  
-变更范围：分组归档 + 双三态 + 递归结构锁 + host 409 守卫 + 控制 `group.archive` + 归档确认“不再提示”复选框/还原图标 + 19 语言 385 keys + QQ 二维码资产替换
+变更范围：首次引导漏斗（入口一次性提示 + 动作化说明卡）+ 4 处就地提示 + 三处文档站点入口（入口提示 / 说明卡 / 设置页）+ README 瘦身为入口页（长文迁移到文档站点）+ 移除 QQ 群图片 + 19 语言 397 keys；无文档 schema 变更
 
-## 本轮自动门禁（2026-11-11，本地 Windows）
+## 本轮自动门禁（2026-11-12，本地 Windows）
 
-- `npm run check:style`：**PASS**
-- `npm test`：**907/907 PASS**（0 failed / 0 skipped）
-- `npm run build`：**PASS**（`lib/client.js` 实际 627,655 bytes；构建日志打印的 620,092 是字符数；17 个 lazy locale chunks 483,462 bytes；版本戳 `0.4.0-beta.62`）
+- `npm run check:style`：**PASS**（217 files）
+- `npm test`：**914/914 PASS**（0 failed / 0 skipped）
+- `npm run build`：**PASS**（`lib/client.js` 实际 642,180 bytes；构建日志打印的 634,341 是字符数；17 个 lazy locale chunks 497,865 bytes；版本戳 `0.4.0-beta.63`）
 - `npm run check:lib`：**PASS**
 - `node --check lib/client.js`：**PASS**
-- `npm run check:coverage`：**PASS**，all files **94.58% lines / 86.66% branches / 91.36% functions**（门禁 92/80/85；本次提交前最后实测；同批范围 94.53–94.58 / 86.58–86.66 / 91.22–91.36，属正常的每次运行波动）
-- `npm run check:ui`：**41/41 PASS**（1 module-load + 40 component tests，覆盖 18 components / 24 client modules）
-- `npm run check:release`：**PASS**（五处版本一致、release note 存在、bundle 版本戳、`package.json.files` 路径 26/26 存在）
-- `npm pack --dry-run`：**PASS**，**237 files**，package **829.1 kB**，unpacked **3.1 MB**（tarball `dsh-session-grove-0.4.0-beta.62.tgz`；合并批次新增了 feature 源码、ADR 与 release note，所以最终包大于 QR-only 估算的 704,553；dry-run 只记录实测 files/bytes，不把旧 QR-only 的 233/704,553 当硬断言；QR 净减 571,092 bytes 由两个资产的实际文件大小差证明）
-- locale：**385 keys × 19 dictionaries**（331 → 385，新增 54 个 key；13 个 CLDR 复数对象）
-- QR 资产：`assets/qrcode-qq-group.jpg` 480×855 真 JPEG、**40,272 bytes**、sha256 `A08F494F63D869389C1B70C31EEEBBF4426CC413E4587CCC4F6CF0083B8D003A`；旧 `assets/qrcode_1794236242994.jpg` 1284×2286 PNG 硬命名 `.jpg`、**611,364 bytes**；实际净减 **571,092 bytes**（−93.4%）。旧图已按用户授权走回收站删除（工作树记录 `D assets/qrcode_1794236242994.jpg`）；旧路径不再打包/引用。
+- `npm run check:coverage`：**PASS**，all files **95.20% lines / 86.02% branches / 91.31% functions**（门禁 92/80/85）
+- `npm run check:ui`：**42/42 PASS**（1 module-load + 41 component tests，覆盖 19 components / 25 client modules）
+- `npm run check:release`：**PASS**（五处版本一致、release note 存在、bundle 版本戳、`package.json.files` 路径 25/25 存在）
+- `npm pack --dry-run`：**PASS**，**238 files**，package **797.7 kB**，unpacked **3.1 MB**（tarball `dsh-session-grove-0.4.0-beta.63.tgz`；QQ 群图片已移出插件仓并同步移出 `package.json.files`；dry-run 不修改仓库）
+- locale：**397 keys × 19 dictionaries**（385 → 397，新增 12 个 key；`onboarding.title/body` 改写、`onboarding.docs` 指向文档站点）
 
-## 用户本地桌面验收（2026-11-11）
+## 用户本地桌面验收（`.63`，2026-11-12，PASS）
 
-用户在本地桌面宿主验收以下 UI 补丁项，均 **PASS**：
+用户在真实桌面宿主安装 `0.4.0-beta.63` 后验收通过（2026-11-12），覆盖：
 
-- 分组归档确认 checkbox（默认关闭的“不再提示”）
-- “恢复默认显示”（含清 skip：重置布局会清掉已持久化的 opt-out）
-- restore 图标（compact circular reset glyph / 候选 B）
-- 16px 徽标（group archived lock / contains-archived）
+- 官方工作区视图：首次启动时入口提示（圆点 + 小气泡）出现一次，气泡里有「使用文档」链接；点「进去看看」或直接点图标进入视图后不再出现；
+- 首次进入视图：空状态动作卡（新建分组 / 使用文档 / 知道了）与文案，链接打开文档站点；退出重开后说明卡不再出现；
+- 插件设置页：顶部「使用文档」卡片可打开文档站点（`https://momijijin.github.io/dsh-session-grove-docs-site/`）；
+- 视图选项里的归档说明、状态弹层三态说明、会话分叉与分组归档菜单的 hover 文案；
+- 264px 窄栏、深色主题与阿拉伯语 RTL 下入口气泡不越界。
 
-以上只覆盖这 4 个 UI 补丁项；自动化社区 A+ C 与 locale sweeps 见下节，用户桌面验收不替代 A+ 视觉检查。
+这是用户本地验收记录，不替代 A+ / locale sweeps；自动化证据见下节。
 
-## 本轮隔离宿主证据（2026-11-11，community）
+## 本轮隔离宿主证据（`.63`，2026-11-12，community）
+
+A+ 宿主：community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2` 隔离实例（新 test home `<temp>\<isolated-home>`，port <ephemeral>；安装包 `dsh-session-grove-0.4.0-beta.63.tgz`，安装版本 `0.4.0-beta.63`）。
+
+- `npm run test:isolated`：**PASS**（exit 0）。文档站点相关断言：入口提示的 docs 链接为 `https://momijijin.github.io/dsh-session-grove-docs-site/`；说明卡标题 "Free Groups"、docs 链接为同一文档站点、dismiss 为 "Got it"，dismiss 后重载不再出现。首次运行还覆盖入口提示英文标题、进视图后提示元素消失。其余既有全量路径保持 PASS（onboarding/search/archive filter/drag/dialog/status/head insertion/collapse/264px/dark/host rail/external SSE/workspace round-trip/rapid revision/multi-window SSE/CAS/reconnect/profiles/limits/session actions/clipboard/settings/localized title/diagnostics/switch/destructive confirm）。preview geometry：dialog 560×560px、narrow sidebar 252px、body scroll 3659>466px、row gaps [0,0,0]。隔离 web 进程已停止；test home 未删除（按删除纪律留给用户）。
+- `npm run test:locale-pack`：**PASS**。third-party `ja` locale pack 激活日文 onboarding/dialog 文案；本轮把 fixture 的日文 onboarding 标题期望更新为缩短后的「フリーグループ」（locale 宿主 test home `<temp>\<isolated-home>`，port <ephemeral>）。
+- `npm run test:all-locales`：**PASS 23/23**。19 languages + aliases：`en/zh/zh-Hant/zh-TW/zh-HK/zh-CN/ja/ko/de/fr/es/pt/pt-BR/it/nl/pl/tr/vi/th/id/ru/hi/ar`；含 settings/config；397 keys；VISUAL ru/hi/ar root 252px、header 4px、scroll 124/57/96。
+- **未运行**：`test:ui-browser`（需要 fresh 隔离宿主，本轮未起第二个）；不得写成 `.63` 的 fresh-host browser PASS。`.62` 历史证据见下节。
+
+## 历史隔离宿主证据（`.62`，2026-11-11，community）
+
+`.63` 的 `test:ui-browser` **未运行**；`test:isolated` 与 locale sweeps 见上节。下列四项是 `.62` tarball 的历史 PASS，只作为基线参考，不能写成 `.63` 证据。
 
 宿主：community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2` 隔离实例。被测包：`.62` tarball `dsh-session-grove-0.4.0-beta.62.tgz`，**829,055 bytes**，sha256 `47DFB392…11B34`（用户提供的截断摘要）。以下四项均为 **PASS**（exit 0）：
 
