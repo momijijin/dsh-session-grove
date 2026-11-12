@@ -102,6 +102,11 @@ export const CSS = `
   white-space: nowrap;
 }
 .dsg-header-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 0.4.0-beta.64 (spec §6.3/§6.6): in the tiny-sidebar compact state hide only
+ * the label text. The .dsg-header-title box stays in layout (it is the
+ * measurement source), and the profile chevron plus the title tooltip stay
+ * reachable. */
+[data-title-collapsed="true"] .dsg-header-label { display: none; }
 .dsg-header-actions { display: inline-flex; align-items: center; gap: 4px; flex: none; }
 /* Status counters sit left of the view controls, with one empty 28px button of
  * separation to prevent accidental view switches. */
