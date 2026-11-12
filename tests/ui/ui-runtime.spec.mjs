@@ -443,7 +443,7 @@ test('MenuPopover renders a session menu with fork/archive/copy actions', async 
   const labels = flatten(tree).map((node) => node.props?.children).filter((child) => typeof child === 'string')
   assert.ok(labels.includes('T:session.fork'))
   assert.ok(labels.includes('T:session.copyId'))
-  const rename = flatten(tree).find((node) => node.props?.children === 'T:session.rename')
+  const rename = flatten(tree).find((node) => node.props?.class === 'dsg-menu-item' && textOf(node) === 'T:session.rename')
   rename.props.onClick({ stopPropagation() {} })
   assert.deepEqual(calls[0], ['closeMenu'])
   assert.deepEqual(calls[1], ['openRenameSession', 's1', 'Session'])
