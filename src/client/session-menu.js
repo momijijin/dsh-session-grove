@@ -6,7 +6,7 @@
  */
 import { createElement, useEffect, useLayoutEffect, useRef } from 'react'
 import { clientRuntime as rt } from '../adapters/client-runtime.js'
-import { clampMenuPosition } from '../core/menu-position.js'
+import { clampMenuPosition, menuBoxLimits } from '../core/menu-position.js'
 import { sessionNeighbors, siblingNeighbors } from '../core/tree.js'
 import { groupMenuLockReason, sessionMenuLockReason } from './groups-view-menu-handlers.js'
 import { groupArchiveMenuState, groupMoveStepReasonKey, deleteGroupActionReasonKey } from './groups-view-dialog-handlers.js'
@@ -73,20 +73,27 @@ export const MenuPopover = ({ store, handlers }) => {
   const menuRef = useRef(null)
   // Refine the estimated anchor with the real menu rect so a ~275px group menu
   // is clamped to the viewport instead of relying on a hard-coded 200px guess.
+  // 0.4.0-beta.64 also caps the box: `maxWidth` keeps a long label from pushing
+  // the menu past a narrow sidebar, and `maxHeight` keeps the 60vh design cap
+  // but never exceeds the space left below the final y.
   useLayoutEffect(() => {
     const node = menuRef.current
     if (!node || !menu) return
     const rect = node.getBoundingClientRect()
+    const viewport = { width: globalThis.innerWidth, height: globalThis.innerHeight }
     const next = clampMenuPosition({
       x: menu.anchorX ?? menu.x,
       y: menu.anchorY ?? menu.y,
       width: rect.width,
       height: rect.height,
-      viewportWidth: globalThis.innerWidth,
-      viewportHeight: globalThis.innerHeight,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
     })
+    const limits = menuBoxLimits({ viewport, top: next.y })
+    const designCap = Math.round((Number.isFinite(viewport.height) ? viewport.height : 0) * 0.6)
     node.style.left = `${next.x}px`
     node.style.top = `${next.y}px`
+    node.style.maxHeight = `${Math.min(designCap, limits.maxHeight)}px`
   }, [menu])
   // Focus the first item when the menu opens; when it closes (Escape, outside,
   // scroll, resize or an action) focus returns to the originating row.
@@ -101,10 +108,15 @@ export const MenuPopover = ({ store, handlers }) => {
   }, [menu])
   if (!menu) return null
   const t = rt()?.t
+  const limits = menuBoxLimits({ viewport: { width: globalThis.innerWidth, height: globalThis.innerHeight } })
   /**
    * One menu entry. `disabledReason` renders a focusable `aria-disabled` row with
    * the reason in `title`/`aria-label`; clicking it reports the reason instead of
    * running the action (§5.3: never silently hide a necessarily-illegal entry).
+   * The visible text is wrapped in `.dsg-menu-item-label` so a long label
+   * ellipsizes in one line instead of wrapping and changing the menu height;
+   * every row still carries the full copy in `title` (a hint wins, otherwise the
+   * label itself, and a locked row keeps its disabled reason).
    */
   const item = (key, label, onClick, extra = {}) => {
     const { disabledReason = null, ...rest } = extra
@@ -118,7 +130,7 @@ export const MenuPopover = ({ store, handlers }) => {
         class: 'dsg-menu-item',
         'data-disabled': unavailable ? 'true' : 'false',
         ...(disabledReason === null
-          ? {}
+          ? { title: rest.title ?? label }
           : { 'aria-disabled': 'true', title: disabledReason, 'aria-label': `${label} — ${disabledReason}` }),
         onClick: (event) => {
           event.stopPropagation()
@@ -132,7 +144,7 @@ export const MenuPopover = ({ store, handlers }) => {
         },
         ...rest,
       },
-      label
+      h('span', { class: 'dsg-menu-item-label' }, label)
     )
   }
   const groupLockedExtra = (action) => {
@@ -262,7 +274,7 @@ export const MenuPopover = ({ store, handlers }) => {
       'data-testid': 'session-groups-menu',
       'data-menu-kind': menu.kind,
       'data-source-id': menu.kind === 'group' ? menu.groupId : menu.sessionId,
-      style: { left: `${menu.x}px`, top: `${menu.y}px` },
+      style: { left: `${menu.x}px`, top: `${menu.y}px`, maxWidth: `${limits.width}px` },
       onClick: (event) => event.stopPropagation(),
       onKeyDown: onMenuKeyDown,
     },

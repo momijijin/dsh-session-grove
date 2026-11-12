@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { clampMenuPosition, isMenuKey, menuAnchorFromEvent, menuAnchorFromRow } from '../../src/core/menu-position.js'
+import { clampMenuPosition, isMenuKey, menuAnchorFromEvent, menuAnchorFromRow, menuBoxLimits } from '../../src/core/menu-position.js'
 
 const viewport = { width: 500, height: 400 }
 const row = { getBoundingClientRect: () => ({ left: 30, bottom: 90 }) }
@@ -35,4 +35,19 @@ test('Shift+F10 and ContextMenu are the only keyboard menu keys', () => {
   assert.equal(isMenuKey({ key: 'ContextMenu' }), true)
   assert.equal(isMenuKey({ key: 'F10' }), false)
   assert.equal(isMenuKey({ key: 'Enter' }), false)
+})
+
+test('menuBoxLimits caps the menu width to the viewport and the height below top', () => {
+  // 264px sidebar: 264 - 2*8 = 248 outer width (the 360px design cap does not fit).
+  assert.deepEqual(menuBoxLimits({ viewport: { width: 264, height: 700 } }), { width: 248, maxHeight: 684 })
+  // 480px-tall viewport with the menu at y=400 leaves 480 - 8 - 400 = 72px.
+  assert.deepEqual(menuBoxLimits({ viewport: { width: 800, height: 480 }, top: 400 }), { width: 360, maxHeight: 72 })
+  // A non-finite / missing top falls back to the viewport padding.
+  assert.deepEqual(menuBoxLimits({ viewport: { width: 800, height: 480 }, top: Number.NaN }), { width: 360, maxHeight: 464 })
+  assert.deepEqual(menuBoxLimits({ viewport: { width: 800, height: 480 } }), { width: 360, maxHeight: 464 })
+  // The caller can lower the design cap (narrower menus on a wide viewport).
+  assert.equal(menuBoxLimits({ viewport: { width: 800, height: 480 }, maxWidth: 180 }).width, 180)
+  // Missing or non-finite viewports collapse to a zero box, like the rest of the module.
+  assert.deepEqual(menuBoxLimits(), { width: 0, maxHeight: 0 })
+  assert.deepEqual(menuBoxLimits({ viewport: { width: Number.NaN, height: Number.NaN } }), { width: 0, maxHeight: 0 })
 })

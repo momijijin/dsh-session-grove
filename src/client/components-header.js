@@ -14,6 +14,7 @@ import { isArchived, sessionTitle, ARCHIVE_FILTERS, ARCHIVE_FILTER_LABEL_KEYS } 
 import { diagRender } from './diagnostics.js'
 import { renderGlyph, renderIcon } from './icons.js'
 import { perfRender } from './perf.js'
+import { useFloatingPanel } from './floating-panel.js'
 
 import { SearchBox } from './components-search-box.js'
 import { dispatch, IconButton, SessionStatusCell, TextButton } from './components-primitives.js'
@@ -40,11 +41,30 @@ const ARCHIVE_SECTION_LABEL_KEYS = Object.freeze({
   groups: 'archive.section.groups',
 })
 
-const ArchiveFilterPopover = ({ filter, groupFilter, t, onPick, onPickGroup, onResetLayout }) =>
-  h(
+/**
+ * 0.4.0-beta.64: content-sized 200-360px panel mounted through the shared
+ * floating-panel controller; single-line labels carry `title` (spec
+ * §6.2/§6.3/§6.4).
+ */
+const ArchiveFilterPopover = ({ filter, groupFilter, t, onPick, onPickGroup, onResetLayout, triggerRef }) => {
+  // Header only mounts this panel while the menu is open, so `open` is constant
+  // here; the shared controller still owns placement, the measured content width
+  // (200-360px, spec §6.4) and `data-placement`.
+  const panel = useFloatingPanel({
+    open: true,
+    triggerRef,
+    align: 'inline-end',
+    designWidth: 360,
+    designHeight: Math.min(420, Math.round((globalThis.innerHeight || 0) * 0.7)),
+    fixedWidth: false,
+  })
+  return h(
     'div',
     {
       class: 'dsg-view-options-popover',
+      ref: panel.ref,
+      style: panel.style,
+      'data-placement': panel.placement,
       role: 'menu',
       'data-testid': 'session-groups-view-options-popover',
       'aria-label': t('view.options'),
@@ -60,6 +80,7 @@ const ArchiveFilterPopover = ({ filter, groupFilter, t, onPick, onPickGroup, onR
       h('div', { class: 'dsg-view-options-section-title' }, t(ARCHIVE_SECTION_LABEL_KEYS.sessions)),
       ...ARCHIVE_FILTERS.map((value) => {
         const active = value === filter
+        const label = t(ARCHIVE_FILTER_LABEL_KEYS[value])
         return h(
           'button',
           {
@@ -76,7 +97,7 @@ const ArchiveFilterPopover = ({ filter, groupFilter, t, onPick, onPickGroup, onR
               onPick(value)
             },
           },
-          h('span', { class: 'dsg-view-option-label' }, t(ARCHIVE_FILTER_LABEL_KEYS[value])),
+          h('span', { class: 'dsg-view-option-label', title: label }, label),
           h('span', { class: 'dsg-view-option-check', 'aria-hidden': 'true' }, active ? renderGlyph(h, 'check', 16) : null)
         )
       })
@@ -91,6 +112,7 @@ const ArchiveFilterPopover = ({ filter, groupFilter, t, onPick, onPickGroup, onR
       h('div', { class: 'dsg-view-options-section-title' }, t(ARCHIVE_SECTION_LABEL_KEYS.groups)),
       ...ARCHIVE_FILTERS.map((value) => {
         const active = value === groupFilter
+        const label = t(GROUP_ARCHIVE_FILTER_LABEL_KEYS[value])
         return h(
           'button',
           {
@@ -107,7 +129,7 @@ const ArchiveFilterPopover = ({ filter, groupFilter, t, onPick, onPickGroup, onR
               onPickGroup(value)
             },
           },
-          h('span', { class: 'dsg-view-option-label' }, t(GROUP_ARCHIVE_FILTER_LABEL_KEYS[value])),
+          h('span', { class: 'dsg-view-option-label', title: label }, label),
           h('span', { class: 'dsg-view-option-check', 'aria-hidden': 'true' }, active ? renderGlyph(h, 'check', 16) : null)
         )
       })
@@ -127,7 +149,7 @@ const ArchiveFilterPopover = ({ filter, groupFilter, t, onPick, onPickGroup, onR
           onResetLayout()
         },
       },
-      h('span', { class: 'dsg-view-option-label' }, t('about.resetLayout')),
+      h('span', { class: 'dsg-view-option-label', title: t('about.resetLayout') }, t('about.resetLayout')),
       // 0.4.0-beta.62 UI patch: a return arrow ("restore defaults") instead of
       // the refresh/X-like glyph, so the row does not read as "reload".
       h('span', { class: 'dsg-view-option-check', 'aria-hidden': 'true' }, renderGlyph(h, 'restore', 16))
@@ -139,6 +161,7 @@ const ArchiveFilterPopover = ({ filter, groupFilter, t, onPick, onPickGroup, onR
       h('span', { class: 'dsg-view-options-scope' }, t('about.scope'))
     )
   )
+}
 
 /**
  * One-time onboarding card. 0.4.0-beta.63 keeps it action-first: one sentence
@@ -187,12 +210,31 @@ const StatusSessionsButton = ({
 }) => {
   const t = rt()?.t ?? ((key) => key)
   const [open, setOpen] = useState(false)
-  const ref = useRef(null)
+  // The wrapper still owns the outside-pointerdown boundary; the button is the
+  // anchor of the shared floating panel (248px design box, spec §6.4).
+  const rootRef = useRef(null)
+  const triggerRef = useRef(null)
+  // I4/A13: closing (Escape, outside pointerdown, item pick, re-toggle) returns
+  // focus to the trigger. `wasOpen` keeps the first mount (open=false) inert, so
+  // the popover never steals focus when the header renders.
+  const wasOpen = useRef(false)
+  const panel = useFloatingPanel({
+    open,
+    triggerRef,
+    align: 'inline-end',
+    designWidth: 248,
+    designHeight: 320,
+    fixedWidth: true,
+  })
+  useEffect(() => {
+    if (wasOpen.current && !open) triggerRef.current?.focus?.({ preventScroll: true })
+    wasOpen.current = open
+  }, [open])
   useEffect(() => {
     if (!open) return undefined
     const doc = globalThis.document
     const onPointerDown = (event) => {
-      if (ref.current?.contains?.(event?.target)) return
+      if (rootRef.current?.contains?.(event?.target)) return
       setOpen(false)
     }
     const onKeyDown = (event) => {
@@ -208,10 +250,11 @@ const StatusSessionsButton = ({
 
   return h(
     'div',
-    { class: 'dsg-status-action-wrap', ref },
+    { class: 'dsg-status-action-wrap', ref: rootRef },
     h(
       'button',
       {
+        ref: triggerRef,
         type: 'button',
         class: 'dsg-status-action',
         'data-testid': testId,
@@ -231,33 +274,42 @@ const StatusSessionsButton = ({
     open
       ? h(
           'div',
-          { class: 'dsg-running-popover', role: 'menu', 'data-testid': popoverTestId },
+          {
+            class: 'dsg-running-popover',
+            ref: panel.ref,
+            style: panel.style,
+            'data-placement': panel.placement,
+            role: 'menu',
+            'data-testid': popoverTestId,
+          },
           // 0.4.0-beta.63: the three counters are exclusive and job-free.
           h('div', { class: 'dsg-status-hint' }, t('status.hint')),
           sections.length === 0
             ? h('div', { class: 'dsg-running-empty' }, emptyLabel)
-            : sections.map((section, index) =>
-                h(
+            : sections.map((section, index) => {
+                const groupLabel = section.groupId
+                  ? section.groupName || t('session.untitled')
+                  : t('running.group.ungrouped')
+                return h(
                   'div',
                   {
                     class: 'dsg-running-section',
                     key: section.groupId ?? `ungrouped-${index}`,
                     'data-group-id': section.groupId ?? '',
                   },
-                  h(
-                    'div',
-                    { class: 'dsg-running-group-label' },
-                    section.groupId
-                      ? section.groupName || t('session.untitled')
-                      : t('running.group.ungrouped')
-                  ),
-                  section.sessions.map((entry) =>
-                    h(
+                  h('div', { class: 'dsg-running-group-label', title: groupLabel }, groupLabel),
+                  section.sessions.map((entry) => {
+                    const itemTitle = sessionTitle(sessionsById?.[entry.sessionId], {
+                      blankLabel: t('session.blank'),
+                      untitledLabel: t('session.untitled'),
+                    })
+                    return h(
                       'button',
                       {
                         type: 'button',
                         class: 'dsg-running-item',
                         key: entry.sessionId,
+                        title: itemTitle,
                         'data-testid': `${testId}-item`,
                         'data-session-id': entry.sessionId,
                         onClick: (event) => {
@@ -266,21 +318,14 @@ const StatusSessionsButton = ({
                           onSelect(entry.sessionId, entry.archived === true)
                         },
                       },
-                      h(
-                        'span',
-                        { class: 'dsg-running-item-title' },
-                        sessionTitle(sessionsById?.[entry.sessionId], {
-                          blankLabel: t('session.blank'),
-                          untitledLabel: t('session.untitled'),
-                        })
-                      ),
+                      h('span', { class: 'dsg-running-item-title' }, itemTitle),
                       entry.archived
                         ? h('span', { class: 'dsg-running-item-archived' }, t('session.archived'))
                         : null
                     )
-                  )
+                  })
                 )
-              )
+              })
         )
       : null
   )
@@ -299,6 +344,13 @@ const Header = ({ store, handlers, sessionsById, workspaces, archivedSessionIds,
   // view-options/search popovers and the profile menu stay mutually exclusive.
   const [profileOpen, setProfileOpen] = useState(false)
   const optionsRef = useRef(null)
+  // Anchor of the view-options panel; `optionsRef` keeps owning the outside
+  // pointerdown boundary of the wrapper.
+  const optionsTriggerRef = useRef(null)
+  // I4/A13: closing the view-options menu (Escape, outside pointerdown,
+  // re-toggle, reset layout) returns focus to the trigger; `wasOptionsOpen`
+  // keeps the first mount (optionsOpen=false) inert.
+  const wasOptionsOpen = useRef(false)
 
   // View-options popover: Escape or an outside pointerdown closes it.
   useEffect(() => {
@@ -317,6 +369,11 @@ const Header = ({ store, handlers, sessionsById, workspaces, archivedSessionIds,
       doc?.removeEventListener?.('pointerdown', onPointerDown, true)
       doc?.removeEventListener?.('keydown', onKeyDown, true)
     }
+  }, [optionsOpen])
+
+  useEffect(() => {
+    if (wasOptionsOpen.current && !optionsOpen) optionsTriggerRef.current?.focus?.({ preventScroll: true })
+    wasOptionsOpen.current = optionsOpen
   }, [optionsOpen])
 
   return h(
@@ -422,7 +479,10 @@ const Header = ({ store, handlers, sessionsById, workspaces, archivedSessionIds,
             testId: 'session-groups-view-options',
             expanded: optionsOpen,
             haspopup: 'menu',
-            data: { 'data-filter': filter, 'data-group-filter': groupFilter },
+            // createElement pulls `ref` out of the config object, so the trigger
+            // ref rides through `data` (same trick as `key` in ProfileRecovery);
+            // IconButton spreads it onto the button element.
+            data: { ref: optionsTriggerRef, 'data-filter': filter, 'data-group-filter': groupFilter },
             onClick: () => {
               setProfileOpen(false)
               setOptionsOpen((open) => !open)
@@ -433,6 +493,7 @@ const Header = ({ store, handlers, sessionsById, workspaces, archivedSessionIds,
                 filter,
                 groupFilter,
                 t,
+                triggerRef: optionsTriggerRef,
                 onPick: (value) => handlers.setArchiveFilter(value),
                 // §10: keep the popover open so the second tri-state can be set
                 // in the same visit; the menu closes on outside/Escape/re-toggle
