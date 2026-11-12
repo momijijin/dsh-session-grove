@@ -23,7 +23,14 @@ const makeHarness = ({ mode = 'workspace', synced = true, mounted = true } = {})
   const chrome = createWorkspaceChrome({
     getMode: () => mode,
     getLabel: () => 'Switch to groups',
-    getHint: () => ({ title: 'Free Groups is ready', body: 'body', primary: 'Take a look', dismiss: 'Dismiss' }),
+    getHint: () => ({
+      title: 'Free Groups is ready',
+      body: 'body',
+      primary: 'Take a look',
+      dismiss: 'Dismiss',
+      docsUrl: 'https://momijijin.github.io/dsh-session-grove-docs-site/',
+      docsLabel: 'Documentation',
+    }),
     onHintDismiss: () => {
       calls.dismissed += 1
     },
@@ -60,6 +67,8 @@ test('workspace chrome forwards the one-time entry hint to the toggle install', 
     body: 'body',
     primary: 'Take a look',
     dismiss: 'Dismiss',
+    docsUrl: 'https://momijijin.github.io/dsh-session-grove-docs-site/',
+    docsLabel: 'Documentation',
   })
   chrome.dispose()
 })

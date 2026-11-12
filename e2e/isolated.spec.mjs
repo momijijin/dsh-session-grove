@@ -255,6 +255,10 @@ try {
       if (entryTitle !== 'Free Groups is ready') {
         throw new Error(`English host rendered a non-English entry hint: ${entryTitle}`)
       }
+      const hintDocsHref = await page.locator('[data-testid="session-groups-workspace-entry-hint-docs"]').getAttribute('href')
+      if (hintDocsHref !== 'https://momijijin.github.io/dsh-session-grove-docs-site/') {
+        throw new Error(`entry hint docs link unexpected: ${hintDocsHref}`)
+      }
       await page.locator('[data-testid="session-groups-workspace-entry-hint-primary"]').click()
     } else {
       const toggle = page.locator('[data-testid="session-groups-workspace-toggle"], [data-testid="session-groups-toggle"]').first()
@@ -278,7 +282,7 @@ try {
     throw new Error(`English host rendered a non-English onboarding title: ${onboardingTitle}`)
   }
   const docsHref = await page.locator('[data-testid="session-groups-onboarding-docs"]').getAttribute('href')
-  if (!docsHref || !docsHref.endsWith('README.md')) {
+  if (docsHref !== 'https://momijijin.github.io/dsh-session-grove-docs-site/') {
     throw new Error(`onboarding docs link unexpected: ${docsHref}`)
   }
   const onboardingDismiss = (await page.locator('[data-testid="session-groups-onboarding-dismiss"]').innerText()).trim()

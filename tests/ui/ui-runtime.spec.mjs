@@ -52,6 +52,7 @@ const uiModules = [
   'components-resize-handle.js',
   'dialog-host.js',
   'session-menu.js',
+  'docs-card.js',
   'scroll-area.js',
   'group-list-picker.js',
   'groups-view-width.js',
@@ -65,7 +66,7 @@ const uiModules = [
 ]
 
 test('client UI modules execute under a test React peer', async () => {
-  assert.equal(uiModules.length, 24)
+  assert.equal(uiModules.length, 25)
   for (const file of uiModules) {
     const module = await import(new URL(`../../src/client/${file}`, import.meta.url))
     assert.ok(module && typeof module === 'object', `${file} did not load`)
@@ -99,6 +100,22 @@ test('OnboardingCard renders localized copy, docs link and create/dismiss', asyn
   byTestId(tree, 'session-groups-onboarding-create').props.onClick({ stopPropagation() {} })
   byTestId(tree, 'session-groups-onboarding-dismiss').props.onClick({ stopPropagation() {} })
   assert.deepEqual(calls, ['create', 'dismiss'])
+})
+
+test('DocsCard links the settings page to the documentation site', async () => {
+  installClientRuntime({ t: (key) => 'T:' + key })
+  const { DocsCard } = await import(new URL('../../src/client/docs-card.js', import.meta.url))
+  const { DOCS_SITE_URL } = await import(new URL('../../src/shared/constants.js', import.meta.url))
+  const tree = DocsCard()
+  assert.equal(tree.props.class, 'dsg-settings-docs')
+  assert.equal(tree.props['data-testid'], 'session-groups-settings-docs')
+  const link = byTestId(tree, 'session-groups-settings-docs-link')
+  assert.ok(link, 'docs link renders')
+  assert.equal(link.props.href, DOCS_SITE_URL)
+  assert.equal(link.props.target, '_blank')
+  assert.equal(link.props.rel, 'noreferrer noopener')
+  assert.equal(link.props.children, 'T:docs.open')
+  assert.match(flatten(tree).map((node) => node.props?.children).filter((child) => typeof child === 'string').join(' '), /T:docs\.title/)
 })
 
 test('Banner renders retry/dismiss wiring through the command runtime', async () => {
