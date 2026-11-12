@@ -214,6 +214,10 @@ const StatusSessionsButton = ({
   // anchor of the shared floating panel (248px design box, spec §6.4).
   const rootRef = useRef(null)
   const triggerRef = useRef(null)
+  // I4/A13: closing (Escape, outside pointerdown, item pick, re-toggle) returns
+  // focus to the trigger. `wasOpen` keeps the first mount (open=false) inert, so
+  // the popover never steals focus when the header renders.
+  const wasOpen = useRef(false)
   const panel = useFloatingPanel({
     open,
     triggerRef,
@@ -222,6 +226,10 @@ const StatusSessionsButton = ({
     designHeight: 320,
     fixedWidth: true,
   })
+  useEffect(() => {
+    if (wasOpen.current && !open) triggerRef.current?.focus?.({ preventScroll: true })
+    wasOpen.current = open
+  }, [open])
   useEffect(() => {
     if (!open) return undefined
     const doc = globalThis.document
@@ -339,6 +347,10 @@ const Header = ({ store, handlers, sessionsById, workspaces, archivedSessionIds,
   // Anchor of the view-options panel; `optionsRef` keeps owning the outside
   // pointerdown boundary of the wrapper.
   const optionsTriggerRef = useRef(null)
+  // I4/A13: closing the view-options menu (Escape, outside pointerdown,
+  // re-toggle, reset layout) returns focus to the trigger; `wasOptionsOpen`
+  // keeps the first mount (optionsOpen=false) inert.
+  const wasOptionsOpen = useRef(false)
 
   // View-options popover: Escape or an outside pointerdown closes it.
   useEffect(() => {
@@ -357,6 +369,11 @@ const Header = ({ store, handlers, sessionsById, workspaces, archivedSessionIds,
       doc?.removeEventListener?.('pointerdown', onPointerDown, true)
       doc?.removeEventListener?.('keydown', onKeyDown, true)
     }
+  }, [optionsOpen])
+
+  useEffect(() => {
+    if (wasOptionsOpen.current && !optionsOpen) optionsTriggerRef.current?.focus?.({ preventScroll: true })
+    wasOptionsOpen.current = optionsOpen
   }, [optionsOpen])
 
   return h(
