@@ -19,7 +19,10 @@ popovers, menus and the drag label), with narrow-width and RTL adaptation;
 e2e focus/positioning assertions) and pays down architecture debt
 (`plugin-host` / `dialog-host` splits, shared host atomic-write/file-lock,
 deduplicated `sessionContainer` / registry classifier / `MAX_PROFILES`, and an
-import-cycle guard). `.65` real-host evidence is pending (user fresh host):
+import-cycle guard). `.65` fresh-host evidence passed: `test:isolated` and
+`test:ui-browser` (agent debug run at the user's explicit request, two fresh
+homes; the first ui-browser attempt hit a host onboarding-dialog timing race and
+passed on retry; this is not a user desktop acceptance):
 
 - [README](../README.md) — short landing page (English); [README.zh.md](../README.zh.md) — Chinese
 - [ARCHITECTURE.md](ARCHITECTURE.md) — layering, adapters, host/client boundaries, group archive
