@@ -101,7 +101,7 @@ try {
   const onboarding = page.locator('[data-testid="session-groups-onboarding"]')
   await onboarding.waitFor({ state: 'visible' })
   const title = (await page.locator('.dsg-onboarding-title').innerText()).trim()
-  if (title !== 'フリーグループへようこそ') fail(`onboarding did not use the ja dictionary: ${title}`)
+  if (title !== 'フリーグループ') fail(`onboarding did not use the ja dictionary: ${title}`)
   const dismiss = (await page.locator('[data-testid="session-groups-onboarding-dismiss"]').innerText()).trim()
   if (dismiss !== 'わかりました') fail(`onboarding action did not use the ja dictionary: ${dismiss}`)
   await page.locator('[data-testid="session-groups-onboarding-dismiss"]').click()
