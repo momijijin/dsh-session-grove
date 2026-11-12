@@ -52,6 +52,7 @@ const uiModules = [
   'components-resize-handle.js',
   'dialog-host.js',
   'session-menu.js',
+  'docs-card.js',
   'scroll-area.js',
   'group-list-picker.js',
   'groups-view-width.js',
@@ -65,7 +66,7 @@ const uiModules = [
 ]
 
 test('client UI modules execute under a test React peer', async () => {
-  assert.equal(uiModules.length, 24)
+  assert.equal(uiModules.length, 25)
   for (const file of uiModules) {
     const module = await import(new URL(`../../src/client/${file}`, import.meta.url))
     assert.ok(module && typeof module === 'object', `${file} did not load`)
@@ -80,19 +81,41 @@ test('client UI modules execute under a test React peer', async () => {
 })
 
 
-test('OnboardingCard renders localized copy and invokes create/dismiss', async () => {
+test('OnboardingCard renders localized copy, docs link and create/dismiss', async () => {
   const { OnboardingCard } = await import(new URL('../../src/client/components-header.js', import.meta.url))
   const calls = []
   const tree = OnboardingCard({
     t: (key) => 'T:' + key,
     onCreate: () => calls.push('create'),
     onDismiss: () => calls.push('dismiss'),
+    docsHref: 'https://example.test/README.zh.md',
   })
   assert.equal(tree.props.class, 'dsg-onboarding')
   assert.match(flatten(tree).map((node) => node.props?.children).filter((child) => typeof child === 'string').join(' '), /T:onboarding\.title/)
+  const docs = byTestId(tree, 'session-groups-onboarding-docs')
+  assert.ok(docs, 'docs link renders')
+  assert.equal(docs.props.href, 'https://example.test/README.zh.md')
+  assert.equal(docs.props.target, '_blank')
+  assert.equal(docs.props.children, 'T:onboarding.docs')
   byTestId(tree, 'session-groups-onboarding-create').props.onClick({ stopPropagation() {} })
   byTestId(tree, 'session-groups-onboarding-dismiss').props.onClick({ stopPropagation() {} })
   assert.deepEqual(calls, ['create', 'dismiss'])
+})
+
+test('DocsCard links the settings page to the documentation site', async () => {
+  installClientRuntime({ t: (key) => 'T:' + key })
+  const { DocsCard } = await import(new URL('../../src/client/docs-card.js', import.meta.url))
+  const { DOCS_SITE_URL } = await import(new URL('../../src/shared/constants.js', import.meta.url))
+  const tree = DocsCard()
+  assert.equal(tree.props.class, 'dsg-settings-docs')
+  assert.equal(tree.props['data-testid'], 'session-groups-settings-docs')
+  const link = byTestId(tree, 'session-groups-settings-docs-link')
+  assert.ok(link, 'docs link renders')
+  assert.equal(link.props.href, DOCS_SITE_URL)
+  assert.equal(link.props.target, '_blank')
+  assert.equal(link.props.rel, 'noreferrer noopener')
+  assert.equal(link.props.children, 'T:docs.open')
+  assert.match(flatten(tree).map((node) => node.props?.children).filter((child) => typeof child === 'string').join(' '), /T:docs\.title/)
 })
 
 test('Banner renders retry/dismiss wiring through the command runtime', async () => {
@@ -373,6 +396,9 @@ test('ArchiveFilterPopover renders both tri-state segments with active checks', 
   const sections = childrenOf(popover).filter((child) => child?.props?.role === 'group')
   assert.equal(sections.length, 2)
   assert.deepEqual(sections.map((section) => section.props['aria-label']), ['T:archive.section.sessions', 'T:archive.section.groups'])
+  const filterHint = childrenOf(popover).find((child) => child?.props?.class === 'dsg-view-options-hint')
+  assert.ok(filterHint, 'view options carry the archive hint line')
+  assert.equal(filterHint.props.children, 'T:archive.hint')
   const checkOf = (row) => childrenOf(row).find((child) => child?.props?.class === 'dsg-view-option-check')
   assert.ok(checkOf(sessionRows[1]).props.children, 'active session row paints a check')
   assert.equal(checkOf(sessionRows[0]).props.children, null, 'inactive session row paints no check')

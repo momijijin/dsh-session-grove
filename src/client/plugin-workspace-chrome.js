@@ -4,10 +4,23 @@
  * Official workspace mode has no plugin slot in its header, so this controller
  * owns the overlay toggle next to the shipped search control plus the narrow
  * width-retry timer. The groups view disposes it automatically.
+ *
+ * 0.4.0-beta.63: it forwards the one-time entry hint (copy + dismissal
+ * callback) to the toggle install; `getHint` is read once at install time, and
+ * a `null` result means the user already dismissed it.
  */
 import { installWorkspaceToggle } from './workspace-toggle.js'
 
-export const createWorkspaceChrome = ({ getMode, getLabel, onToggle, syncSidebarWidth, isMounted, installToggle = installWorkspaceToggle }) => {
+export const createWorkspaceChrome = ({
+  getMode,
+  getLabel,
+  getHint = () => null,
+  onHintDismiss,
+  onToggle,
+  syncSidebarWidth,
+  isMounted,
+  installToggle = installWorkspaceToggle,
+}) => {
   let toggle = null
   let retryTimer = null
 
@@ -18,7 +31,9 @@ export const createWorkspaceChrome = ({ getMode, getLabel, onToggle, syncSidebar
         toggle = installToggle({
           doc: globalThis.document,
           label: getLabel(),
+          hint: getHint(),
           onToggle,
+          onHintDismiss,
         })
       } else {
         toggle.update()

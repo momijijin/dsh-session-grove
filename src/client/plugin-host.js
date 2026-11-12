@@ -41,7 +41,8 @@ import {
   writeSidebarWidth,
 } from './sidebar-width.js'
 import { clearDialogGeometries } from './dialog-geometry.js'
-import { readArchiveConfirmSkip, writeArchiveConfirmSkip } from './state/persistence.js'
+import { readArchiveConfirmSkip, writeArchiveConfirmSkip, readEntryHintDone, writeEntryHintDone } from './state/persistence.js'
+import { DOCS_SITE_URL } from '../shared/constants.js'
 
 /** Single sidebar slot taken over while the groups view is active. */
 export const VIEW_SLOT = 'sidebar.workspaces'
@@ -222,7 +223,24 @@ export const createHostIntegration = ({ ctx, store, t, documentSync, profiles, n
   workspaceChrome = createWorkspaceChrome({
     getMode: () => store?.getSnapshot().viewMode,
     getLabel: () => t('footer.toGroups'),
-    onToggle: () => toggleMode(),
+    // 0.4.0-beta.63: one-time entry hint. The copy is resolved at install time;
+    // a dismissed hint returns `null`, so the toggle renders without the dot.
+    getHint: () =>
+      readEntryHintDone()
+        ? null
+        : {
+            title: t('entry.title'),
+            body: t('entry.body'),
+            primary: t('entry.primary'),
+            dismiss: t('entry.dismiss'),
+            docsUrl: DOCS_SITE_URL,
+            docsLabel: t('docs.title'),
+          },
+    onHintDismiss: () => writeEntryHintDone(),
+    onToggle: () => {
+      writeEntryHintDone()
+      toggleMode()
+    },
     syncSidebarWidth,
     isMounted: () => mounted,
   })

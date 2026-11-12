@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.4.0-beta.63 (first-run guide + docs site, 2026-11-12)
+
+Unreleased `dev` batch. The latest published release is `0.4.0-beta.62` (2026-11-11; GitHub Release assets: `.tgz` + `SHA256SUMS`, two assets).
+
+### First-run funnel
+
+- Added a one-time entry hint on the workspace-header toggle: a dot badge plus a small anchored coach mark (plain DOM, like the toggle itself) that explains the non-destructive layer before the user has opened the groups view. Dismissal persists under the new key `dsh-session-grove.entry.v1`; entering the view through the toggle or the hint's primary action also retires it. The bubble anchors to the plugin's own fixed button (never host DOM), clamps to the viewport and positions in RTL.
+- The one-time onboarding card is now action-first: one sentence about the layer, then **new group**, **documentation** and **dismiss**. The long-form reference stays on the documentation site; the package bundles no onboarding prose beyond the localized one-liners.
+- The card is the genuine empty state: a truly empty tree renders it in place of the plain empty state; with data present it stays a compact note at the top. Archive-filter empty states keep their own copy and actions.
+
+### Documentation site entries
+
+- All three in-app entries link `https://momijijin.github.io/dsh-session-grove-docs-site/`: the entry-hint bubble gains a "documentation" link, the onboarding card's guide link points at the site, and the bundle-level settings page starts with a documentation card (`DocsCard`, a plain anchor, no host primitives) above the five switches.
+- The new `DOCS_SITE_URL` constant replaces the per-locale README base; the runtime `locale` getter is no longer needed for docs selection.
+- README.md / README.zh.md were reduced to a landing page (what the plugin is, install, quick start, feature summary, data/configuration summary, limitations, development, links); the long-form usage material now lives on the documentation site, and `docs/INDEX.md` splits "user documentation" (site) from "maintainer documentation" (repo). Release notes and small commit-level records stay in the repo for GitHub readers.
+- The QQ-group QR asset was removed from this repository (the asset lives in the documentation-site repo instead); `package.json.files`, both READMEs and the package no longer reference it.
+
+### In-place hints
+
+- View options: one muted line under the two archive tri-states explains that filters only change what is shown and that archiving a group locks its structure without archiving its sessions.
+- Status popovers: one line notes that running / waiting / unread are exclusive and exclude background jobs.
+- Session menu: the fork row carries a `title` describing the fork point and child placement; a locked row keeps its disabled reason instead.
+- Group menu: the archive row carries a `title` describing the structure lock and that sessions stay open; locked rows keep their own reason.
+
+### i18n and data
+
+- 385 → 397 keys in all 19 dictionaries: 12 new keys (`entry.title/body/primary/dismiss`, `onboarding.docs`, `archive.hint`, `group.archiveHint`, `status.hint`, `session.forkHint`, `docs.title/body/open`), a shorter `onboarding.title`/`onboarding.body`, and `onboarding.docs` repointed at the documentation site. Structural parity remains enforced by `npm test`.
+- No document schema change: `DOC_VERSION` stays 1, no new fields, no migration. The only new persisted value is the browser-local entry-hint key.
+
+### Verification
+
+- Unit/contract **914/914 PASS**; UI runtime **42/42 PASS** (1 module-load + 41 component tests, 19 components across 25 client modules); `check:style` **PASS**; build **PASS** (`lib/client.js` 642,180 bytes on disk — the build log's 634,341 is its character count — plus 17 lazy locale chunks 497,865 bytes, version stamp `0.4.0-beta.63`); `check:lib` **PASS**; `node --check lib/client.js` **PASS**; coverage **PASS 95.21% lines / 86.06% branches / 91.31% functions** (gates 92/80/85); `check:release` **PASS** (packaged paths 25/25); `npm pack --dry-run` **PASS** (**238 files**, package **796.2 kB**, unpacked **3.1 MB**).
+- Community isolated A+ C (partial): `test:isolated` **PASS** (exit 0) on 2026-11-12, community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2` isolated host (new test home, port 4419, `.63` tarball), including the entry-hint / onboarding docs-site assertions plus the full existing regression. `test:ui-browser` (fresh host) and the locale sweeps were **not** run for `.63`.
+- User desktop acceptance: pending; the checklist is recorded in [docs/TEST-RESULTS.md](docs/TEST-RESULTS.md).
+
 ## 0.4.0-beta.62 (group archive, 2026-11-11)
 
 Unreleased `dev` batch. The latest published release is `0.4.0-beta.61` (2026-11-10; GitHub Release assets: `.tgz` + `SHA256SUMS`, two assets).

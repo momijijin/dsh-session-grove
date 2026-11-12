@@ -27,6 +27,13 @@ export const ARCHIVE_CONFIRM_SKIP_KEY = 'dsh-session-grove.archive.confirm-skip.
 export const COLLAPSED_KEY = 'dsh-session-grove.collapsed.v1'
 /** localStorage key for the one-time groups-view onboarding card. */
 export const ONBOARDING_KEY = 'dsh-session-grove.onboarded.v1'
+/**
+ * localStorage key for the one-time workspace-header entry hint
+ * (0.4.0-beta.63). Separate from `ONBOARDING_KEY`: the hint fires before the
+ * user ever sees the groups view, so entering the view cannot count as having
+ * read the card.
+ */
+export const ENTRY_HINT_KEY = 'dsh-session-grove.entry.v1'
 
 /** Host default profile id (mirrors `src/host/constants.js` on the wire). */
 export const DEFAULT_PROFILE_ID = 'default'
@@ -197,6 +204,24 @@ export const readOnboardingDone = (storage = safeStorage()) => {
 export const writeOnboardingDone = (storage = safeStorage()) => {
   try {
     storage?.setItem(ONBOARDING_KEY, '1')
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Whether the one-time workspace-header entry hint was dismissed. */
+export const readEntryHintDone = (storage = safeStorage()) => {
+  try {
+    return storage?.getItem(ENTRY_HINT_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+/** Persist the entry-hint dismissal (clicking the toggle also counts). */
+export const writeEntryHintDone = (storage = safeStorage()) => {
+  try {
+    storage?.setItem(ENTRY_HINT_KEY, '1')
   } catch {
     /* ignore */
   }

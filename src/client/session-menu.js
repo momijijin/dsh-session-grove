@@ -190,6 +190,9 @@ export const MenuPopover = ({ store, handlers }) => {
     children.push(moveItem('move-up', t('group.moveUp'), 'session-groups-group-move-up', previous === null, -1))
     children.push(moveItem('move-down', t('group.moveDown'), 'session-groups-group-move-down', next === null, 1))
     children.push(h('div', { key: 'sep', class: 'dsg-menu-separator' }))
+    // 0.4.0-beta.63: the archive row explains the structure lock on hover; a
+    // locked row keeps its own disabled reason instead.
+    const archiveExtra = groupLockedExtra(ownArchived ? 'unarchive' : 'archive')
     children.push(
       item(
         ownArchived ? 'unarchive' : 'archive',
@@ -199,7 +202,8 @@ export const MenuPopover = ({ store, handlers }) => {
           'data-testid': ownArchived ? 'session-groups-group-unarchive' : 'session-groups-group-archive',
           'data-group-id': menu.groupId,
           'data-own-archived': ownArchived ? 'true' : 'false',
-          ...groupLockedExtra(ownArchived ? 'unarchive' : 'archive'),
+          ...archiveExtra,
+          ...(archiveExtra.disabledReason === undefined && !ownArchived ? { title: t('group.archiveHint') } : {}),
         }
       )
     )
@@ -215,7 +219,15 @@ export const MenuPopover = ({ store, handlers }) => {
   } else if (menu.kind === 'session') {
     children.push(item('rename', t('session.rename'), () => handlers.openRenameSession(menu.sessionId, menu.title)))
     if (menu.blank !== true && rt()?.capabilities.fork?.(menu.sessionId) === true) {
-      children.push(item('fork', t('session.fork'), () => handlers.forkSession(menu.sessionId), sessionLockedExtra('fork')))
+      // 0.4.0-beta.63: hover text explains where the fork point and placement
+      // come from; a locked row keeps its disabled reason instead.
+      const forkExtra = sessionLockedExtra('fork')
+      children.push(
+        item('fork', t('session.fork'), () => handlers.forkSession(menu.sessionId), {
+          ...forkExtra,
+          ...(forkExtra.disabledReason === undefined ? { title: t('session.forkHint') } : {}),
+        })
+      )
     }
     children.push(
       menu.archived
