@@ -42,6 +42,7 @@ import {
 } from './sidebar-width.js'
 import { clearDialogGeometries } from './dialog-geometry.js'
 import { readArchiveConfirmSkip, writeArchiveConfirmSkip, readEntryHintDone, writeEntryHintDone } from './state/persistence.js'
+import { DOCS_SITE_URL } from '../shared/constants.js'
 
 /** Single sidebar slot taken over while the groups view is active. */
 export const VIEW_SLOT = 'sidebar.workspaces'
@@ -232,6 +233,8 @@ export const createHostIntegration = ({ ctx, store, t, documentSync, profiles, n
             body: t('entry.body'),
             primary: t('entry.primary'),
             dismiss: t('entry.dismiss'),
+            docsUrl: DOCS_SITE_URL,
+            docsLabel: t('docs.title'),
           },
     onHintDismiss: () => writeEntryHintDone(),
     onToggle: () => {

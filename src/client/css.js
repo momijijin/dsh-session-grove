@@ -1036,6 +1036,14 @@ export const CSS = `
 .dsg-skill-repair-body { margin-top: 2px; font-size: var(--dsg-font-12, 12px); line-height: 18px; color: var(--dsw-alias-label-tertiary, CanvasText); }
 .dsg-skill-repair-result { flex-basis: 100%; font-size: var(--dsg-font-12, 12px); line-height: 18px; color: var(--dsw-alias-state-success, #3fb950); }
 .dsg-skill-repair-result[data-ok="false"] { color: var(--dsw-alias-state-danger, #f85149); }
+/* 0.4.0-beta.63: docs entry at the top of the bundle-level settings page. */
+.dsg-settings-docs { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 12px; padding: 12px 14px; border: 0.5px solid var(--dsw-alias-border-l3, color-mix(in srgb, CanvasText 20%, transparent)); border-radius: var(--dsw-radius-md, 8px); background: var(--dsw-alias-bg-layer-1, Canvas); }
+.dsg-settings-docs-copy { flex: 1; min-width: 200px; }
+.dsg-settings-docs-title { font-size: var(--dsg-font-14, 14px); line-height: 20px; font-weight: 600; color: var(--dsw-alias-label-primary, CanvasText); }
+.dsg-settings-docs-body { margin-top: 2px; font-size: var(--dsg-font-12, 12px); line-height: 18px; color: var(--dsw-alias-label-tertiary, CanvasText); }
+.dsg-settings-docs-link { display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border: 0.5px solid var(--dsw-alias-border-l3, rgba(128,128,128,.35)); border-radius: var(--dsw-radius-sm, 6px); color: var(--dsw-alias-label-secondary, CanvasText); font-size: var(--dsg-font-13, 13px); line-height: 20px; text-decoration: none; flex: none; }
+.dsg-settings-docs-link:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,.12)); color: var(--dsw-alias-label-primary, CanvasText); }
+.dsg-settings-docs-link:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, CanvasText); outline-offset: -2px; }
 .dsg-flat { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 0; flex: 1; padding: 2px 4px 8px 2px; }
 .dsg-flat-workspace { padding: 6px 6px 2px; font-size: var(--dsg-font-13, 13px); font-weight: 600; color: var(--dsw-alias-label-tertiary, CanvasText); }
 .dsg-nowrap { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

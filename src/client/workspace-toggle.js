@@ -20,6 +20,7 @@ const HINT_TEST_ID = 'session-groups-workspace-entry-hint'
 const HINT_DOT_TEST_ID = 'session-groups-workspace-entry-hint-dot'
 const HINT_PRIMARY_TEST_ID = 'session-groups-workspace-entry-hint-primary'
 const HINT_DISMISS_TEST_ID = 'session-groups-workspace-entry-hint-dismiss'
+const HINT_DOCS_TEST_ID = 'session-groups-workspace-entry-hint-docs'
 const STYLE_ATTR = 'data-dsg-workspace-toggle-style'
 
 const GRID_PATH =
@@ -41,6 +42,9 @@ const STYLES = [
   `.dsg-entry-hint-primary,.dsg-entry-hint-dismiss{appearance:none;border:0.5px solid var(--dsw-alias-border-l3,rgba(128,128,128,.35));background:transparent;color:var(--dsw-alias-label-secondary,CanvasText);border-radius:var(--dsw-radius-sm,6px);height:26px;padding:0 8px;font:inherit;font-size:var(--dsg-font-12,12px);line-height:18px;cursor:pointer;flex:none}`,
   `.dsg-entry-hint-primary:hover,.dsg-entry-hint-dismiss:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.12));color:var(--dsw-alias-label-primary,CanvasText)}`,
   `.dsg-entry-hint-primary:focus-visible,.dsg-entry-hint-dismiss:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,CanvasText);outline-offset:-2px}`,
+  `.dsg-entry-hint-docs{display:inline-flex;align-items:center;height:26px;padding:0 6px;border:0;background:transparent;color:var(--dsw-alias-state-business-primary,#4d6bfe);font-size:var(--dsg-font-12,12px);line-height:18px;text-decoration:none;flex:none;border-radius:var(--dsw-radius-sm,6px)}`,
+  `.dsg-entry-hint-docs:hover{text-decoration:underline}`,
+  `.dsg-entry-hint-docs:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,CanvasText);outline-offset:-2px}`,
 ].join('\n')
 
 /** Find the official section header without matching our `.dsg-header-*`. */
@@ -147,7 +151,22 @@ export const installWorkspaceToggle = ({ doc = globalThis.document, label = '', 
       schedule()
     })
 
+    // 0.4.0-beta.63: a permanent docs entry even from the first-run hint.
+    const docs = hint.docsUrl
+      ? doc.createElement('a')
+      : null
+    if (docs) {
+      docs.className = 'dsg-entry-hint-docs'
+      docs.setAttribute('data-testid', HINT_DOCS_TEST_ID)
+      docs.setAttribute('href', hint.docsUrl)
+      docs.setAttribute('target', '_blank')
+      docs.setAttribute('rel', 'noreferrer noopener')
+      docs.textContent = hint.docsLabel ?? ''
+      docs.addEventListener('click', (event) => event.stopPropagation())
+    }
+
     actions.appendChild(primary)
+    if (docs) actions.appendChild(docs)
     actions.appendChild(later)
     hintEl.appendChild(title)
     hintEl.appendChild(body)

@@ -26,7 +26,7 @@ import { diagContext, diagDragEnd, diagDragStart, diagDropState, diagEnabled, di
 import { GROUP_DRAG_MIME, groupHeaderZoneFromRect } from '../core/group-drag.js'
 import { perfDragOver, perfDropTarget, perfEnabled, perfMark, perfNow, perfRender, perfSample } from './perf.js'
 import { readOnboardingDone, writeOnboardingDone } from './state.js'
-import { DOCS_BASE_URL } from '../shared/constants.js'
+import { DOCS_SITE_URL } from '../shared/constants.js'
 import { SIDEBAR_WIDTH_MIN } from './sidebar-width.js'
 import { expandAncestors, isExpanded } from '../core/tree.js'
 import { GROUP_DROP_NOOP, useViewStore, usePerfCommit, dispatch, toast, TextButton, DropPlaceholder, GROUP_PLACEHOLDER_HEIGHT } from './components-primitives.js'
@@ -230,9 +230,9 @@ export const GroupsView = (props) => {
     handleWidthReset,
   } = useGroupsSidebarWidth({ wide, docState: store?.docState, rootRef })
   const t = rt()?.t ?? ((key) => key)
-  // 0.4.0-beta.63: the one-time card links to the repository README instead of
-  // bundling long-form docs. `zh*` hosts get the Chinese README.
-  const docsHref = `${DOCS_BASE_URL}${(rt()?.locale ?? 'en').startsWith('zh') ? 'README.zh.md' : 'README.md'}`
+  // 0.4.0-beta.63: the one-time card and the entry hint link to the illustrated
+  // documentation site instead of bundling long-form docs.
+  const docsHref = DOCS_SITE_URL
   const { clearSearchHit, revealSearchRow, selectSearchResult } = useGroupsSearchReveal({ rootRef, tree, store, t, virtualRef })
   const direction = rt()?.direction === 'rtl' ? 'rtl' : 'ltr'
   // Auto-expand ancestors of the current session when the view opens.
