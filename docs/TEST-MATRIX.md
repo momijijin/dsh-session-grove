@@ -1,6 +1,6 @@
 # Test Matrix
 
-Status: `0.4.0-beta.62`  
+Status: `0.4.0-beta.63`  
 This file is the single source of truth for **what has actually been verified**
 and at which level. Other docs should link here instead of restating counts.
 
@@ -10,19 +10,41 @@ Automated gates are `npm run check:style`, `npm run check:lib`, `npm test`,
 `npm run check:release` in the release workflow. Since the `.61` batch both
 workflows also run a production dependency audit
 (`npm audit --omit=dev --audit-level=high`) and the two third-party actions are
-pinned to immutable commit SHAs. `check:ui` is now 41 UI runtime cases (1
-module-load + 40 component tests, covering 18 components across 24 client
+pinned to immutable commit SHAs. `check:ui` is now 42 UI runtime cases (1
+module-load + 41 component tests, covering 19 components across 25 client
 modules) + 1 browser runtime spec, not full browser UI coverage. The A+ / LP
 rows below are manual local evidence: the release workflow does not start an
 isolated DSH instance or run Playwright, so a release note cannot claim A+ or
 all-locales as an automated CI result.
 
-Counts in this file describe the current `dev` tree (`0.4.0-beta.62`,
-**unreleased**) unless a line says otherwise. The `.62` dev tree runs
-**907/907** unit/contract tests, 41/41 UI runtime cases (1 module-load + 40
-component tests, 18 components across 24 client modules) and 1 browser runtime
-spec, with **385 locale keys in 19 dictionaries** (331 → 385 in this batch:
-54 keys added by the group-archive batch, including 2 new plural keys).
+Counts in this file describe the current `dev` tree (`0.4.0-beta.63`,
+**unreleased**) unless a line says otherwise. The `.63` dev tree runs
+**914/914** unit/contract tests, 42/42 UI runtime cases (1 module-load + 41
+component tests, 19 components across 25 client modules) and 1 browser runtime
+spec, with **397 locale keys in 19 dictionaries** (385 → 397 in this batch:
+12 keys for the entry hint, in-place hints and the documentation-site entries;
+`onboarding.title` / `onboarding.body` were rewritten shorter). The `.63`
+`test:isolated` A+ C run passed on 2026-11-12 (community isolated host); the
+fresh-host browser spec and the locale sweeps were **not** run for `.63`. The
+`.62` four-command A+ C evidence below remains the latest complete sweep and
+applies to the `.62` tarball.
+
+**`.63` community A+ C evidence (partial): `test:isolated` PASS (2026-11-12).**
+The `.63` tarball (`dsh-session-grove-0.4.0-beta.63.tgz`, built from this tree)
+was exercised on a community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2`
+isolated host (new test home `<temp>\<isolated-home>`, port <ephemeral>):
+`npm run test:isolated` PASS (exit 0), including the first-run additions (entry
+hint copy + docs link + retirement on entering, onboarding title / docs-site
+link / dismiss and the reload non-reappearance) plus the full existing
+regression (onboarding/search/archive filter/drag/dialog/status/head insertion/
+collapse/264px/dark/host rail/external SSE/workspace round-trip/rapid revision/
+multi-window SSE/CAS/reconnect/profiles/limits/session actions/clipboard/
+settings/localized title/diagnostics/switch/destructive confirm; preview
+geometry dialog 560×560px, narrow sidebar 252px, body scroll 3659>466px, row
+gaps [0,0,0]). `test:ui-browser` (fresh host), `test:locale-pack` and
+`test:all-locales` were **not** run for `.63`, so no fresh-host browser PASS or
+locale sweep is claimed. The isolated web process was stopped; the test home was
+left in `<temp>`.
 
 **`.62` community A+ C evidence: PASS (2026-11-11).** The `.62` tarball
 (`dsh-session-grove-0.4.0-beta.62.tgz`, **829,055 bytes**, sha256

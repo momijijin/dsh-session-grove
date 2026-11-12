@@ -3,10 +3,11 @@ import assert from 'node:assert/strict'
 import { createWorkspaceChrome } from '../../src/client/plugin-workspace-chrome.js'
 
 const makeHarness = ({ mode = 'workspace', synced = true, mounted = true } = {}) => {
-  const calls = { install: 0, update: 0, dispose: 0, labels: [], toggles: 0, synced: 0 }
+  const calls = { install: 0, update: 0, dispose: 0, labels: [], toggles: 0, synced: 0, hints: [], dismissed: 0 }
   const installToggle = (options) => {
     calls.install += 1
     calls.labels.push(options.label)
+    calls.hints.push(options.hint ?? null)
     let disposed = false
     return {
       update: () => {
@@ -22,6 +23,17 @@ const makeHarness = ({ mode = 'workspace', synced = true, mounted = true } = {})
   const chrome = createWorkspaceChrome({
     getMode: () => mode,
     getLabel: () => 'Switch to groups',
+    getHint: () => ({
+      title: 'Free Groups is ready',
+      body: 'body',
+      primary: 'Take a look',
+      dismiss: 'Dismiss',
+      docsUrl: 'https://momijijin.github.io/dsh-session-grove-docs-site/',
+      docsLabel: 'Documentation',
+    }),
+    onHintDismiss: () => {
+      calls.dismissed += 1
+    },
     onToggle: () => {
       calls.toggles += 1
     },
@@ -44,6 +56,21 @@ test('workspace chrome installs once, updates on sync and disposes outside works
   assert.deepEqual(calls.labels, ['Switch to groups'])
   chrome.dispose()
   assert.equal(calls.dispose, 1)
+})
+
+test('workspace chrome forwards the one-time entry hint to the toggle install', () => {
+  const { chrome, calls } = makeHarness()
+  chrome.sync()
+  assert.equal(calls.hints.length, 1)
+  assert.deepEqual(calls.hints[0], {
+    title: 'Free Groups is ready',
+    body: 'body',
+    primary: 'Take a look',
+    dismiss: 'Dismiss',
+    docsUrl: 'https://momijijin.github.io/dsh-session-grove-docs-site/',
+    docsLabel: 'Documentation',
+  })
+  chrome.dispose()
 })
 
 test('workspace chrome disposes the toggle as soon as the groups view is active', () => {

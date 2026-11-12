@@ -580,6 +580,8 @@ export const CSS = `
 .dsg-view-options-about { display: flex; flex-direction: column; gap: 1px; padding: 5px 8px 2px; font-size: var(--dsg-font-11, 11px); line-height: 16px; color: var(--dsw-alias-label-tertiary, CanvasText); }
 .dsg-view-options-version { color: var(--dsw-alias-label-secondary, CanvasText); font-variant-numeric: tabular-nums; }
 .dsg-view-options-scope { overflow-wrap: anywhere; }
+/* 0.4.0-beta.63: one-line explanation under the two archive tri-states. */
+.dsg-view-options-hint { padding: 2px 10px 4px; font-size: var(--dsg-font-11, 11px); line-height: 15px; color: var(--dsw-alias-label-tertiary, CanvasText); overflow-wrap: anywhere; }
 
 /* ---------------------------------------------------------------------------
  * Profile switcher (SPEC §9.1/§9.2): 24px chevron hit area after the title and
@@ -766,6 +768,11 @@ export const CSS = `
 .dsg-onboarding-title { font-size: var(--dsg-font-13, 13px); line-height: 18px; font-weight: 600; }
 .dsg-onboarding-body { margin-top: 3px; font-size: var(--dsg-font-12, 12px); line-height: 17px; color: var(--dsw-alias-label-secondary, CanvasText); }
 .dsg-onboarding-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 8px; }
+/* 0.4.0-beta.63: the "full guide" action is a plain external link styled like
+ * the text buttons, so the card keeps one visual row. */
+.dsg-onboarding-docs { display: inline-flex; align-items: center; height: 28px; padding: 0 8px; border: 0.5px solid var(--dsw-alias-border-l3, rgba(128,128,128,.35)); border-radius: var(--dsw-radius-sm, 6px); color: var(--dsw-alias-label-secondary, CanvasText); font-size: var(--dsg-font-13, 13px); line-height: 20px; text-decoration: none; flex: none; }
+.dsg-onboarding-docs:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,.12)); color: var(--dsw-alias-label-primary, CanvasText); }
+.dsg-onboarding-docs:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, CanvasText); outline-offset: -2px; }
 .dsg-empty-state { flex: none; margin: 12px 8px; padding: 12px; border: 0.5px dashed var(--dsw-alias-border-l3, color-mix(in srgb, CanvasText 20%, transparent)); border-radius: var(--dsw-radius-md, 8px); color: var(--dsw-alias-label-tertiary, CanvasText); }
 .dsg-empty-state-title { font-size: var(--dsg-font-13, 13px); line-height: 18px; color: var(--dsw-alias-label-secondary, CanvasText); }
 .dsg-empty-state-body { margin: 3px 0 8px; font-size: var(--dsg-font-12, 12px); line-height: 17px; }
@@ -816,6 +823,8 @@ export const CSS = `
 .dsg-running-item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--dsg-font-13, 13px); line-height: 18px; }
 .dsg-running-item-archived { flex: none; font-size: var(--dsg-font-11, 11px); color: var(--dsw-alias-label-tertiary, CanvasText); }
 .dsg-running-empty { padding: 10px 8px; font-size: var(--dsg-font-13, 13px); color: var(--dsw-alias-label-tertiary, CanvasText); }
+/* 0.4.0-beta.63: one-line scope note at the top of each status popover. */
+.dsg-status-hint { padding: 5px 8px 6px; font-size: var(--dsg-font-11, 11px); line-height: 15px; color: var(--dsw-alias-label-tertiary, CanvasText); border-bottom: 0.5px solid var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 15%, transparent)); margin-bottom: 4px; }
 .dsg-dialog-backdrop { position: fixed; inset: 0; z-index: 80; background: var(--dsw-alias-bg-mask-1, color-mix(in srgb, CanvasText 32%, transparent)); display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .dsg-dialog {
   position: fixed;
@@ -1027,6 +1036,14 @@ export const CSS = `
 .dsg-skill-repair-body { margin-top: 2px; font-size: var(--dsg-font-12, 12px); line-height: 18px; color: var(--dsw-alias-label-tertiary, CanvasText); }
 .dsg-skill-repair-result { flex-basis: 100%; font-size: var(--dsg-font-12, 12px); line-height: 18px; color: var(--dsw-alias-state-success, #3fb950); }
 .dsg-skill-repair-result[data-ok="false"] { color: var(--dsw-alias-state-danger, #f85149); }
+/* 0.4.0-beta.63: docs entry at the top of the bundle-level settings page. */
+.dsg-settings-docs { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 12px; padding: 12px 14px; border: 0.5px solid var(--dsw-alias-border-l3, color-mix(in srgb, CanvasText 20%, transparent)); border-radius: var(--dsw-radius-md, 8px); background: var(--dsw-alias-bg-layer-1, Canvas); }
+.dsg-settings-docs-copy { flex: 1; min-width: 200px; }
+.dsg-settings-docs-title { font-size: var(--dsg-font-14, 14px); line-height: 20px; font-weight: 600; color: var(--dsw-alias-label-primary, CanvasText); }
+.dsg-settings-docs-body { margin-top: 2px; font-size: var(--dsg-font-12, 12px); line-height: 18px; color: var(--dsw-alias-label-tertiary, CanvasText); }
+.dsg-settings-docs-link { display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border: 0.5px solid var(--dsw-alias-border-l3, rgba(128,128,128,.35)); border-radius: var(--dsw-radius-sm, 6px); color: var(--dsw-alias-label-secondary, CanvasText); font-size: var(--dsg-font-13, 13px); line-height: 20px; text-decoration: none; flex: none; }
+.dsg-settings-docs-link:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,.12)); color: var(--dsw-alias-label-primary, CanvasText); }
+.dsg-settings-docs-link:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, CanvasText); outline-offset: -2px; }
 .dsg-flat { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 0; flex: 1; padding: 2px 4px 8px 2px; }
 .dsg-flat-workspace { padding: 6px 6px 2px; font-size: var(--dsg-font-13, 13px); font-weight: 600; color: var(--dsw-alias-label-tertiary, CanvasText); }
 .dsg-nowrap { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

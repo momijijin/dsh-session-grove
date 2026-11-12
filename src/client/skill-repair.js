@@ -6,6 +6,7 @@ import {
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { clientRuntime } from '../adapters/client-runtime.js'
+import { DocsCard } from './docs-card.js'
 
 const h = createElement
 
@@ -148,6 +149,8 @@ export const SkillRepairCard = ({ form }) => {
   return h(
     'div',
     { class: 'dsg-settings-panel', 'data-testid': 'session-groups-settings-panel', dir: direction },
+    // 0.4.0-beta.63: the illustrated guide is the first entry on this page.
+    h(DocsCard),
     form
       ? h(
           'div',
