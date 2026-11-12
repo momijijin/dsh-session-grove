@@ -17,16 +17,16 @@
 - `npm run check:coverage`：**PASS**，all files **94.81% lines / 86.81% branches / 91.44% functions**（门禁 92/80/85；同批运行在 94.68–94.84 / 86.79–86.87 / 91.44–91.55 波动，最终门禁轮为 94.81 / 86.81 / 91.44）
 - `npm run check:ui`：**45/45 PASS**（1 module-load + 44 component tests，覆盖 19 components / 28 client modules）
 - `npm run check:release`：**PASS**（`check:release` 校验四个机器源版本一致：`package.json` / `dsh.plugin.json` / `src/shared/constants.js` / `package-lock.json`；文档中的版本引用是人工同步，不由该门禁校验。`.65` release note 存在、bundle 版本戳、`package.json.files` 路径 25/25 存在）
-- `npm pack --dry-run`：**PASS**，**246 files**，package **835.8 kB**，unpacked **3.2 MB**（dry-run 不修改仓库）
-- 验收 tarball：`dsh-session-grove-0.4.0-beta.65.tgz`，**835,756 bytes**，sha256 `AE0DE4AC115B0E39FD9ADBFDDA89A0BFCB211DAF9D5E116972226331F190B766`，位于系统临时目录 `%TEMP%\dsh-grove-pack\`（不进仓库；包内 docs 与打包时 HEAD 逐文件一致）
+- `npm pack --dry-run`：**PASS**，**246 files**（dry-run 不修改仓库）
+- 证据 tarball：`dsh-session-grove-0.4.0-beta.65.tgz`，**835,756 bytes**，sha256 `AE0DE4AC115B0E39FD9ADBFDDA89A0BFCB211DAF9D5E116972226331F190B766`，位于系统临时目录 `%TEMP%\dsh-grove-pack\`（不进仓库）。它在 `a60f616`（证据文档之前的最后一个提交）打包；包内 `lib/client.js` 与 HEAD 逐字节一致、版本戳 `.65`，但包内 docs 早于本证据段、release note 仍写 pending，**不得**把包内 docs 当作 HEAD。仓库 HEAD 的 docs 是当前状态；从 HEAD 重打包会得到另一个 **docs-current** 包（仅 docs 不同，代码/lib 相同），字节/sha 记录在 `AGENTS.md`（不打包）与批次台账。
 - locale：**397 keys × 19 dictionaries** 不变（本批无 locale 资源改动）
 
 ## 真实宿主证据（`.65`，2026-11-13，agent debug run at the user's explicit request）
 
-用户 2026-11-13 明确要求“这次你先跑”，因此本轮 fresh-host e2e 由 **agent** 执行，**不是**用户桌面验收。被测包为上面的 `dsh-session-grove-0.4.0-beta.65.tgz`（**835,756 bytes**，sha256 `AE0DE4AC115B0E39FD9ADBFDDA89A0BFCB211DAF9D5E116972226331F190B766`，`%TEMP%\dsh-grove-pack\`，仓库外）。
+用户 2026-11-13 明确要求“这次你先跑”，因此本轮 fresh-host e2e 由 **agent** 执行，**不是**用户桌面验收。被测包为上面的证据包 `dsh-session-grove-0.4.0-beta.65.tgz`（**835,756 bytes**，sha256 `AE0DE4AC115B0E39FD9ADBFDDA89A0BFCB211DAF9D5E116972226331F190B766`，`%TEMP%\dsh-grove-pack\`，仓库外）。
 
-- `npm run test:isolated`：**PASS**（exit 0），fresh home `<temp>\dsh-sg-e2e-20261113-024652`；**30 pass / 0 skip / 0 failure**，**71 screenshots**；preview geometry dialog **560×560**、narrow sidebar **252**、body scroll **3659>466**、row gaps **[0,0,0]**；之前失败的 dialog keyboard 段通过。
-- `npm run test:ui-browser`：**PASS（第 2 次）**（exit 0），fresh home `<temp>\dsh-sg-e2e-20261113-025209`；`bundleEntries 1`、`executedBytes 2,572,166 = sourceBytes`、`executedRatio 1`、`pageErrors []`。第 1 次在 `session-groups-view` 可见性等待超时：宿主 “Get started” 对话框在脚本 3.5s overlay 探测之后才挂载并挡住视图——测试脚本时序竞态，不是插件问题；重试 PASS。`e2e/ui-runtime.spec.mjs` 的 `dismissOverlays` 后续可加固（本批未改）。
+- `npm run test:isolated`：**PASS**（exit 0），fresh home `<temp>\dsh-sg-e2e-20261113-024652`；**narrow matrix** 计 **30 pass / 0 skip / 0 failure**（不是整个 suite 的计数），**71 screenshots**；preview geometry dialog **560×560**、narrow sidebar **252**、body scroll **3659>466**、row gaps **[0,0,0]**；之前失败的 dialog keyboard 段通过。
+- `npm run test:ui-browser`：**PASS（第 2 次）**（exit 0），使用本批第二个 fresh home `<temp>\dsh-sg-e2e-20261113-025209`（02:52 创建，02:57 重试复用同一个 home——**1 次干净失败 + 1 次同 home 复跑**，不是换 home；本批共两个 fresh home：isolated `024652` + ui-browser `025209`）；`bundleEntries 1`、`executedBytes 2,572,166 = sourceBytes`、`executedRatio 1`、`pageErrors []`。首跑 log 只有 12s `session-groups-view` 可见性超时，**未保留失败截图**；宿主 “Get started” 对话框在脚本 3.5s overlay 探测之后才挂载并挡住视图是从该超时与 `e2e/ui-runtime.spec.mjs:74-82` **推断**的，不是直接观察；判断为测试脚本时序竞态，不是插件问题。重试 log 没有显式 PASS 行；PASS 依据 = exit 0 + `UI_RUNTIME {...}` 行 + 无 FAIL 行 + `ui-runtime-coverage.json`（`pageErrors: []`）。`e2e/ui-runtime.spec.mjs` 的 `dismissOverlays` 后续可加固（本批未改）。
 - 无 locale sweep：397 keys × 19 dictionaries 未变；official A+ O 未跑、不声称（最新 official 证据仍是 `.61`）。
 
 ## 0.4.0-beta.63 历史轮（2026-11-12，已发布）

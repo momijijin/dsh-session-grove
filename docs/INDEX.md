@@ -19,10 +19,14 @@ popovers, menus and the drag label), with narrow-width and RTL adaptation;
 e2e focus/positioning assertions) and pays down architecture debt
 (`plugin-host` / `dialog-host` splits, shared host atomic-write/file-lock,
 deduplicated `sessionContainer` / registry classifier / `MAX_PROFILES`, and an
-import-cycle guard). `.65` fresh-host evidence passed: `test:isolated` and
+import-cycle guard). `.65` fresh-host evidence passed:
+`test:isolated` (narrow matrix 30 pass) and
 `test:ui-browser` (agent debug run at the user's explicit request, two fresh
-homes; the first ui-browser attempt hit a host onboarding-dialog timing race and
-passed on retry; this is not a user desktop acceptance):
+homes total — the ui-browser retry reused its home; the first ui-browser attempt
+had only a 12s visibility timeout and no failure screenshot, and the "Get
+started" dialog timing race is inferred from that timeout plus
+`e2e/ui-runtime.spec.mjs:74-82`; PASS on the same-home retry, whose log has no
+explicit PASS line; this is not a user desktop acceptance):
 
 - [README](../README.md) — short landing page (English); [README.zh.md](../README.zh.md) — Chinese
 - [ARCHITECTURE.md](ARCHITECTURE.md) — layering, adapters, host/client boundaries, group archive
