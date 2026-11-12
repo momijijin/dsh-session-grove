@@ -100,7 +100,9 @@ test('dshHomePath is re-exported and honours $DSH_HOME (no hard-coded real home)
   }
 })
 
-test('home.js never string-matches the literal developer home path', async () => {
+test('home.js never hard-codes any local Windows user directory', async () => {
   const source = await readFile(fileURLToPath(new URL('../../src/host/home.js', import.meta.url)), 'utf8')
-  assert.equal(/C:\\\\Users\\\\user|C:\/Users\/user/.test(source), false)
+  // Guard: any hard-coded absolute Windows user path (C:\Users\<name>, incl. the
+  // escaped C:\\Users\\<name> form in source strings) is a leak and must fail.
+  assert.equal(/[A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}[^\\/\r\n"']+/.test(source), false)
 })

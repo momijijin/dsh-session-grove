@@ -21,8 +21,13 @@ spike/**/evidence/*.zip
 # Local SDD/review artifacts (kept outside the release history)
 .superpowers/
 
-# Lockfiles: package-lock.json is tracked for reproducible CI/release installs.
-# pnpm-lock.yaml remains the local-development lockfile.
+# Local design drafts stay on the developer machine and are never committed
+docs/specs/
+
+# Lockfiles: package-lock.json (npm) is the release/CI install source of truth and stays tracked.
+# pnpm-lock.yaml / pnpm-workspace.yaml are local-development only and are never tracked.
+pnpm-lock.yaml
+pnpm-workspace.yaml
 
 # OS
 Thumbs.db
