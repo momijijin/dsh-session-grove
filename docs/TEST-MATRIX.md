@@ -1,6 +1,6 @@
 # Test Matrix
 
-Status: `0.4.0-beta.63`  
+Status: `0.4.0-beta.64`  
 This file is the single source of truth for **what has actually been verified**
 and at which level. Other docs should link here instead of restating counts.
 
@@ -31,18 +31,23 @@ four-command A+ C evidence below remains the latest complete sweep and applies
 to the `.62` tarball.
 
 **`.64` batch evidence (narrow-viewport floating panels, 2026-11-12).**
-This is the `0.4.0-beta.64` dev batch: the package version is still
-`0.4.0-beta.63` until the release step, so the plugin tarball used below carries
-the `.63` version string. The batch supersedes the `.63` counts in the status
+This is the `0.4.0-beta.64` dev batch. The package version is now
+`0.4.0-beta.64` (still unreleased: no tag or GitHub Release), and the plugin
+tarball used below was packed from this tree **after** the bump, so it carries
+the `.64` version string:
+`dsh-session-grove-0.4.0-beta.64.tgz` (**824,070 bytes**). The batch supersedes
+the `.63` counts in the status
 paragraph above: the dev tree now runs **938/938** unit/contract tests and
 **44/44** UI runtime cases (1 module-load + 43 component tests, 19 components
 across 26 client modules; `floating-panel.js` is the new module), with the same
 **397** locale keys in 19 dictionaries (no locale resource changed).
 
 - `npm run test:isolated` — **PASS** (exit 0) on a local isolated DSH Desktop
-  instance (community-host A+ C lane, `.63` plugin tarball built from this
-  tree). The new narrow-viewport matrix ran **30 cells: 30 pass, 0 failure,
-  0 `SKIP(host-rail)`**. The 4-key `HOST_RAIL_ALLOWLIST` (264/420 × 960×600 and
+  instance (community-host A+ C lane, `.64` plugin tarball packed from this
+  tree, fresh test home `%TEMP%\dsh-sg-e2e-20261112-171802`, port 4492). The
+  narrow-viewport matrix ran **30 cells: 30 pass, 0 failure,
+  0 `SKIP(host-rail)`** — identical to the earlier `.63`-tarball run, so the
+  counts below are unchanged. The 4-key `HOST_RAIL_ALLOWLIST` (264/420 × 960×600 and
   264/420 × 823×514) was not needed this run, so the 150%/175% zoom geometries
   were reachable:
   - **Tier A** — all five surfaces (running/blocked/unread counts, view options,
@@ -66,7 +71,8 @@ across 26 client modules; `floating-panel.js` is the new module), with the same
     min(360, vw−16), `box-sizing: border-box`, label span + `title` +
     single-line ellipsis, long row label 576 > 88 = **1 cell**.
 - **69 screenshots** were written to the test home as
-  `narrow-<sidebar>-<vw>x<vh>-<surface>.png`. Key names:
+  `narrow-<sidebar>-<vw>x<vh>-<surface>.png` (40 Tier A + 24 Tier B + 2 A12
+  scroll + 2 RTL + 1 menu); the `.64` rerun produced the same count. Key names:
   `narrow-264-1440x900-running.png`, `-blocked`, `-unread`, `-view-options`,
   `-profile`, `narrow-420-1440x900-blocked.png`,
   `narrow-264-1152x720-view-options.png`, `narrow-264-823x514-profile.png`,
@@ -75,21 +81,32 @@ across 26 client modules; `floating-panel.js` is the new module), with the same
   `narrow-264-1440x480-view-options-scroll.png`,
   `narrow-264-1440x900-rtl-profile.png`, `narrow-264-1440x900-rtl-blocked.png`,
   `narrow-264-800x600-menu-long-label.png`.
-- `npm run test:ui-browser` — **PASS** on a fresh test home. Reusing the home
-  right after `test:isolated` fails at the 20-profile limit (Save-as disabled):
-  the fresh-host requirement already recorded for `.62`, not a code failure.
+- `npm run test:ui-browser` — **PASS** (exit 0) on a **second fresh** test home
+  (`%TEMP%\dsh-sg-e2e-20261112-172343`, port 4491, `.64` tarball):
+  `bundleEntries:1`, `executedBytes:2570294`, `sourceBytes:2570294`,
+  `executedRatio:1`. Reusing the home right after `test:isolated` fails at the
+  20-profile limit (Save-as disabled): the fresh-host requirement already
+  recorded for `.62`, not a code failure.
 - **Launcher note (non-blocking):** `scripts/qa/start-isolated-web.ps1`'s URL
-  polling timed out on this run. The suite was executed against the **same test
-  home** with the isolated web process started manually (`web.json` →
-  `DSH_TEST_URL` / `DSH_TEST_HOME`), so the instance, the plugin package and the
-  isolation are unchanged; only the launcher path differed. Recorded as
-  environment evidence, not as a product failure.
-- Not claimed for `.64`: `test:locale-pack` / `test:all-locales` were not re-run
-  (no locale resource changed; the `.63` 397-key sweeps stay the locale
-  evidence), official A+ O was not run (the latest official evidence remains
-  `.61`), and the plan's manual ru/de long-locale and ar RTL spot checks were
-  **not** performed — the RTL geometry above comes from the injected `dir=rtl`
-  cell, not from an Arabic screenshot review.
+  polling timed out again on the first home. That suite was executed against the
+  **same test home** with the isolated web process started manually (`web.json`
+  → `DSH_TEST_URL` / `DSH_TEST_HOME`), so the instance, the plugin package and
+  the isolation are unchanged; only the launcher path differed. Port 4490 was
+  already held by an unrelated local process on this machine, so the manual
+  instance used port 4492; the second fresh home launched through the script
+  without a workaround. Recorded as environment evidence, not as a product
+  failure.
+- `npm run test:locale-pack` / `npm run test:all-locales` — **not re-run** for
+  the `.64` batch (no locale resource changed; the `.63` 397-key sweeps stay the
+  locale evidence). `npm run check:coverage` for this tree is **≈94.3% lines /
+  86.3% branches / 91.0% functions** (94.29–94.31 / 86.26–86.28 / 90.97 across
+  repeated runs; 0.02pp run-to-run variation; 92/80/85 thresholds), `check:release`
+  **PASS**, and `npm pack --dry-run` reports **241 files, 3.2 MB unpacked**
+  (tested `.64` tarball: 824,070 bytes).
+- Not claimed for `.64`: official A+ O was not run (the latest official evidence
+  remains `.61`), and the plan's manual ru/de long-locale and ar RTL spot checks
+  were **not** performed — the RTL geometry above comes from the injected
+  `dir=rtl` cell, not from an Arabic screenshot review.
 
 **`.63` community evidence (partial: `test:isolated` + locale sweeps PASS,
 2026-11-12).**
