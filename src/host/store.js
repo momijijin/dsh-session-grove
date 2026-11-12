@@ -19,58 +19,32 @@
  *   checks: no lock, no write, no quarantine (`load()` keeps healing semantics);
  * - write path: unique temp name -> fsync -> copy previous to `.bak` ->
  *   rename -> directory fsync (where supported); Windows EPERM/EBUSY retried
- *   3x with 20ms backoff;
+ *   3x with 20ms backoff (shared with the profile registry via
+ *   `src/host/atomic-write.js`);
  * - every public operation runs on one promise tail (in-process serialization)
  *   and a short-lived filesystem lock (cross-process serialization); the lock
- *   is reclaimed automatically when its PID is dead or its mtime is stale.
+ *   is reclaimed automatically when its PID is dead or its mtime is stale
+ *   (`src/host/file-lock.js`, same policy as the profile registry).
  *
  * Shared model owns document validation: `validateDoc` from
  * `src/shared/model.js` (icon is opaque string <= 64 chars there, per Gate 0
  * ruling C7; the store never re-normalizes icons).
  */
 
-import { randomBytes } from 'node:crypto'
-import { copyFile, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
+import { copyFile, mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { findArchiveViolation } from '../shared/archive.js'
 import { DOC_VERSION } from '../shared/constants.js'
 import { emptyDoc, normalizeColorHex, validateDoc } from '../shared/model.js'
+import {
+  pathExists,
+  quarantineTimestamp,
+  syncDirectory,
+  temporaryPathForWrite,
+  withRetries,
+} from './atomic-write.js'
 import { RECORD_FILE_NAME } from './constants.js'
-
-const RETRYABLE_CODES = new Set(['EACCES', 'EPERM', 'EBUSY', 'EMFILE', 'ENFILE'])
-const WRITE_ATTEMPTS = 4
-const WRITE_RETRY_DELAY_MS = 20
-const LOCK_WAIT_MS = 5_000
-const LOCK_STALE_MS = 30_000
-const LOCK_RETRY_MS = 20
-
-const sleep = (milliseconds) =>
-  new Promise((resolve) => {
-    setTimeout(resolve, milliseconds)
-  })
-
-/** Retry the transient Windows sharing/lock failures an atomic replace can hit. */
-const withRetries = async (operation) => {
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      return await operation()
-    } catch (error) {
-      const code = error?.code ?? ''
-      if (attempt >= WRITE_ATTEMPTS || !RETRYABLE_CODES.has(code)) throw error
-      await sleep(WRITE_RETRY_DELAY_MS)
-    }
-  }
-}
-
-const pathExists = async (path) => {
-  try {
-    await stat(path)
-    return true
-  } catch (error) {
-    if (error?.code === 'ENOENT') return false
-    throw error
-  }
-}
+import { LOCK_RETRY_MS, LOCK_STALE_MS, LOCK_WAIT_MS, createFileLock } from './file-lock.js'
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 
@@ -118,21 +92,6 @@ const normalizeGroupArchivedFlags = (groups) =>
 
 const errorMessage = (error) => (error instanceof Error ? error.message : String(error))
 
-/** Best-effort directory fsync (Windows cannot open a directory as a file). */
-const syncDirectory = async (directory) => {
-  let handle
-  try {
-    handle = await open(directory, 'r')
-    await handle.sync()
-  } catch {
-    // Durability point unavailable on this platform; file fsync already ran.
-  } finally {
-    await handle?.close().catch(() => undefined)
-  }
-}
-
-const quarantineTimestamp = (now) => new Date(now()).toISOString().replaceAll(':', '-').replaceAll('.', '-')
-
 /**
  * Create the store over one record file.
  *
@@ -165,7 +124,6 @@ export const createStore = (options = {}) => {
   }
   const directory = dirname(filePath)
   const backupPath = `${filePath}.bak`
-  const lockPath = `${filePath}.lock`
   const expectedName = RECORD_FILE_NAME
 
   let tail = Promise.resolve()
@@ -178,105 +136,13 @@ export const createStore = (options = {}) => {
     return run
   }
 
-  const temporaryPathForWrite = () => `${filePath}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
-
-  const isProcessAlive = (pid) => {
-    if (!Number.isInteger(pid) || pid <= 0) return false
-    try {
-      process.kill(pid, 0)
-      return true
-    } catch (error) {
-      return error?.code === 'EPERM'
-    }
-  }
-
-  const readLock = async () => {
-    let text
-    try {
-      text = await readFile(lockPath, 'utf8')
-    } catch (error) {
-      if (error?.code === 'ENOENT') return null
-      throw error
-    }
-    let data = null
-    try {
-      data = JSON.parse(text)
-    } catch {
-      // A malformed lock is treated as stale by mtime below.
-    }
-    let mtimeMs = 0
-    try {
-      mtimeMs = (await stat(lockPath)).mtimeMs
-    } catch (error) {
-      if (error?.code === 'ENOENT') return null
-      throw error
-    }
-    return { text, data: isObject(data) ? data : null, mtimeMs }
-  }
-
-  const reclaimStaleLock = async () => {
-    const current = await readLock()
-    if (current === null) return true
-    const age = Date.now() - current.mtimeMs
-    const pid = current.data?.pid
-    const ownerAlive = isProcessAlive(pid)
-    if (age <= lockStaleMs && ownerAlive) return false
-    try {
-      // Compare before removing so a lock replaced by a live writer is not
-      // accidentally deleted between the read and the remove.
-      const latest = await readFile(lockPath, 'utf8')
-      if (latest === current.text) await rm(lockPath, { force: true })
-      return true
-    } catch (error) {
-      return error?.code === 'ENOENT'
-    }
-  }
-
-  const acquireLock = async () => {
-    await mkdir(directory, { recursive: true })
-    const token = randomBytes(8).toString('hex')
-    const payload = `${JSON.stringify({
-      pid: process.pid,
-      token,
-      createdAt: new Date().toISOString(),
-    }, null, 2)}\n`
-    const deadline = Date.now() + lockWaitMs
-    for (;;) {
-      let handle
-      try {
-        handle = await open(lockPath, 'wx')
-        await handle.writeFile(payload, 'utf8')
-        await handle.sync()
-        await handle.close()
-        handle = null
-        return async () => {
-          try {
-            const info = await readLock()
-            if (info?.data?.token === token) await rm(lockPath, { force: true })
-          } catch {
-            // Releasing a lock is best-effort; stale recovery handles crashes.
-          }
-        }
-      } catch (error) {
-        await handle?.close().catch(() => undefined)
-        if (error?.code !== 'EEXIST') throw error
-        if (await reclaimStaleLock()) continue
-        if (Date.now() >= deadline) {
-          throw Object.assign(new Error('group store is busy'), { code: 'store-busy' })
-        }
-        await sleep(lockRetryMs)
-      }
-    }
-  }
-
-  const withLock = async (task) => {
-    const release = await acquireLock()
-    try {
-      return await task()
-    } finally {
-      await release()
-    }
-  }
+  const { withLock } = createFileLock({
+    filePath,
+    busyMessage: 'group store is busy',
+    lockWaitMs,
+    lockStaleMs,
+    lockRetryMs,
+  })
 
   const quarantinePath = async () => {
     const stamp = quarantineTimestamp(now)
@@ -423,7 +289,7 @@ export const createStore = (options = {}) => {
     }
     await mkdir(directory, { recursive: true })
     const text = `${JSON.stringify(persisted, null, 2)}\n`
-    const temporaryPath = temporaryPathForWrite()
+    const temporaryPath = temporaryPathForWrite(filePath)
     const handle = await open(temporaryPath, 'w')
     try {
       await handle.writeFile(text, 'utf8')
