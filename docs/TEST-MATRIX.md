@@ -27,8 +27,8 @@ entries; `onboarding.title` / `onboarding.body` were rewritten shorter). The
 `.63` community run passed `test:isolated`, `test:locale-pack` and
 `test:all-locales` on 2026-11-12; only the fresh-host
 browser spec (`test:ui-browser`) was **not** run for `.63`. The `.62`
-four-command A+ C evidence below remains the latest complete sweep and applies
-to the `.62` tarball.
+four-command A+ C evidence below is the previous complete sweep and applies
+to the `.62` tarball; the `.64` batch above now also has all four commands.
 
 **`.64` batch evidence (narrow-viewport floating panels, 2026-11-12).**
 This is the `0.4.0-beta.64` dev batch. The package version is now
@@ -96,17 +96,26 @@ across 26 client modules; `floating-panel.js` is the new module), with the same
   instance used port 4492; the second fresh home launched through the script
   without a workaround. Recorded as environment evidence, not as a product
   failure.
-- `npm run test:locale-pack` / `npm run test:all-locales` — **not re-run** for
-  the `.64` batch (no locale resource changed; the `.63` 397-key sweeps stay the
-  locale evidence). `npm run check:coverage` for this tree is **≈94.3% lines /
+- `npm run test:locale-pack` — **PASS** (exit 0) on a dedicated fresh isolated
+  instance (`.64` tarball + `e2e/fixtures/ja-locale-pack`, home
+  `%TEMP%\dsh-sg-e2e-20261112-182522`, port 4495): `PASS: third-party ja locale
+  pack activates Japanese onboarding and dialog copy`.
+- `npm run test:all-locales` — **PASS 23/23** (exit 0, same instance): 19
+  languages plus aliases, 397 keys, including settings/config; last line
+  `PASS: all 23 locale switch cases`.
+- `npm run check:coverage` for this tree is **≈94.3% lines /
   86.3% branches / 91.0% functions** (94.29–94.31 / 86.26–86.28 / 90.97 across
   repeated runs; 0.02pp run-to-run variation; 92/80/85 thresholds), `check:release`
   **PASS**, and `npm pack --dry-run` reports **241 files, 3.2 MB unpacked**
   (tested `.64` tarball: 824,070 bytes).
 - Not claimed for `.64`: official A+ O was not run (the latest official evidence
-  remains `.61`), and the plan's manual ru/de long-locale and ar RTL spot checks
-  were **not** performed — the RTL geometry above comes from the injected
-  `dir=rtl` cell, not from an Arabic screenshot review.
+  remains `.61`), and the manual spot checks are **not done** — `test:all-locales`
+  PASS 23/23 only covers header / new-group dialog / group menu / profile
+  popover / switch-preview copy (plus VISUAL ru/hi/ar narrow-sidebar metrics and
+  `ar` direction/bounds for those same surfaces). It does **not** open the view
+  options popover, so the ru/de/ar view-options check and the 1960×1080 manual
+  review remain uncovered, and there is still no Arabic screenshot review. The
+  RTL geometry above comes from the injected `dir=rtl` cell.
 
 **`.63` community evidence (partial: `test:isolated` + locale sweeps PASS,
 2026-11-12).**
