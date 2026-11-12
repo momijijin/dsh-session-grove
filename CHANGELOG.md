@@ -14,13 +14,13 @@ Unreleased `dev` batch (not tagged, not published). The latest published release
 
 - `src/client/plugin-host.js` split into the 312-line mount shell and the new 682-line `src/client/plugin-host-commands.js` (command layer, one-way shell → commands dependency, no DSH imports in commands; the 21-key return surface is unchanged).
 - `src/client/dialog-host.js` split into the 710-line modal shell and the new 315-line `src/client/dialog-bodies.js` (group/session dialog bodies plus `DIALOG_KEYS` / `DESTINATION_REASON_KEYS`).
-- Host deduplication: the atomic write sequence and the cross-process file lock are now `src/host/atomic-write.js` (69 lines) and `src/host/file-lock.js` (149 lines), shared by the document store and the profile registry with the same error codes and busy message.
+- Host deduplication: only the duplicated helper primitives moved into `src/host/atomic-write.js` (69 lines: the retry loop and retryable codes, `pathExists`, best-effort directory fsync, quarantine timestamp, temporary-path builder) and only the cross-process `.lock` acquisition, stale-lock recovery and token-checked release moved into `src/host/file-lock.js` (149 lines; error code and busy message injected by the caller). The temp → fsync → `.bak` → rename → directory-fsync write sequence and the in-process `enqueue` promise tail stay in each of `src/host/store.js` and `src/host/profile-registry.js`; behavior is unchanged.
 - Client deduplication: one `sessionContainer` tree lookup in `src/client/actions.js`, one registry classifier driving both the registry and `src/host/storage-health.js`, and direct `MAX_PROFILES` use instead of the removed `DEFAULT_PROFILE_LIMIT` alias.
 
 ### Tests
 
 - Unit/contract **1027/1027 PASS** (938 at `.64`, +89): new `tests/client/plugin-host-commands.test.js` (68 cases), `tests/host/atomic-write.test.js`, `tests/host/file-lock.test.js`, the dialog-geometry fallback cases, the classifier comparison and the import-cycle guard.
-- UI runtime **45/45 PASS** (was 44; the new case covers the four `shouldFocusDialogTarget` branches), 19 components across 28 client modules. Coverage **PASS 94.81% lines / 86.81% branches / 91.44% functions** (92/80/85; batch range 94.68–94.83 / 86.80–86.86 / 91.44–91.55).
+- UI runtime **45/45 PASS** (was 44; the new case covers the four `shouldFocusDialogTarget` branches), 19 components across 28 client modules. Coverage **PASS 94.81% lines / 86.81% branches / 91.44% functions** (92/80/85; batch range 94.68–94.84 / 86.79–86.87 / 91.44–91.55, recorded gate round 94.81/86.81/91.44).
 - Architecture guards: import graph 116 source modules / 335 adjacency edges / **0 cycles** (negative fixture detects cycles); `createHostCommands` 17 documented keys; `uiModules` 28.
 
 ### Verification

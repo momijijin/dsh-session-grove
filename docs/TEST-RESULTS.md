@@ -14,7 +14,7 @@
 - `npm run build`：**PASS**（`lib/client.js` 实际 662,098 bytes；构建日志打印的 654,255 是字符数；17 个 lazy locale chunks 497,865 bytes；版本戳 `0.4.0-beta.65`）
 - `npm run check:lib`：**PASS**
 - `node --check lib/client.js`：**PASS**
-- `npm run check:coverage`：**PASS**，all files **94.81% lines / 86.81% branches / 91.44% functions**（门禁 92/80/85；同批运行在 94.68–94.83 / 86.80–86.86 / 91.44–91.55 波动，最终门禁轮为 94.81 / 86.81 / 91.44）
+- `npm run check:coverage`：**PASS**，all files **94.81% lines / 86.81% branches / 91.44% functions**（门禁 92/80/85；同批运行在 94.68–94.84 / 86.79–86.87 / 91.44–91.55 波动，最终门禁轮为 94.81 / 86.81 / 91.44）
 - `npm run check:ui`：**45/45 PASS**（1 module-load + 44 component tests，覆盖 19 components / 28 client modules）
 - `npm run check:release`：**PASS**（五处版本一致、`.65` release note 存在、bundle 版本戳、`package.json.files` 路径 25/25 存在）
 - `npm pack --dry-run`：**PASS**，**246 files**，package **835.3 kB**，unpacked **3.2 MB**（dry-run 不修改仓库）

@@ -49,7 +49,7 @@ changed; `DOC_VERSION` stays 1.
 
 - `npm run check:coverage` — **PASS**: **94.81% lines / 86.81% branches /
   91.44% functions** on the final local run (thresholds 92/80/85; batch runs
-  varied within 94.68–94.83 / 86.80–86.86 / 91.44–91.55).
+  varied within 94.68–94.84 / 86.79–86.87 / 91.44–91.55).
 - `npm run check:style` — **PASS** (227 files); `npm run build` — **PASS**
   (`lib/client.js` **662,098 bytes** on disk plus 17 lazy locale chunks
   **497,865 bytes**, version stamp `0.4.0-beta.65`); `npm run check:lib` —

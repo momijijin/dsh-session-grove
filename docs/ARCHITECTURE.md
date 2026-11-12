@@ -5,7 +5,7 @@
 已验证壳：社区版 DSH Desktop **Stable** 2.0.18（rc.2）；官方 DeepSeek Harness 桌面版 0.2.2.0（rc.1，隔离 A+）；0.2.1.0（rc.5）为 `.60` 历史验证（隔离 A+ + 桌面窗口验收）  
 明确不支持：社区版 DSH Desktop Beta、社区版 DSH NEXT（`-next`）  
 分发状态：`.60` 已上架 dshmarket；GitHub Release 附件与本地 beta tarball 仅维护者/调试路径。`.62` 是更早的发布版本（分组归档 + 双三态 + 结构锁）；`.63` 已发布（2026-11-12，首次引导漏斗 + 就地提示 + 文档站点入口），README 已瘦身为入口页；`.64` 已发布（2026-11-12，浮层统一策略），`.65` 是当前未发布的 dev 批次（对话框键盘时序修复 + 架构债清理）。  
-测试基线（`.65` dev tree）：1027/1027 unit/contract、45/45 UI runtime（1 module-load + 44 component tests，19 components / 28 client modules）+ 1 browser spec；397 locale keys × 19 dictionaries；coverage 94.81/86.81/91.44（阈值 92/80/85；同批 94.68–94.83 / 86.80–86.86 / 91.44–91.55 波动）。真实宿主证据 `test:isolated` / `test:ui-browser` 为 pending（待用户 fresh host），不得按 PASS 引用。
+测试基线（`.65` dev tree）：1027/1027 unit/contract、45/45 UI runtime（1 module-load + 44 component tests，19 components / 28 client modules）+ 1 browser spec；397 locale keys × 19 dictionaries；coverage 94.81/86.81/91.44（阈值 92/80/85；同批 94.68–94.84 / 86.79–86.87 / 91.44–91.55 波动，记录轮 94.81/86.81/91.44）。真实宿主证据 `test:isolated` / `test:ui-browser` 为 pending（待用户 fresh host），不得按 PASS 引用。
 
 插件按洋葱圈分层，宿主升级时只改外圈。
 
@@ -246,7 +246,7 @@ Host 权威守卫：
   - `change-hub` 在每次 commit 后广播 revision；浏览器通过 `/events` SSE 重新 load
   - 0.3.0-beta.79 拆分：`routes.js` 只保留注册编排；控制路由在 `control-routes.js`
   - 0.4.0-beta.61 再拆分：HTTP 原语/请求体解析在 `host/http/wire.js`，冻结响应形状在 `host/http/respond.js`，profile 策略（planHash/目标解析/doctor 存储报告/名称策略）在 `profile-policy.js`，legacy 单 store 适配器在 `legacy-profile-manager.js`
-  - 0.4.0-beta.65 再拆分：host 文档存储与 profile registry 各自的原子写/跨进程锁收敛为 `host/atomic-write.js` 与 `host/file-lock.js`；client 的 host command 层移到 `plugin-host-commands.js`（shell → commands 单向），group/session 弹窗 body 移到 `dialog-bodies.js`（`DIALOG_KEYS` / `DESTINATION_REASON_KEYS` 随 body 迁入）
+  - 0.4.0-beta.65 再拆分：host 文档存储与 profile registry 里重复的原子写 helper 与跨进程锁收敛为 `host/atomic-write.js` 与 `host/file-lock.js`（写序列与 `enqueue` promise tail 仍在各模块）；client 的 host command 层移到 `plugin-host-commands.js`（shell → commands 单向），group/session 弹窗 body 移到 `dialog-bodies.js`（`DIALOG_KEYS` / `DESTINATION_REASON_KEYS` 随 body 迁入）
   - 0.4.0-beta.62：`/commit` 的 `archive-frozen` 结果在 `respond.js` 固定为 409 `{ code, reason, groupId, field, message }`；`/control/apply` 的归档冲突由 `control-routes.js` 映射 409，schema/类型错误保持 422
 - `src/client/components.js` + `components-*.js`
   - `components.js` 只保留 GroupsView 编排；primitives、rows、ungrouped、resize-handle、search-box、header 分模块
@@ -263,9 +263,9 @@ Host 权威守卫：
   - 多配置后同时检查 registry、每个 profile 文档、`.bak` 与 quarantine 家族，报告 `storage.registry` 与 `storage.profiles[]`
   - `.65` 起 registry 状态直接复用 `profile-registry.js` 的分类器，doctor 与 registry 判定不会各写一套
 - `src/host/atomic-write.js` + `src/host/file-lock.js`（0.4.0-beta.65 去重）
-  - `atomic-write.js`（69 行）只做 temp → fsync → `.bak` → rename → 目录 fsync 的原子写序列
-  - `file-lock.js`（149 行）只做跨进程 `.lock` 获取、stale lock 回收与同进程 promise tail；错误码与 busy 文案由调用方注入，行为与拆分前逐字一致
-  - 两者被 `src/host/store.js` 与 `src/host/profile-registry.js` 共用，host 层不再各留一份实现
+  - `atomic-write.js`（69 行）只导出原子写 helper 原语：retry 循环与可重试错误码、`pathExists`、best-effort 目录 fsync、quarantine 时间戳、`temporaryPathForWrite` 临时路径构造；temp → fsync → `.bak` → rename → 目录 fsync 的写序列本身仍在 `src/host/store.js` 与 `src/host/profile-registry.js` 各自模块
+  - `file-lock.js`（149 行）只共享跨进程 `.lock` 获取、stale lock 回收与 token 校验释放；错误码与 busy 文案由调用方注入（`group store is busy` / `profile registry is busy`），`enqueue` 的同进程 promise tail 仍留在 store / registry 各自模块
+  - 两者只共用 helper 原语，host 层不再各留一份重复实现；写路径行为与拆分前逐字一致
 - `src/host/profile-registry.js` + `profile-manager.js` + `profile-routes.js`
   - registry 原子性/CAS/degraded 在 `profile-registry.js`；路径解析、per-profile store 缓存与只读 peek 在 `profile-manager.js`
   - `/profiles*` 六条路由与 previewToken 在 `profile-routes.js`；`/load`/`/commit` 只按 active 解析，不信任请求里的 profileId
