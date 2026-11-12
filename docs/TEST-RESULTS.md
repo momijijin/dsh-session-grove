@@ -16,14 +16,18 @@
 - `node --check lib/client.js`：**PASS**
 - `npm run check:coverage`：**PASS**，all files **94.81% lines / 86.81% branches / 91.44% functions**（门禁 92/80/85；同批运行在 94.68–94.84 / 86.79–86.87 / 91.44–91.55 波动，最终门禁轮为 94.81 / 86.81 / 91.44）
 - `npm run check:ui`：**45/45 PASS**（1 module-load + 44 component tests，覆盖 19 components / 28 client modules）
-- `npm run check:release`：**PASS**（五处版本一致、`.65` release note 存在、bundle 版本戳、`package.json.files` 路径 25/25 存在）
-- `npm pack --dry-run`：**PASS**，**246 files**，package **835.3 kB**，unpacked **3.2 MB**（dry-run 不修改仓库）
-- 验收 tarball：`dsh-session-grove-0.4.0-beta.65.tgz`，位于系统临时目录 `%TEMP%\dsh-grove-pack\`（不进仓库；字节数与 sha256 记在批次回报里）
+- `npm run check:release`：**PASS**（`check:release` 校验四个机器源版本一致：`package.json` / `dsh.plugin.json` / `src/shared/constants.js` / `package-lock.json`；文档中的版本引用是人工同步，不由该门禁校验。`.65` release note 存在、bundle 版本戳、`package.json.files` 路径 25/25 存在）
+- `npm pack --dry-run`：**PASS**，**246 files**，package **835.8 kB**，unpacked **3.2 MB**（dry-run 不修改仓库）
+- 验收 tarball：`dsh-session-grove-0.4.0-beta.65.tgz`，**835,756 bytes**，sha256 `AE0DE4AC115B0E39FD9ADBFDDA89A0BFCB211DAF9D5E116972226331F190B766`，位于系统临时目录 `%TEMP%\dsh-grove-pack\`（不进仓库；包内 docs 与打包时 HEAD 逐文件一致）
 - locale：**397 keys × 19 dictionaries** 不变（本批无 locale 资源改动）
 
-## 真实宿主证据（`.65`，pending，AI 未执行）
+## 真实宿主证据（`.65`，2026-11-13，agent debug run at the user's explicit request）
 
-`npm run test:isolated` 与 `npm run test:ui-browser` 在本轮**未由 AI 执行**，必须由用户在 fresh isolated home 上用上面的 `.65` tarball 运行；在用户记录前**不得写成 PASS**。建议同包第二个 fresh home 复跑 `test:isolated`。`.65` 无 locale 改动，不需要 `test:locale-pack` / `test:all-locales`；official A+ O 未跑、不声称。
+用户 2026-11-13 明确要求“这次你先跑”，因此本轮 fresh-host e2e 由 **agent** 执行，**不是**用户桌面验收。被测包为上面的 `dsh-session-grove-0.4.0-beta.65.tgz`（**835,756 bytes**，sha256 `AE0DE4AC115B0E39FD9ADBFDDA89A0BFCB211DAF9D5E116972226331F190B766`，`%TEMP%\dsh-grove-pack\`，仓库外）。
+
+- `npm run test:isolated`：**PASS**（exit 0），fresh home `<temp>\dsh-sg-e2e-20261113-024652`；**30 pass / 0 skip / 0 failure**，**71 screenshots**；preview geometry dialog **560×560**、narrow sidebar **252**、body scroll **3659>466**、row gaps **[0,0,0]**；之前失败的 dialog keyboard 段通过。
+- `npm run test:ui-browser`：**PASS（第 2 次）**（exit 0），fresh home `<temp>\dsh-sg-e2e-20261113-025209`；`bundleEntries 1`、`executedBytes 2,572,166 = sourceBytes`、`executedRatio 1`、`pageErrors []`。第 1 次在 `session-groups-view` 可见性等待超时：宿主 “Get started” 对话框在脚本 3.5s overlay 探测之后才挂载并挡住视图——测试脚本时序竞态，不是插件问题；重试 PASS。`e2e/ui-runtime.spec.mjs` 的 `dismissOverlays` 后续可加固（本批未改）。
+- 无 locale sweep：397 keys × 19 dictionaries 未变；official A+ O 未跑、不声称（最新 official 证据仍是 `.61`）。
 
 ## 0.4.0-beta.63 历史轮（2026-11-12，已发布）
 

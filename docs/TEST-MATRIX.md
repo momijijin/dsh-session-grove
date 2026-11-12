@@ -21,9 +21,10 @@ Counts in this file describe the current `dev` tree unless a line says
 otherwise; the **`.65` batch evidence** below is the current count, and the
 published `.64` and `.63` figures that follow are historical. The `.65` dev tree
 runs **1027/1027** unit/contract tests and **45/45** `check:ui` cases with
-**397 locale keys in 19 dictionaries** (no locale resource changed), and its
-real-host `test:isolated` / `test:ui-browser` evidence is **pending** (user
-fresh host). The `.64` tree (released as `v0.4.0-beta.64` on 2026-11-12) ran
+**397 locale keys in 19 dictionaries** (no locale resource changed); its
+real-host `test:isolated` and `test:ui-browser` evidence is **PASS** (2026-11-13,
+agent debug run at the user's explicit request, two fresh homes, `.65` tarball
+**835,756 bytes**). The `.64` tree (released as `v0.4.0-beta.64` on 2026-11-12) ran
 **938/938** unit/contract tests and 44/44 `check:ui` cases; the `.64` community
 run passed `test:isolated`, `test:ui-browser`, `test:locale-pack` and
 `test:all-locales` on 2026-11-12. The `.63` tree (released as
@@ -56,19 +57,32 @@ changed; `DOC_VERSION` stays 1.
   **PASS**; `node --check lib/client.js` — **PASS**; `npm run check:release` —
   **PASS** (four version sources agree, `.65` release note present, bundle
   stamp, 25/25 packaged paths); `npm pack --dry-run` — **PASS**
-  (**246 files**, package **835.3 kB**, unpacked **3.2 MB**). The acceptance
-  tarball `dsh-session-grove-0.4.0-beta.65.tgz` is packed to
-  `%TEMP%\dsh-grove-pack\` (outside the repository).
-- `npm run test:isolated` — **pending (user fresh host)**: not run by the AI
-  for `.65`; it must be executed on a fresh isolated home with the `.65`
-  tarball. **Not PASS.**
-- `npm run test:ui-browser` — **pending (user fresh host)**: same fresh-host
-  requirement; **not PASS.** No locale sweep is required for `.65` (no locale
-  resource changed) and no official A+ O run is claimed.
+  (**246 files**, package **835.8 kB**, unpacked **3.2 MB**). The acceptance
+  tarball `dsh-session-grove-0.4.0-beta.65.tgz` (**835,756 bytes**, sha256
+  `AE0DE4AC115B0E39FD9ADBFDDA89A0BFCB211DAF9D5E116972226331F190B766`) is
+  packed to `%TEMP%\dsh-grove-pack\` (outside the repository).
+- `npm run test:isolated` — **PASS** (exit 0) on fresh home
+  `<temp>\dsh-sg-e2e-20261113-024652` with the `.65` tarball: **30 pass /
+  0 skip / 0 failure** and **71 screenshots**; preview geometry dialog
+  **560×560**, narrow sidebar **252**, body scroll **3659>466**, row gaps
+  **[0,0,0]**; the dialog-keyboard section that had failed before now passes.
+  This was an **agent debug run at the user's explicit request** ("this time
+  you run it first"), not a user run; it is **not** user desktop acceptance.
+- `npm run test:ui-browser` — **PASS on the second attempt** (exit 0) on a
+  second fresh home `<temp>\dsh-sg-e2e-20261113-025209`: `bundleEntries 1`,
+  `executedBytes 2,572,166 = sourceBytes`, `executedRatio 1`, `pageErrors []`.
+  The first attempt timed out waiting for `session-groups-view` to become
+  visible: the host "Get started" dialog mounted only after the script's 3.5s
+  overlay probe and covered the view — a test-script timing race, not a plugin
+  failure; the retry passed. Hardening `dismissOverlays` in
+  `e2e/ui-runtime.spec.mjs` is left to a later batch (not changed for `.65`).
 - Architecture guards: import graph **116 source modules / 335 adjacency edges
-  / 0 cycles** (the negative fixture detects a cycle); `createHostCommands`
-  exposes the **17** documented keys; the shell returns the **21**-key
+  / 0 cycles** (the detector was exercised with a synthetic cycle during
+  development, not committed as a fixture); `createHostCommands` exposes the
+  **17** documented keys; the shell returns the **21**-key
   `createHostIntegration` contract; `uiModules` is **28**.
+- No locale sweep is required for `.65` (no locale resource changed) and no
+  official A+ O run is claimed; the latest official evidence remains `.61`.
 
 The `.64` section below records the previous release (historical; not `.65`
 evidence).
@@ -215,8 +229,8 @@ are historical and must not be quoted as `.62` evidence.
 
 | Code | Meaning |
 |---|---|
-| `U` | Unit/contract tests: `npm test` (907 tests on the current `.62` dev tree; 726 at the `.61` dev tree; 699 at the `.60` release; 529 at the `.59` release) |
-| `A+ C` | Isolated Playwright, community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2` (`.62`: 2026-11-11 PASS, `.62` tarball 829,055 bytes; `.64`: 2026-11-12 PASS; `.65`: **pending, user fresh host**) |
+| `U` | Unit/contract tests: `npm test` (907 tests on the historical `.62` dev tree; 726 at the `.61` dev tree; 699 at the `.60` release; 529 at the `.59` release) |
+| `A+ C` | Isolated Playwright, community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2` (`.62`: 2026-11-11 PASS, `.62` tarball 829,055 bytes; `.64`: 2026-11-12 PASS; `.65`: 2026-11-13 PASS, agent debug run at the user's explicit request, `.65` tarball 835,756 bytes, two fresh homes) |
 | `A+ O` | Isolated Playwright on an official DeepSeek Harness desktop host (`.60`: 0.2.1.0 / DSH `0.2.1-rc.5`; `.61`: 0.2.2.0 / DSH `0.2.2-rc.1`; `.62`: **not run**) |
 | `LP` | Test-only all-locale pack (`e2e/fixtures/ja-locale-pack`): host catalog injection + active locale switch |
 | `H` | Historical/manual evidence in an earlier release note or test-results snapshot; not a current default automation |
@@ -227,7 +241,7 @@ The default English A+ is `e2e/isolated.spec.mjs`; the language-pack A+ is
 every packaged dictionary and checks the header + new-group dialog + profile
 popover/preview copy and bounds.
 
-## Current `.62` isolated evidence (2026-11-11)
+## Historical `.62` isolated evidence (2026-11-11)
 
 Artifact: `dsh-session-grove-0.4.0-beta.62.tgz`, **829,055 bytes**, sha256
 `47DFB392…11B34` (user-supplied abbreviated digest). Host: community DSH

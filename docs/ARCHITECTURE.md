@@ -5,7 +5,7 @@
 已验证壳：社区版 DSH Desktop **Stable** 2.0.18（rc.2）；官方 DeepSeek Harness 桌面版 0.2.2.0（rc.1，隔离 A+）；0.2.1.0（rc.5）为 `.60` 历史验证（隔离 A+ + 桌面窗口验收）  
 明确不支持：社区版 DSH Desktop Beta、社区版 DSH NEXT（`-next`）  
 分发状态：`.60` 已上架 dshmarket；GitHub Release 附件与本地 beta tarball 仅维护者/调试路径。`.62` 是更早的发布版本（分组归档 + 双三态 + 结构锁）；`.63` 已发布（2026-11-12，首次引导漏斗 + 就地提示 + 文档站点入口），README 已瘦身为入口页；`.64` 已发布（2026-11-12，浮层统一策略），`.65` 是当前未发布的 dev 批次（对话框键盘时序修复 + 架构债清理）。  
-测试基线（`.65` dev tree）：1027/1027 unit/contract、45/45 UI runtime（1 module-load + 44 component tests，19 components / 28 client modules）+ 1 browser spec；397 locale keys × 19 dictionaries；coverage 94.81/86.81/91.44（阈值 92/80/85；同批 94.68–94.84 / 86.79–86.87 / 91.44–91.55 波动，记录轮 94.81/86.81/91.44）。真实宿主证据 `test:isolated` / `test:ui-browser` 为 pending（待用户 fresh host），不得按 PASS 引用。
+测试基线（`.65` dev tree）：1027/1027 unit/contract、45/45 UI runtime（1 module-load + 44 component tests，19 components / 28 client modules）+ 1 browser spec；397 locale keys × 19 dictionaries；coverage 94.81/86.81/91.44（阈值 92/80/85；同批 94.68–94.84 / 86.79–86.87 / 91.44–91.55 波动，记录轮 94.81/86.81/91.44）。真实宿主 `test:isolated` / `test:ui-browser` 均为 **PASS**（agent debug run at the user's explicit request，2026-11-13：fresh home 两项、`.65` 包 **835,756 bytes** / sha256 `AE0DE4AC…`；`test:ui-browser` 首跑因宿主 "Get started" 对话框晚于脚本 overlay 探测挂载而超时，重试 PASS，属测试脚本时序竞态）；非用户桌面验收，official A+ O 最新仍为 `.61`。
 
 插件按洋葱圈分层，宿主升级时只改外圈。
 
@@ -264,7 +264,7 @@ Host 权威守卫：
   - `.65` 起 registry 状态直接复用 `profile-registry.js` 的分类器，doctor 与 registry 判定不会各写一套
 - `src/host/atomic-write.js` + `src/host/file-lock.js`（0.4.0-beta.65 去重）
   - `atomic-write.js`（69 行）只导出原子写 helper 原语：retry 循环与可重试错误码、`pathExists`、best-effort 目录 fsync、quarantine 时间戳、`temporaryPathForWrite` 临时路径构造；temp → fsync → `.bak` → rename → 目录 fsync 的写序列本身仍在 `src/host/store.js` 与 `src/host/profile-registry.js` 各自模块
-  - `file-lock.js`（149 行）只共享跨进程 `.lock` 获取、stale lock 回收与 token 校验释放；错误码与 busy 文案由调用方注入（`group store is busy` / `profile registry is busy`），`enqueue` 的同进程 promise tail 仍留在 store / registry 各自模块
+  - `file-lock.js`（149 行）只共享跨进程 `.lock` 获取、stale lock 回收与 token 校验释放；错误码固定为 `store-busy`，只有 busy 文案由调用方注入（`group store is busy` / `profile registry is busy`），`enqueue` 的同进程 promise tail 仍留在 store / registry 各自模块
   - 两者只共用 helper 原语，host 层不再各留一份重复实现；写路径行为与拆分前逐字一致
 - `src/host/profile-registry.js` + `profile-manager.js` + `profile-routes.js`
   - registry 原子性/CAS/degraded 在 `profile-registry.js`；路径解析、per-profile store 缓存与只读 peek 在 `profile-manager.js`
