@@ -5,7 +5,15 @@
  * three-dot button. The first pass clamps against a conservative estimate; the
  * mounted menu measures itself and clamps again with its real rect, so a menu
  * that is ~275px tall never leaves the viewport. All functions are pure.
+ *
+ * 0.4.0-beta.64 adds `menuBoxLimits`: the width cap and the height left below
+ * the menu's y, so the box scrolls instead of overflowing a narrow or short
+ * viewport. The x/y shift clamp stays local (the menu is anchored at a pointer,
+ * not at an element edge); only the box math delegates to the shared popover
+ * resolver.
  */
+
+import { POPOVER_VIEWPORT_PADDING, resolvePopoverRect } from './popover-position.js'
 
 export const MENU_VIEWPORT_PADDING = 8
 /** Conservative pre-measure estimates (the mounted menu refines them). */
@@ -25,6 +33,38 @@ export const clampMenuPosition = ({ x, y, width, height, viewportWidth, viewport
   return {
     x: Math.min(Math.max(padding, finite(x, padding)), maxX),
     y: Math.min(Math.max(padding, finite(y, padding)), maxY),
+  }
+}
+
+/**
+ * Outer-box limits for the mounted menu: the widest border-box it may take
+ * (`min(maxWidth, vw - 2*pad)`) and the height left below `top`.
+ *
+ * Width is the one piece of menu geometry that matches the popover policy, so
+ * it reuses `resolvePopoverRect` with a zero-sized point anchor and
+ * `flip: false`; the caller still owns the x/y shift clamp above. `top` is the
+ * menu's final viewport y, so a menu opened low scrolls instead of running off
+ * the bottom edge. Non-finite viewport values fall back to 0 the same way the
+ * rest of this module does.
+ *
+ * Both geometry knobs are optional: `top` defaults to
+ * `POPOVER_VIEWPORT_PADDING` (the shared 8px breathing room) and `maxWidth` to
+ * `360` for callers that only need the default menu width cap.
+ */
+export const menuBoxLimits = ({ viewport = {}, top = POPOVER_VIEWPORT_PADDING, maxWidth = 360 } = {}) => {
+  const vh = Math.max(0, finite(viewport?.height, 0))
+  const limit = Math.max(0, finite(maxWidth, 360))
+  const { width } = resolvePopoverRect({
+    anchor: { left: 0, right: 0, top: 0, bottom: 0 },
+    size: { width: limit, height: 0 },
+    viewport,
+    align: 'inline-start',
+    flip: false,
+    maxWidth: limit,
+  })
+  return {
+    width,
+    maxHeight: Math.max(0, vh - POPOVER_VIEWPORT_PADDING - finite(top, POPOVER_VIEWPORT_PADDING)),
   }
 }
 

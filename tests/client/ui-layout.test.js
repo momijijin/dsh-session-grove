@@ -409,6 +409,10 @@ test('0.4.0-beta.62 menus disable frozen actions with a visible reason', () => {
   assert.doesNotMatch(sessionMenu, /sessionLockedExtra\('copy-id'\)/)
 })
 
+test('0.4.0-beta.64 menu labels ellipsize instead of wrapping', () => {
+  assert.match(block('.dsg-menu-item-label {'), /text-overflow:\s*ellipsis/)
+})
+
 test('0.4.0-beta.62 drag preview and commit share the archive drop checks', () => {
   assert.match(componentsSource, /import \{ applyGroupDrop, checkGroupDrop \} from '\.\.\/core\/archive-drop\.js'/)
   assert.match(componentsSource, /import \{ effectiveArchived, hasArchivedDescendant \} from '\.\.\/shared\/archive\.js'/)
