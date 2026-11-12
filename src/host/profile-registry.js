@@ -148,32 +148,80 @@ const validateRegistry = (registry) => {
 
 /**
  * Classify one registry body without touching the filesystem.
+ *
+ * Canonical contract shared with `storage-health.js` (spec §7.3): every branch
+ * carries `revision`/`activeId`/`profileCount` so a read-only doctor report can
+ * map the verdict without re-parsing; `detail` explains every non-`ok` kind and
+ * `registry` is the parsed body only for `ok`. The registry read path here
+ * consumes `kind`/`detail`/`registry`/`revision` only, so the extra fields
+ * change nothing for load/heal.
+ *
  * @param {string} text
+ * @returns {{
+ *   kind: 'ok'|'corrupt'|'unsupported-version'|'invalid',
+ *   detail?: string,
+ *   version?: number,
+ *   registry?: object,
+ *   revision: number|null,
+ *   activeId: string|null,
+ *   profileCount: number,
+ * }}
  */
-const classifyRegistryText = (text) => {
+export const classifyRegistryText = (text) => {
   let parsed
   try {
     parsed = JSON.parse(text)
   } catch (error) {
-    return { kind: 'corrupt', detail: `invalid JSON: ${errorMessage(error)}` }
+    return {
+      kind: 'corrupt',
+      detail: `invalid JSON: ${errorMessage(error)}`,
+      revision: null,
+      activeId: null,
+      profileCount: 0,
+    }
   }
-  if (!isObject(parsed)) return { kind: 'corrupt', detail: 'registry is not a JSON object' }
+  if (!isObject(parsed)) {
+    return {
+      kind: 'corrupt',
+      detail: 'registry is not a JSON object',
+      revision: null,
+      activeId: null,
+      profileCount: 0,
+    }
+  }
+  const revision = Number.isInteger(parsed.revision) ? parsed.revision : null
+  const activeId = typeof parsed.activeId === 'string' ? parsed.activeId : null
+  const profileCount = Array.isArray(parsed.profiles) ? parsed.profiles.length : 0
   if (typeof parsed.version === 'number' && parsed.version > REGISTRY_VERSION) {
     return {
       kind: 'unsupported-version',
       version: parsed.version,
       detail: `registry version ${String(parsed.version)} is newer than ${String(REGISTRY_VERSION)}`,
+      revision,
+      activeId,
+      profileCount,
     }
   }
   if (parsed.version !== REGISTRY_VERSION) {
     return {
       kind: 'invalid',
       detail: `version must be ${String(REGISTRY_VERSION)} (got ${JSON.stringify(parsed.version)})`,
+      revision,
+      activeId,
+      profileCount,
     }
   }
   const verdict = validateRegistry(parsed)
-  if (!verdict.ok) return { kind: 'invalid', detail: verdict.errors.join('; ') }
-  return { kind: 'ok', registry: parsed, revision: parsed.revision }
+  if (!verdict.ok) {
+    return {
+      kind: 'invalid',
+      detail: verdict.errors.join('; '),
+      revision,
+      activeId,
+      profileCount,
+    }
+  }
+  return { kind: 'ok', registry: parsed, revision, activeId, profileCount }
 }
 
 /**

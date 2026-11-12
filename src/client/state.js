@@ -21,9 +21,6 @@ import { emptyDoc } from '../shared/model.js'
 import { MAX_PROFILES } from '../shared/profile-limits.js'
 import { DEFAULT_PROFILE_ID, readArchiveFilter, readCollapsed, readGroupArchiveFilter, readViewMode, safeStorage, writeArchiveFilter, writeCollapsed, writeGroupArchiveFilter, writeViewMode } from './state/persistence.js'
 
-/** Fallback profile cap when a legacy host omits `limits` (SPEC §5.3). */
-const DEFAULT_PROFILE_LIMIT = MAX_PROFILES
-
 /**
  * Empty profile summary (SPEC §7.2); `available` flips only on a 404 probe.
  * `archivedList` is only filled by `includeArchived` reads (manage dialog) so a
@@ -37,7 +34,7 @@ const initialProfiles = () => ({
   activeId: null,
   list: [],
   archivedList: [],
-  limits: { max: DEFAULT_PROFILE_LIMIT },
+  limits: { max: MAX_PROFILES },
   error: null,
 })
 
@@ -311,7 +308,7 @@ export const createStore = ({ storage = safeStorage() } = {}) => {
         const includeArchived = payload.includeArchived === true
         const max = Number.isInteger(payload.limits?.max) && payload.limits.max > 0
           ? payload.limits.max
-          : snapshot.profiles.limits?.max ?? DEFAULT_PROFILE_LIMIT
+          : snapshot.profiles.limits?.max ?? MAX_PROFILES
         return publish({
           ...snapshot,
           profiles: {

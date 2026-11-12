@@ -21,8 +21,6 @@ const h = createElement
 
 /** Mirrors the shared host profile name cap (SPEC §4.4); exported alias kept. */
 const PROFILE_NAME_MAX = MAX_PROFILE_NAME
-/** Fallback cap when a legacy host omits `limits` (SPEC §5.3). */
-const DEFAULT_PROFILE_LIMIT = MAX_PROFILES
 
 const dispatch = (action, payload) => rt()?.store?.dispatch?.(action, payload)
 
@@ -310,7 +308,7 @@ const ProfileManageBody = ({ store, t, storage }) => {
   const activeId = profiles.activeId ?? store?.profileId ?? null
   const list = unarchivedProfiles(profiles)
   const archived = archivedProfiles(profiles)
-  const max = Number.isInteger(profiles.limits?.max) ? profiles.limits.max : DEFAULT_PROFILE_LIMIT
+  const max = Number.isInteger(profiles.limits?.max) ? profiles.limits.max : MAX_PROFILES
   const canArchiveAnother = list.length > 1
   const rows = []
   const manageRow = (profile, isArchived) => {
@@ -456,7 +454,6 @@ const ProfileManageBody = ({ store, t, storage }) => {
 
 export {
   PROFILE_NAME_MAX,
-  DEFAULT_PROFILE_LIMIT,
   profileDisplayName,
   unarchivedProfiles,
   archivedProfiles,

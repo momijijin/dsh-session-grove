@@ -11,6 +11,7 @@ import { computeGroupVisibility, effectiveArchived, hasArchivedDescendant } from
 import { archiveFailureKey, archiveFailureNeedsRefresh, archiveNeedsConfirm as archiveConfirmBoundary, archiveVisibilityAction, groupArchiveCommitMatches, moveGroupSafeIndex, pendingFollowShouldAssign, shouldConfirmGroupArchive } from '../core/dialog-selection.js'
 import { placeForkedSession } from '../core/fork.js'
 import { newSessionFollow, pendingFollowStillValid } from '../core/new-session-follow.js'
+import { sessionContainer } from '../core/tree.js'
 import { createActions } from './actions.js'
 import { readArchiveConfirmSkip, writeArchiveConfirmSkip } from './state/persistence.js'
 
@@ -33,14 +34,6 @@ const ARCHIVE_KEYS = Object.freeze({
   archivedLocked: 'menu.groupArchivedLocked',
   containsArchived: 'menu.groupContainsArchivedLocked',
 })
-
-/** Containing group id for a session, or `null` when ungrouped. */
-const groupIdOfSession = (doc, sessionId) => {
-  for (const group of Array.isArray(doc?.groups) ? doc.groups : []) {
-    if (Array.isArray(group.sessionIds) && group.sessionIds.includes(sessionId)) return group.id
-  }
-  return null
-}
 
 /** Group id plus every recursive descendant id (cycle-safe). */
 const groupSubtreeIds = (doc, groupId) => {
@@ -66,7 +59,7 @@ const groupVisibleUnderFilter = (doc, groupId, filter) => {
 const sessionVisibleUnderFilter = (doc, sessionId, filter) => {
   if (filter === 'all') return true
   const visibility = computeGroupVisibility(doc, filter)
-  const groupId = groupIdOfSession(doc, sessionId)
+  const groupId = sessionContainer(doc, sessionId).groupId
   return groupId === null ? visibility.ungroupedVisible : visibility.sessionGroups.has(groupId)
 }
 
@@ -409,7 +402,7 @@ export const createHostCommands = ({
     // 0.4.0-beta.62 §8: a fork out of an archived container is refused before
     // the host creates the child session.
     const sourceDoc = getDoc()
-    const sourceGroupId = groupIdOfSession(sourceDoc, sessionId)
+    const sourceGroupId = sessionContainer(sourceDoc, sessionId).groupId
     if (sourceGroupId !== null && effectiveArchived(sourceDoc, sourceGroupId)) {
       notify({ kind: 'info', message: t(ARCHIVE_KEYS.archivedLocked) })
       return
