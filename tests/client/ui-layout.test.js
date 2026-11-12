@@ -30,6 +30,9 @@ const componentProfiles = [
 ].join('\n')
 const componentProfileDialogs = readFileSync(new URL('../../src/client/components-profile-dialogs.js', import.meta.url), 'utf8')
 const dialogHost = readFileSync(new URL('../../src/client/dialog-host.js', import.meta.url), 'utf8')
+const dialogBodies = readFileSync(new URL('../../src/client/dialog-bodies.js', import.meta.url), 'utf8')
+// Group/session bodies live in dialog-bodies.js; the shell keeps the chrome.
+const dialogHostBodies = [dialogHost, dialogBodies].join('\n')
 // Profile form bodies/validation/actions live in dialog-profile.js; the shell
 // keeps the generic modal chrome and the `dialog.kind` dispatch, so the
 // profile-dialog assertions read both files.
@@ -50,6 +53,7 @@ const components = [
   componentProfiles,
   componentProfileDialogs,
   dialogHost,
+  dialogBodies,
   groupsViewWidth,
   groupsViewState,
   groupsViewMenu,
@@ -193,9 +197,9 @@ test('0.2.39 dialog restores the compact 0.2.30 chrome with theme tokens', () =>
   // confirm payload carries it; cancel/failure never write the preference.
   assert.match(dialogHost, /const \[dontAskAgain, setDontAskAgain\] = useState\(false\)/)
   assert.match(dialogHost, /setDontAskAgain\(false\)/)
-  assert.match(dialogHost, /class: 'dsg-dialog-check'/)
-  assert.match(dialogHost, /'data-testid': 'session-groups-dialog-archive-dont-ask'/)
-  assert.match(dialogHost, /t\('dialog\.archiveGroupDontAsk'\)/)
+  assert.match(dialogHostBodies, /class: 'dsg-dialog-check'/)
+  assert.match(dialogHostBodies, /'data-testid': 'session-groups-dialog-archive-dont-ask'/)
+  assert.match(dialogHostBodies, /t\('dialog\.archiveGroupDontAsk'\)/)
   assert.match(dialogHost, /\{ dontAskAgain \}/)
   assert.match(CSS, /\.dsg-dialog-check \{ display:\s*flex; align-items:\s*center;/)
   assert.match(CSS, /\.dsg-dialog-check input \{ flex:\s*none; width:\s*14px; height:\s*14px;/)
@@ -560,7 +564,7 @@ test('0.2.28 blocked and unread counters reuse the grouped dropdown contract', (
 test('0.2.27 ungrouped inbox is session-only for drops and group move menus', () => {
   assert.match(components, /ungrouped\.sessionsOnly/)
   assert.match(components, /if \(drag\.kind === 'group'\)/)
-  assert.match(components, /allowRoot: dialog\.kind !== 'move-group'/)
+  assert.match(dialogHostBodies, /allowRoot: dialog\.kind !== 'move-group'/)
   assert.equal(components.includes("previewGroupDrop(event, { kind: 'group-root-end' }"), false)
   assert.equal(components.includes("commitGroupDrop(drag.groupId, { kind: 'root-end' })"), false)
 })
@@ -908,9 +912,9 @@ test('0.2.15 group palette: twelve distinct ids, color-token rules and a menu co
   // Menu item opens the color dialog; the dialog renders palette swatches.
   assert.match(sessionMenu, /handlers\.openGroupColor\(menu\.groupId\)/)
   assert.match(components, /kind: 'group-color'/)
-  assert.match(components, /'data-testid': 'session-groups-dialog-color'/)
-  assert.match(components, /role: 'radiogroup'/)
-  assert.match(components, /dsg-color-swatch/)
+  assert.match(dialogHostBodies, /'data-testid': 'session-groups-dialog-color'/)
+  assert.match(dialogHostBodies, /role: 'radiogroup'/)
+  assert.match(dialogHostBodies, /dsg-color-swatch/)
   assert.match(block('.dsg-color-swatch {'), /background:|width:\s*16px/)
   assert.match(block('.dsg-color-option[data-selected="true"] {'), /border-color:\s*var\(--dsw-alias-label-primary/)
   // The plugin applies the choice through the shared model setter.
@@ -1052,20 +1056,21 @@ test('0.2.14 color dialog: 2x3 roomy grid, fixed check slot, custom native+hex r
   assert.match(option, /height:\s*36px/)
   assert.match(option, /width:\s*100%/)
   // Every preset cell renders a check node; unselected cells hide (not remove) it.
-  assert.match(components, /'data-testid': 'session-groups-dialog-color-check'/)
-  assert.match(components, /'data-empty': active \? 'false' : 'true'/)
-  assert.match(components, /visibility: active \? 'visible' : 'hidden'/)
+  assert.match(dialogHostBodies, /'data-testid': 'session-groups-dialog-color-check'/)
+  assert.match(dialogHostBodies, /'data-empty': active \? 'false' : 'true'/)
+  assert.match(dialogHostBodies, /visibility: active \? 'visible' : 'hidden'/)
   assert.match(block('.dsg-dialog-option-check {'), /width:\s*16px/)
   assert.match(block('.dsg-dialog-option-check {'), /flex:\s*none/)
   // Custom row: native color swatch + 7-char hex input + aria-live hint.
-  assert.match(components, /type: 'color'/)
-  assert.match(components, /'data-testid': 'session-groups-dialog-color-native'/)
-  assert.match(components, /'data-testid': 'session-groups-dialog-color-hex'/)
-  assert.match(components, /maxlength: '7'/)
-  assert.match(components, /'aria-live': 'polite'/)
-  assert.match(components, /'data-testid': 'session-groups-dialog-color-hint'/)
-  assert.match(components, /normalizeColorHex\(raw\)/)
-  assert.match(components, /setHexInput\(''\)/)
+  assert.match(dialogHostBodies, /type: 'color'/)
+  assert.match(dialogHostBodies, /'data-testid': 'session-groups-dialog-color-native'/)
+  assert.match(dialogHostBodies, /'data-testid': 'session-groups-dialog-color-hex'/)
+  assert.match(dialogHostBodies, /maxlength: '7'/)
+  assert.match(dialogHostBodies, /'aria-live': 'polite'/)
+  assert.match(dialogHostBodies, /'data-testid': 'session-groups-dialog-color-hint'/)
+  assert.match(dialogHostBodies, /normalizeColorHex\(raw\)/)
+  // Preset picks clear the hex field through the injected callback.
+  assert.match(dialogHostBodies, /onHexInput\(''\)/)
   assert.match(block('.dsg-color-custom-row {'), /height:\s*32px/)
   assert.match(block('.dsg-color-hex {'), /flex:\s*1/)
   assert.match(block('.dsg-color-hint {'), /font-size:\s*var\(--dsg-font-11,\s*11px\)/)
@@ -1170,13 +1175,13 @@ test('0.2.9 delete group: destination picker, empty direct path and move-and-del
   // Non-empty delete dialog: 删除分组 title, counts, destination list and root option.
   assert.match(components, /kind: 'delete-group'/)
   assert.match(components, /titleKey: 'dialog\.deleteGroup'/)
-  assert.match(components, /t\('group\.sessionCount'/)
-  assert.match(components, /t\('group\.subgroupCount'/)
-  assert.match(components, /t\('dialog\.deleteMoveInstruction'/)
-  assert.match(components, /session-groups-dialog-delete-body/)
-  assert.match(components, /deleteGroupOptions\(store\.doc, dialog\.groupId\)/)
-  assert.match(components, /rootLabel: t\('dialog\.rootDestination'\)/)
-  assert.match(components, /session-groups-dialog-delete-options/)
+  assert.match(dialogHostBodies, /t\('group\.sessionCount'/)
+  assert.match(dialogHostBodies, /t\('group\.subgroupCount'/)
+  assert.match(dialogHostBodies, /t\('dialog\.deleteMoveInstruction'/)
+  assert.match(dialogHostBodies, /session-groups-dialog-delete-body/)
+  assert.match(dialogHostBodies, /deleteGroupOptions\(store\.doc, dialog\.groupId\)/)
+  assert.match(dialogHostBodies, /rootLabel: t\('dialog\.rootDestination'\)/)
+  assert.match(dialogHostBodies, /session-groups-dialog-delete-options/)
   // Group and session moves use separate titles; neither claims to move the session.
   assert.equal(zh['dialog.moveGroup'], '移动分组')
   assert.equal(zh['dialog.moveSession'], '归入分组')
