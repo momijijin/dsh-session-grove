@@ -59,16 +59,21 @@ const sessionMenu = readFileSync(new URL('../../src/client/session-menu.js', imp
 const scrollArea = readFileSync(new URL('../../src/client/scroll-area.js', import.meta.url), 'utf8')
 const groupPicker = readFileSync(new URL('../../src/client/group-list-picker.js', import.meta.url), 'utf8')
 /**
- * The plugin family is split across the composition root (`plugin.js`) and the
- * three controllers it wires (document / profiles / host). Source-text
- * assertions read the concatenation of all four, plus the small mount adapters.
+ * The plugin family is split across the composition root (`plugin.js`), the
+ * three controllers it wires (document / profiles / host) and the host command
+ * layer (`plugin-host-commands.js`). Source-text assertions read the
+ * concatenation of all five, plus the small mount adapters.
  */
+const pluginHostShell = () => readFileSync(new URL('../../src/client/plugin-host.js', import.meta.url), 'utf8')
+const pluginHostCommands = () =>
+  readFileSync(new URL('../../src/client/plugin-host-commands.js', import.meta.url), 'utf8')
 const pluginFamily = () =>
   [
     readFileSync(new URL('../../src/client/plugin.js', import.meta.url), 'utf8'),
     readFileSync(new URL('../../src/client/plugin-document.js', import.meta.url), 'utf8'),
     readFileSync(new URL('../../src/client/plugin-profiles.js', import.meta.url), 'utf8'),
-    readFileSync(new URL('../../src/client/plugin-host.js', import.meta.url), 'utf8'),
+    pluginHostShell(),
+    pluginHostCommands(),
   ].join('\n')
 const plugin = [
   pluginFamily(),
@@ -1607,4 +1612,46 @@ test('0.4.0 profiles: save-as echo is local and archive refresh is forced', () =
   // The default copy name is shortened/numbered before the dialog renders so a
   // taken default never opens as nameDuplicate with Create disabled.
   assert.match(componentProfileDialogs, /PROFILE_NAME_MAX - tail\.length - 1/)
+})
+
+test('0.4.0-beta.65 plugin host shell returns exactly the 21 documented keys', () => {
+  // S2 split the command layer out but kept the host surface frozen: the shell
+  // literal return block is the single place the 21 keys are assembled.
+  const source = pluginHostShell().replace(/\r\n/g, '\n')
+  const block = source.match(/\n  return \{\n([\s\S]*?)\n  \}\n\}/)
+  assert.ok(block, 'the shell keeps a literal return block')
+  const keys = block[1]
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.match(/^([A-Za-z_$][\w$]*)\s*[,:]/)?.[1])
+  assert.deepEqual(keys, [
+    'mount',
+    'dispose',
+    'actions',
+    'capabilities',
+    'archiveSession',
+    'unarchiveSession',
+    'forkSession',
+    'copySessionId',
+    'archiveGroup',
+    'unarchiveGroup',
+    'openDialog',
+    'newSessionInGroup',
+    'reconcileNewSessionGroup',
+    'confirmDialog',
+    'deleteGroupDirect',
+    'setArchiveFilter',
+    'setGroupArchiveFilter',
+    'resetLayout',
+    'setMode',
+    'toggleMode',
+    'applyEpoch',
+  ])
+  // No spread: every command key is forwarded literally, so a new key can
+  // never leak into the host surface silently.
+  assert.doesNotMatch(block[1], /\.\.\./)
+  // The moved layer still owns the factory and the follow guard.
+  assert.match(pluginHostCommands(), /export const createHostCommands = \(/)
+  assert.match(pluginHostCommands(), /const installFollowGuard = \(\) =>/)
 })

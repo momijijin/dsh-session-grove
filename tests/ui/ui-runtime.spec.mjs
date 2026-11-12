@@ -59,6 +59,7 @@ const uiModules = [
   'groups-view-search.js',
   'groups-view-state.js',
   'plugin-locale.js',
+  'plugin-host-commands.js',
   'icons.js',
   'floating-label.js',
   'floating-panel.js',
@@ -67,7 +68,7 @@ const uiModules = [
 ]
 
 test('client UI modules execute under a test React peer', async () => {
-  assert.equal(uiModules.length, 26)
+  assert.equal(uiModules.length, 27)
   for (const file of uiModules) {
     const module = await import(new URL(`../../src/client/${file}`, import.meta.url))
     assert.ok(module && typeof module === 'object', `${file} did not load`)
