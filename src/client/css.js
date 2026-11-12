@@ -544,17 +544,23 @@ export const CSS = `
 .dsg-menu-item[data-disabled="true"]:hover { background: transparent; }
 .dsg-menu-separator { height: 1px; margin: 3px 2px; background: var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 15%, transparent)); }
 .dsg-menu-section { padding: 6px 10px 2px; font-size: var(--dsg-font-11, 11px); color: var(--dsw-alias-label-secondary, CanvasText); }
-/* View-options popover: anchored under the 28px header icon button. */
+/* View-options popover: positioned by useFloatingPanel against the 28px header
+ * icon button; the CSS box only carries the first-frame fallback size. */
 .dsg-view-options { position: relative; display: inline-flex; flex: none; }
 .dsg-view-options-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
+  /* 0.4.0-beta.64 §6.4: the physical side anchors are gone (JS writes
+   * left/top) and the border box is the design unit, so a measured width never
+   * grows by its own padding. The 200-360px window keeps long locale labels
+   * readable; the vh cap is only the static fallback, the real cap follows the
+   * space left around the trigger (I7). */
+  position: fixed;
+  left: 0;
+  top: 0;
   z-index: 72;
-  min-width: 200px;
-  /* 0.4.0-beta.62 §10: two labelled tri-state sections must stay reachable on a
-   * short viewport instead of clipping the third group row. */
-  max-height: min(70vh, 420px);
+  box-sizing: border-box;
+  min-width: min(200px, calc(100vw - 16px));
+  max-width: min(360px, calc(100vw - 16px));
+  max-height: calc(100vh - 24px);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 6px;
@@ -606,11 +612,12 @@ export const CSS = `
 }
 .dsg-profile-trigger:hover { background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, CanvasText 10%, transparent)); color: var(--dsw-alias-label-primary, CanvasText); }
 .dsg-profile-trigger:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, CanvasText); outline-offset: -2px; }
+/* 0.4.0-beta.64: left/right moved to JS (logical inline-start, so RTL mirrors
+ * without a physical override); the box caps at the viewport. */
 .dsg-profile-popover {
-  left: 0;
-  right: auto;
+  box-sizing: border-box;
   min-width: 220px;
-  max-width: min(300px, calc(100vw - 24px));
+  max-width: min(300px, calc(100vw - 16px));
   max-height: 60vh;
   overflow-y: auto;
   /* The header title is nowrap; the inherited value must not stop the degraded
@@ -803,12 +810,16 @@ export const CSS = `
 .dsg-running-spinner { width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .dsg-running-count { min-width: 8px; font-size: var(--dsg-font-12, 12px); line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; }
 .dsg-running-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
+  /* 0.4.0-beta.64 §6.4: JS places the panel (fixed escapes the host clip) and
+   * the border box is the design unit; width/max-height below are the
+   * first-frame fallback until the controller measures the real box. */
+  position: fixed;
+  left: 0;
+  top: 0;
   z-index: 72;
-  width: 248px;
-  max-height: 320px;
+  box-sizing: border-box;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 24px);
   overflow-y: auto;
   padding: 4px;
   border-radius: var(--dsw-radius-md, 8px);
@@ -1113,9 +1124,9 @@ export const CSS = `
   border-right: 2px solid var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 16%, transparent));
 }
 .dsg-root[dir="rtl"] .dsg-group-caret svg { transform: scaleX(-1); }
-/* Profile switcher keeps the chevron direction (down-arrow is not mirrored) and
- * mirrors only the popover edge/text alignment (SPEC §9.8). */
-.dsg-root[dir="rtl"] .dsg-profile-popover { left: auto; right: 0; }
+/* Profile switcher keeps the chevron direction (down-arrow is not mirrored);
+ * the popover edge is logical in JS now (0.4.0-beta.64 §6.5), so only row text
+ * alignment is mirrored here (SPEC §9.8). */
 .dsg-root[dir="rtl"] .dsg-profile-item { text-align: right; }
 .dsg-root[dir="rtl"] .dsg-profile-footer-button { text-align: right; }
 .dsg-root[dir="rtl"] .dsg-profile-preview-auto { margin-right: 0; margin-left: auto; }
