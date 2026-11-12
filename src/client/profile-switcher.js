@@ -29,6 +29,17 @@ const ProfileMenu = ({ store, handlers, open = false, onOpenChange, onBeforeOpen
   const t = rt()?.t ?? ((key) => key)
   const rootRef = useRef(null)
   const triggerRef = useRef(null)
+  // I4/A13: closing (Escape, outside pointerdown, option pick) returns focus to
+  // the chevron, but only after React commits the close. The browser applies its
+  // mousedown default focus *after* the capture-phase handler, so focusing
+  // synchronously there would be overwritten (activeElement falls back to body).
+  // `wasOpen` keeps the first mount (open=false) inert, so the popover never
+  // steals focus when the header renders. Same pattern as the other triggers.
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (wasOpen.current && !open) triggerRef.current?.focus?.({ preventScroll: true })
+    wasOpen.current = open
+  }, [open])
   const available = store?.profiles?.available !== false && store?.profiles !== undefined
   useEffect(() => {
     if (!open) return undefined
@@ -40,7 +51,6 @@ const ProfileMenu = ({ store, handlers, open = false, onOpenChange, onBeforeOpen
     const onKeyDown = (event) => {
       if (event.key !== 'Escape') return
       onOpenChange?.(false)
-      triggerRef.current?.focus?.({ preventScroll: true })
     }
     doc?.addEventListener?.('pointerdown', onPointerDown, true)
     doc?.addEventListener?.('keydown', onKeyDown, true)
@@ -55,9 +65,8 @@ const ProfileMenu = ({ store, handlers, open = false, onOpenChange, onBeforeOpen
     rt()?.refreshProfiles?.({ background: true })
   }, [open])
   if (!available) return null
-  const closePopover = (options = {}) => {
+  const closePopover = () => {
     onOpenChange?.(false)
-    if (options.restoreFocus === true) triggerRef.current?.focus?.({ preventScroll: true })
   }
   return h(
     'span',
