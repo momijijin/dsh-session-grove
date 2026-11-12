@@ -11,6 +11,15 @@
  * instead of growing the panel by its own padding (spec §6.4), and repeated
  * resize events settle after one write (spec §6.2 convergent write / I5).
  *
+ * `position: fixed` escapes the host's `overflow: hidden` clip only while no
+ * ancestor has a transform or filter (either turns that ancestor into the
+ * containing block), which a rect can never report. The layout effect therefore
+ * probes the four inset corners once per open and folds the panel into the
+ * nearest clipping ancestor (`data-fallback="clip"`) when the host does contain
+ * it (spec §8 / I2). The writing direction comes from the panel's nearest
+ * `[dir]` ancestor, so the logical edge resolves to a physical one without a
+ * direction provider (spec §6.5 / I6).
+ *
  * `data-narrow` is driven by the measured `.dsg-root` width, never by header-row
  * overflow: all seven probed widths show `scrollWidth === clientWidth` because
  * the flex row shrinks the title instead of overflowing (spec §3.3.3). The pure
@@ -131,6 +140,117 @@ const viewportSize = (win) => {
 }
 
 /**
+ * Resolve the writing direction from the panel's nearest `[dir]` ancestor.
+ *
+ * `align` is a logical edge (`inline-end` / `inline-start`), so the resolver
+ * needs to know which physical side that is. Reading `dir` off the ancestor
+ * chain keeps RTL mirroring without a direction provider in every popover.
+ * `undefined` keeps the resolver's LTR default when nothing declares a
+ * direction (spec §6.5 / I6).
+ *
+ * @param {Element|null|undefined} panel
+ * @returns {boolean|undefined}
+ */
+const panelDirection = (panel) => {
+  const dir = panel?.closest?.('[dir]')?.getAttribute?.('dir')
+  if (typeof dir !== 'string') return undefined
+  return dir.toLowerCase() === 'rtl'
+}
+
+/** Inset of the four I2 corner probes inside the placed panel (spec §8). */
+const CLIP_PROBE_INSET = 3
+
+/**
+ * Nearest ancestor that actually clips its descendants.
+ *
+ * The first ancestor whose computed `overflow` (or one axis) is not `visible`
+ * is the box a contained `position: fixed` panel has to fit into. Browsers
+ * expose the shorthand on `overflow` and the longhands on `overflow-x` /
+ * `overflow-y`; either signal counts (spec §8).
+ *
+ * @param {Window|Object|null|undefined} win
+ * @param {Element|null|undefined} panel
+ * @returns {DOMRect|Object|null} the clipping box, or null when nothing clips
+ */
+const clippingBox = (win, panel) => {
+  if (typeof win?.getComputedStyle !== 'function') return null
+  let node = panel?.parentElement ?? null
+  while (node) {
+    const computed = win.getComputedStyle(node)
+    const clipX = computed?.overflowX ?? computed?.overflow
+    const clipY = computed?.overflowY ?? computed?.overflow
+    if ((clipX && clipX !== 'visible') || (clipY && clipY !== 'visible')) {
+      const rect = node.getBoundingClientRect?.()
+      if (rect) return rect
+    }
+    node = node.parentElement ?? null
+  }
+  return null
+}
+
+/**
+ * I2 self-check plus the clip fallback (spec §8).
+ *
+ * A clipped panel still reports its full `getBoundingClientRect`, so the only
+ * reliable signal is hit-testing: probe the four corners 3px inside the placed
+ * panel and require each hit to land inside the panel itself. When a probe
+ * misses, an `overflow: hidden` ancestor of the host is containing the fixed
+ * box; fold the panel into that ancestor instead — width shrinks into the clip
+ * rect and the left edge is clamped inside it — write that once and record
+ * `data-fallback="clip"` so the degradation is observable. A clean probe
+ * removes the attribute again.
+ *
+ * The write intentionally leaves the caller's applied values untouched: a later
+ * relayout that resolves to the same rect stays inside the 1px convergent-write
+ * band and therefore keeps the fallback instead of undoing it.
+ *
+ * @param {Window|Object|null|undefined} win
+ * @param {Element|null|undefined} panel
+ * @param {{ fixedWidth?: boolean }} [options]
+ * @returns {boolean} true when a clip fallback was recorded
+ */
+const verifyPanelClip = (win, panel, { fixedWidth = true } = {}) => {
+  const doc = panel?.ownerDocument ?? win?.document
+  if (!panel || typeof panel.getBoundingClientRect !== 'function' || typeof doc?.elementFromPoint !== 'function') {
+    return false
+  }
+  const rect = panel.getBoundingClientRect()
+  if (!rect) return false
+  const clear = () => {
+    if (typeof panel.getAttribute === 'function' && panel.getAttribute('data-fallback') !== null) {
+      panel.removeAttribute?.('data-fallback')
+    }
+    return false
+  }
+  // A zero-area panel cannot be probed and cannot be folded; leave it alone
+  // rather than reporting a fallback nobody asked for.
+  if (!(rect.width > 0) || !(rect.height > 0)) return clear()
+  const hitsSelf = (x, y) => {
+    const node = doc.elementFromPoint(x, y)
+    return node !== null && node !== undefined && (node === panel || panel.contains?.(node) === true)
+  }
+  const left = rect.left + CLIP_PROBE_INSET
+  const right = rect.right - CLIP_PROBE_INSET
+  const top = rect.top + CLIP_PROBE_INSET
+  const bottom = rect.bottom - CLIP_PROBE_INSET
+  if (hitsSelf(left, top) && hitsSelf(right, top) && hitsSelf(left, bottom) && hitsSelf(right, bottom)) {
+    return clear()
+  }
+
+  const clip = clippingBox(win, panel)
+  if (clip && panel.style) {
+    const available = Math.max(0, clip.right - clip.left)
+    const width = Math.max(0, Math.min(rect.width, available))
+    const folded = Math.max(clip.left, Math.min(rect.left, clip.right - width))
+    panel.style.left = toPx(folded)
+    if (fixedWidth) panel.style.width = toPx(width)
+    else panel.style.maxWidth = toPx(width)
+  }
+  panel.setAttribute?.('data-fallback', 'clip')
+  return true
+}
+
+/**
  * Height cap for a panel that may not declare a design height.
  *
  * A known design height caps the panel directly (the resolver then trims it by
@@ -175,14 +295,15 @@ const maxHeightCap = (designHeight, viewport) => {
  *   fixedWidth?: boolean,
  *   gap?: number,
  *   flip?: boolean,
- * }} options
+ * }} options (leaving `rtl` undefined reads the panel's nearest `[dir]`
+ * ancestor, spec §6.5; an explicit boolean always wins)
  * @returns {{ ref: { current: Element|null }, style: Object, placement: 'inline-end'|'inline-start' }}
  */
 const useFloatingPanel = ({
   open,
   triggerRef,
   align = 'inline-end',
-  rtl = false,
+  rtl,
   designWidth,
   designHeight = 0,
   fixedWidth = true,
@@ -216,13 +337,16 @@ const useFloatingPanel = ({
       // resize refreshes the cap together with the space left on the side.
       const viewport = viewportSize(win)
       const cap = maxHeightCap(designHeight, viewport)
+      // An explicit `rtl` wins; otherwise the panel's nearest `[dir]` ancestor
+      // decides the physical side of the logical `align` edge (§6.5 / I6).
+      const direction = typeof rtl === 'boolean' ? rtl : panelDirection(ref.current)
       return resolvePopoverRect({
         anchor: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
         size,
         viewport,
         maxHeight: cap,
         align,
-        rtl,
+        rtl: direction,
         gap,
         flip,
       })
@@ -277,6 +401,13 @@ const useFloatingPanel = ({
     // design/viewport cap rather than dropping to a zero design height.
     write(resolveAt({ width: designWidth, height: designHeight }))
     write(resolveAt(measure()))
+
+    // I2 (spec §8): once per open, after the first placement, hit-test the four
+    // inset corners. A host transform/filter would put the fixed box back under
+    // an ancestor clip, which no rect reports; the probe catches it and folds
+    // the panel into the clip (`data-fallback="clip"`). Resizes keep the plain
+    // relayout path, so the fallback is an open-time degradation, not a mode.
+    verifyPanelClip(win, ref.current, { fixedWidth })
 
     const relayout = () => {
       if (!ref.current) return
