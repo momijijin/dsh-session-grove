@@ -169,8 +169,8 @@ git merge --no-ff main -m "merge: hotfix v<version> back to dev"
 
 ## 6. 当前基线
 
-- 最新已发布版本：`0.4.0-beta.60`（GitHub Release `v0.4.0-beta.60`，2026-11-10，2 assets；已上架 dshmarket）
-- 当前 dev：与 `0.4.0-beta.60` 发布基线一致（`package.json` 为 `0.4.0-beta.60`）；后续批次从 `dev` 开新 feature 分支并消费下一个 beta 号
-- 当前测试：699/699 + 39 UI runtime cases（1 module-load + 38 component tests，17 components / 21 client modules）+ 1 browser runtime spec，331 locale keys，coverage 约 93.09/83.86/90.46（`.59` 发布时为 529/529 + 15 UI runtime cases）；真实运行时证据以 `docs/TEST-MATRIX.md` 为准（完整 A+ 仅英文；日文有 onboarding 语言包 fixture；19 种语言有全语言 header/dialog/group-menu/settings smoke；阿拉伯语 RTL 有菜单/弹窗 bounds + 设置面板 dir smoke；community A+ profile 2026-11-09 PASS，official A+ O profile 2026-11-10 PASS（`.60` tarball，官方 DeepSeek Harness desktop 0.2.1.0 / DSH 0.2.1-rc.5 隔离宿主，`test:isolated` + `test:ui-browser`），user desktop acceptance 2026-11-10）
+- 最新已发布版本：`0.4.0-beta.63`（GitHub Release `v0.4.0-beta.63`，2026-11-12，2 assets；dshmarket 条目以市场同步为准）
+- 当前 dev：与 `0.4.0-beta.63` 发布基线一致（`package.json` 为 `0.4.0-beta.63`）；后续批次从 `dev` 开新 feature 分支并消费下一个 beta 号（`.64`）
+- 当前测试：914/914 + 42 UI runtime cases（1 module-load + 41 component tests，19 components / 25 client modules）+ 1 browser runtime spec，397 locale keys，coverage 约 95.20/86.02/91.31；真实运行时证据以 `docs/TEST-MATRIX.md` 为准（community `.63`：test:isolated + test:locale-pack + test:all-locales 23/23 PASS，test:ui-browser 未跑；official A+ O 最新为 `.61`；user desktop acceptance 2026-11-12 `.63` PASS）
 - main / dev：以 `git log --oneline -1` 为准，允许分叉
 - 下一次开发从 `dev` 开新 feature 分支，不从 main 拉功能分支
