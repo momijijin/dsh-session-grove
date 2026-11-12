@@ -23,6 +23,8 @@ spike/**/evidence/*.zip
 
 # Local design drafts stay on the developer machine and are never committed
 docs/specs/
+docs/superpowers/
+.superpowers/
 
 # Lockfiles: package-lock.json (npm) is the release/CI install source of truth and stays tracked.
 # pnpm-lock.yaml / pnpm-workspace.yaml are local-development only and are never tracked.
@@ -43,6 +45,7 @@ SHA256SUMS
 
 # Local Gate 0 spike packages/reports (summarized in docs/GATE0-SUMMARY.md)
 spike/
+scripts/spike/
 
 # Local visual-review screenshots (not shipped)
 qa-artifacts/
