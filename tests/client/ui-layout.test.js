@@ -143,6 +143,25 @@ test('header is a 36px official section row: neutral 自由分组 title and 28px
   assert.equal(components.includes("glyph: 'sliders'"), false)
 })
 
+test('0.4.0-beta.64 compact header is measured: root width drives data-narrow, title width drives collapse', () => {
+  // Both flags come from layout measurements; `appliedWidth` only seeds the
+  // first frame as root = sidebar − 12 (spec §6.6).
+  assert.match(components, /import \{ resolveNarrow, shouldCollapseTitle \} from '\.\/floating-panel\.js'/)
+  assert.match(components, /narrow: appliedWidth !== null && appliedWidth - 12 <= 377/)
+  assert.match(components, /const rootWidth = rect \? rect\.width : NaN/)
+  assert.match(components, /const title = root\.querySelector\?\.\('\.dsg-header-title'\)/)
+  assert.match(components, /const titleWidth = title \? title\.clientWidth : NaN/)
+  assert.match(components, /const narrow = resolveNarrow\(rootWidth, current\.narrow\)/)
+  assert.match(components, /const collapsed = shouldCollapseTitle\(titleWidth, current\.collapsed, narrow\)/)
+  // Re-measure on a root resize and on a window resize; the collapse decision
+  // re-runs after `data-narrow` swaps the title gap 4px -> 2px.
+  assert.match(components, /globalThis\.addEventListener\?\.\('resize', measure\)/)
+  assert.match(components, /new Observer\(measure\)/)
+  assert.match(components, /useEffect\(\(\) => \{\r?\n\s+measureChromeRef\.current\?\.\(\)\r?\n\s+\}, \[chrome\.narrow\]\)/)
+  // Collapse hides only the label; the measured title box stays in layout.
+  assert.match(CSS, /\[data-title-collapsed="true"\] \.dsg-header-label \{ display: none; \}/)
+})
+
 test('0.2.39 dialog restores the compact 0.2.30 chrome with theme tokens', () => {
   const dialog = block('.dsg-dialog {')
   assert.match(dialog, /background:\s*var\(--dsw-alias-bg-layer-2/)
@@ -280,7 +299,7 @@ test('0.4.0-beta.62 view options expose both archive tri-states and keep the pop
   assert.match(componentHeader, /'aria-label': t\('view\.options'\)/)
   // The header reads the store value into both the button and the popover.
   assert.match(componentHeader, /const groupFilter = store\.groupArchiveFilter \?\? 'hidden'/)
-  assert.match(componentHeader, /data: \{ 'data-filter': filter, 'data-group-filter': groupFilter \}/)
+  assert.match(componentHeader, /data: \{ ref: optionsTriggerRef, 'data-filter': filter, 'data-group-filter': groupFilter \}/)
   assert.match(componentHeader, /onPickGroup: \(value\) => handlers\.setGroupArchiveFilter\(value\)/)
 
   // §10: picking a row keeps the popover open; only reset layout closes it.
@@ -409,6 +428,10 @@ test('0.4.0-beta.62 menus disable frozen actions with a visible reason', () => {
   assert.doesNotMatch(sessionMenu, /sessionLockedExtra\('copy-id'\)/)
 })
 
+test('0.4.0-beta.64 menu labels ellipsize instead of wrapping', () => {
+  assert.match(block('.dsg-menu-item-label {'), /text-overflow:\s*ellipsis/)
+})
+
 test('0.4.0-beta.62 drag preview and commit share the archive drop checks', () => {
   assert.match(componentsSource, /import \{ applyGroupDrop, checkGroupDrop \} from '\.\.\/core\/archive-drop\.js'/)
   assert.match(componentsSource, /import \{ effectiveArchived, hasArchivedDescendant \} from '\.\.\/shared\/archive\.js'/)
@@ -487,7 +510,14 @@ test('0.4.0-beta.62 view-options sections are labelled and scrollable', () => {
   assert.match(CSS, /\.dsg-view-options-section \{ display:\s*flex; flex-direction:\s*column; gap:\s*2px; min-width:\s*0; \}/)
   assert.match(CSS, /\.dsg-view-options-section-title \{[^}]*font-size:\s*var\(--dsg-font-11[^}]*color:\s*var\(--dsw-alias-label-secondary/s)
   const popover = block('.dsg-view-options-popover {')
-  assert.match(popover, /max-height:\s*min\(70vh, 420px\)/)
+  // 0.4.0-beta.64 §6.4: the box is fixed and placed by the floating-panel
+  // controller, sized as a border-box between 200 and 360px; the vh cap is the
+  // static first-frame fallback for the height the controller writes (I7).
+  assert.match(popover, /position:\s*fixed/)
+  assert.match(popover, /box-sizing:\s*border-box/)
+  assert.match(popover, /min-width:\s*min\(200px, calc\(100vw - 16px\)\)/)
+  assert.match(popover, /max-width:\s*min\(360px, calc\(100vw - 16px\)\)/)
+  assert.match(popover, /max-height:\s*calc\(100vh - 24px\)/)
   assert.match(popover, /overflow-y:\s*auto/)
   // RTL headings align with the row text; badges rely on flex order only.
   assert.match(CSS, /\.dsg-root\[dir="rtl"\] \.dsg-view-options-section-title \{ text-align:\s*right; \}/)
@@ -722,7 +752,44 @@ test('archive tri-state lives in the view-options popover with 30px rows and a c
   assert.match(components, /icon: 'view-options'/)
   const option = block('.dsg-view-option {')
   assert.match(option, /height:\s*30px/)
-  assert.match(block('.dsg-view-options-popover {'), /position:\s*absolute/)
+  assert.match(block('.dsg-view-options-popover {'), /position:\s*fixed/)
+})
+
+test('0.4.0-beta.64 header popovers are placed by the floating-panel controller', () => {
+  // One controller for the three status panels (248px fixed box) and the
+  // view-options / profile popovers (content-sized 200-360 / 220-300px).
+  assert.match(componentHeader, /useFloatingPanel\(\{\s*open,/)
+  assert.match(componentHeader, /align:\s*'inline-end'/)
+  assert.match(componentHeader, /designWidth:\s*248/)
+  assert.match(componentHeader, /designHeight:\s*320/)
+  assert.match(componentHeader, /designWidth:\s*360/)
+  assert.match(componentHeader, /fixedWidth:\s*false/)
+  assert.match(componentHeader, /'data-placement': panel\.placement/)
+  assert.match(componentProfiles, /align:\s*'inline-start'/)
+  assert.match(componentProfiles, /designWidth:\s*300/)
+  assert.match(componentProfiles, /'data-placement': panel\.placement/)
+  // The status panel root carries the same additive placement hook plus the
+  // controller's inline style; 0.4.0-beta.64 P8 cannot open the local
+  // `useState` panel under the test React stub, so the runtime ui-runtime spec
+  // covers the two content-sized roots and this pins the third.
+  assert.match(
+    componentHeader,
+    /class: 'dsg-running-popover',\s*ref: panel\.ref,\s*style: panel\.style,\s*'data-placement': panel\.placement/
+  )
+  // The status panel is a fixed, border-box box: no CSS side anchor positions
+  // it anymore, so the 248px width lives in the component, not in the sheet.
+  const running = block('.dsg-running-popover {')
+  assert.match(running, /position:\s*fixed/)
+  assert.match(running, /box-sizing:\s*border-box/)
+  assert.match(running, /max-width:\s*calc\(100vw - 16px\)/)
+  assert.match(running, /background:\s*var\(--dsw-alias-bg-layer-1/)
+  assert.equal(running.includes('right: 0'), false)
+  assert.equal(running.includes('top: calc(100% + 6px)'), false)
+  // Truncated single-line labels stay readable through `title` (spec §6.3).
+  assert.match(componentHeader, /class: 'dsg-running-group-label', title: groupLabel/)
+  assert.match(componentHeader, /class: 'dsg-running-item',[\s\S]*?title: itemTitle/)
+  assert.match(componentHeader, /class: 'dsg-view-option-label', title: label/)
+  assert.match(componentProfiles, /class: 'dsg-profile-item-label', title: profileLabel\(profile\)/)
 })
 
 test('archive labels and footer action labels match the 0.2.4 copy', () => {
@@ -886,7 +953,11 @@ test('0.2.11 row order: title → workspace → actions → archived → time', 
   assert.match(CSS, /\.dsg-group-row:focus-visible, \.dsg-session-row:focus-visible \{[^}]*outline:\s*2px/s)
   // The applied-width flag hides the workspace badge at the narrow minimum.
   assert.match(CSS, /\.dsg-root\[data-narrow="true"\] \.dsg-workspace-badge \{ display: none; \}/)
-  assert.match(components, /'data-narrow': appliedWidth !== null && appliedWidth <= 320/)
+  // 0.4.0-beta.64: the root flags now come from the measured chrome state, not
+  // from the stored width preference (spec §6.6).
+  assert.match(components, /'data-narrow': chrome\.narrow \? 'true' : 'false'/)
+  assert.match(components, /'data-title-collapsed': chrome\.collapsed \? 'true' : 'false'/)
+  assert.match(components, /'data-width': String\(Math\.round\(chrome\.width\)\)/)
 })
 
 test('0.2.8 session status: official 16x20 slot, spinner, dots, hidden labels and compact trailing', () => {
@@ -1250,6 +1321,9 @@ test('0.4.0 profiles: header chevron is a fixed 24px target beside the title', (
   const label = block('.dsg-header-label {')
   assert.match(label, /min-width:\s*0/)
   assert.match(label, /text-overflow:\s*ellipsis/)
+  // Tiny sidebar: the collapsed title hides only the label, never the measured
+  // `.dsg-header-title` box that drives the flag (spec §6.3/§6.6).
+  assert.match(CSS, /\[data-title-collapsed="true"\] \.dsg-header-label \{ display: none; \}/)
   assert.match(CSS, /\.dsg-root\[data-narrow="true"\] \.dsg-header-title \{ gap:\s*2px; \}/)
   assert.match(componentProfiles, /renderGlyph\(h, 'chevronDown', 14\)/)
   assert.match(componentProfiles, /'aria-haspopup': 'menu'/)
@@ -1260,12 +1334,15 @@ test('0.4.0 profiles: header chevron is a fixed 24px target beside the title', (
   assert.equal(/\.dsg-header-title \{[^}]*overflow:\s*hidden/s.test(CSS), false)
 })
 
-test('0.4.0 profiles: popover mirrors view-options with left alignment and rows', () => {
+test('0.4.0 profiles: popover mirrors view-options with a logical anchor and rows', () => {
+  // 0.4.0-beta.64: the anchor edge moved to JS (logical `inline-start`), so the
+  // block keeps only the border-box cap and the content surface.
   const popover = block('.dsg-profile-popover {')
-  assert.match(popover, /left:\s*0/)
-  assert.match(popover, /right:\s*auto/)
+  assert.equal(/left:\s*0/.test(popover), false)
+  assert.equal(/right:\s*auto/.test(popover), false)
+  assert.match(popover, /box-sizing:\s*border-box/)
   assert.match(popover, /min-width:\s*220px/)
-  assert.match(popover, /max-width:\s*min\(300px/)
+  assert.match(popover, /max-width:\s*min\(300px, calc\(100vw - 16px\)\)/)
   assert.match(popover, /max-height:\s*60vh/)
   assert.match(popover, /overflow-y:\s*auto/)
   assert.match(componentProfiles, /dsg-view-options-popover dsg-profile-popover/)
@@ -1298,7 +1375,10 @@ test('0.4.0 profiles: preview dialog is wider, scrolls and reuses DialogHost chr
   assert.match(componentProfiles, /profiles\.preview\.ungroupedWarning/)
   assert.match(componentProfiles, /slice\(0, 8\)/)
   assert.match(CSS, /\.dsg-profile-preview-auto \{[^}]*margin-right:\s*auto/s)
-  assert.match(CSS, /\.dsg-root\[dir="rtl"\] \.dsg-profile-popover \{ left:\s*auto; right:\s*0; \}/)
+  // 0.4.0-beta.64: the physical RTL edge override is gone (the logical edge is
+  // resolved in JS); the row alignment override stays.
+  assert.equal(CSS.includes('.dsg-root[dir="rtl"] .dsg-profile-popover'), false)
+  assert.match(CSS, /\.dsg-root\[dir="rtl"\] \.dsg-profile-item \{ text-align:\s*right; \}/)
 })
 
 test('0.4.0 profiles: preview diff uses a two-level hierarchy and a capped scrolling height', () => {

@@ -11,6 +11,9 @@
  *   diagnostics only hear real text changes;
  * - requestAnimationFrame coalescing (last-wins): many dragover events in one
  *   frame produce one text + one layout write;
+ * - viewport clamping: `left`/`top` are clamped into the viewport before the
+ *   write (8px inset, minus the 12/10px translate); without a usable viewport
+ *   the configured position is written unchanged;
  * - hide/dispose flush synchronously so the overlay never survives a drag end
  *   or plugin teardown.
  */
@@ -19,6 +22,33 @@
 export const FLOATING_LABEL_TESTID = 'session-groups-floating-label'
 
 const LABEL_SELECTOR = `[data-testid="${FLOATING_LABEL_TESTID}"]`
+
+/** 8px viewport inset; the right/bottom bound also subtracts the translate. */
+const LABEL_INSET = 8
+const LABEL_RIGHT_OFFSET = 20 // translate(12px) + 8px inset
+const LABEL_BOTTOM_OFFSET = 18 // translate(10px) + 8px inset
+
+/**
+ * Clamp a label anchor into the viewport before it reaches `style`.
+ *
+ * `.dsg-floating-label` is painted at `translate(12px, 10px)` and keeps an 8px
+ * inset from the viewport edge, so the usable maximum is `vw - 20` / `vh - 18`.
+ * A missing or non-positive viewport keeps the raw position, which preserves
+ * the historical constant position outside a browser.
+ *
+ * @param {{ x: number, y: number }} point
+ * @param {{ innerWidth?: number, innerHeight?: number }|null|undefined} view
+ * @returns {{ x: number, y: number }}
+ */
+const clampLabelPosition = (point, view) => {
+  const width = view?.innerWidth
+  const height = view?.innerHeight
+  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) return point
+  return {
+    x: Math.min(Math.max(point.x, LABEL_INSET), Math.max(LABEL_INSET, width - LABEL_RIGHT_OFFSET)),
+    y: Math.min(Math.max(point.y, LABEL_INSET), Math.max(LABEL_INSET, height - LABEL_BOTTOM_OFFSET)),
+  }
+}
 
 /**
  * Create one label controller.
@@ -147,8 +177,9 @@ export const createFloatingLabel = (options = {}) => {
       appliedVisible = state.visible
     }
     if (state.visible) {
-      const left = `${position.x}px`
-      const top = `${position.y}px`
+      const clamped = clampLabelPosition(position, doc?.defaultView ?? globalThis)
+      const left = `${clamped.x}px`
+      const top = `${clamped.y}px`
       if (left !== appliedLeft) {
         label.style.left = left
         appliedLeft = left

@@ -6,12 +6,14 @@
 
 ## Maintainer documentation
 
-Use these for the current `0.4.0-beta.63` codebase (released as
-`v0.4.0-beta.63`, 2026-11-12, two GitHub Release assets). `.62` shipped group
+Use these for the current `0.4.0-beta.64` codebase (unreleased `dev` batch; the
+latest published release is `v0.4.0-beta.63`, 2026-11-12). `.62` shipped group
 archive, the second view-options tri-state
 and the recursive structural lock; `.63` adds the first-run funnel (entry hint
 + action-first onboarding card), four in-place hints and the documentation-site
-entries, and trims the READMEs to a landing page:
+entries, and trims the READMEs to a landing page; `.64` adds one viewport
+placement policy for every floating panel (status / view-options / configuration
+popovers, menus and the drag label), with narrow-width and RTL adaptation:
 
 - [README](../README.md) — short landing page (English); [README.zh.md](../README.zh.md) — Chinese
 - [ARCHITECTURE.md](ARCHITECTURE.md) — layering, adapters, host/client boundaries, group archive

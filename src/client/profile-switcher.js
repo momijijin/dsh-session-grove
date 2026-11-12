@@ -9,6 +9,7 @@ import { createElement, useEffect, useRef } from 'react'
 import { clientRuntime as rt } from '../adapters/client-runtime.js'
 import { MAX_PROFILES } from '../shared/profile-limits.js'
 import { renderGlyph } from './icons.js'
+import { useFloatingPanel } from './floating-panel.js'
 import { StatusSpinner, TextButton } from './components-primitives.js'
 import { profileLabel, recoverProfile } from './profile-switch.js'
 
@@ -28,6 +29,17 @@ const ProfileMenu = ({ store, handlers, open = false, onOpenChange, onBeforeOpen
   const t = rt()?.t ?? ((key) => key)
   const rootRef = useRef(null)
   const triggerRef = useRef(null)
+  // I4/A13: closing (Escape, outside pointerdown, option pick) returns focus to
+  // the chevron, but only after React commits the close. The browser applies its
+  // mousedown default focus *after* the capture-phase handler, so focusing
+  // synchronously there would be overwritten (activeElement falls back to body).
+  // `wasOpen` keeps the first mount (open=false) inert, so the popover never
+  // steals focus when the header renders. Same pattern as the other triggers.
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (wasOpen.current && !open) triggerRef.current?.focus?.({ preventScroll: true })
+    wasOpen.current = open
+  }, [open])
   const available = store?.profiles?.available !== false && store?.profiles !== undefined
   useEffect(() => {
     if (!open) return undefined
@@ -39,7 +51,6 @@ const ProfileMenu = ({ store, handlers, open = false, onOpenChange, onBeforeOpen
     const onKeyDown = (event) => {
       if (event.key !== 'Escape') return
       onOpenChange?.(false)
-      triggerRef.current?.focus?.({ preventScroll: true })
     }
     doc?.addEventListener?.('pointerdown', onPointerDown, true)
     doc?.addEventListener?.('keydown', onKeyDown, true)
@@ -54,9 +65,8 @@ const ProfileMenu = ({ store, handlers, open = false, onOpenChange, onBeforeOpen
     rt()?.refreshProfiles?.({ background: true })
   }, [open])
   if (!available) return null
-  const closePopover = (options = {}) => {
+  const closePopover = () => {
     onOpenChange?.(false)
-    if (options.restoreFocus === true) triggerRef.current?.focus?.({ preventScroll: true })
   }
   return h(
     'span',
@@ -80,7 +90,7 @@ const ProfileMenu = ({ store, handlers, open = false, onOpenChange, onBeforeOpen
       },
       renderGlyph(h, 'chevronDown', 14)
     ),
-    open ? h(ProfilePopover, { store, handlers, onClose: closePopover }) : null
+    open ? h(ProfilePopover, { store, handlers, onClose: closePopover, triggerRef }) : null
   )
 }
 
@@ -109,9 +119,23 @@ const profileItemCheck = (active, switchingHere) => {
  * Registry-backed list. Rows are `menuitemradio`; the active row gets a check
  * and bold text, every row carries the `N groups · M sessions` second line.
  * Degraded registries show a warning and keep rows visible (default is a no-op).
+ *
+ * 0.4.0-beta.64: the panel is anchored with the logical `inline-start` edge
+ * (RTL mirrors to the right), sizes itself between 220 and 300px, and is
+ * mounted through the shared floating-panel controller (spec §6.2/§6.4/§6.5).
  */
-const ProfilePopover = ({ store, handlers, onClose }) => {
+const ProfilePopover = ({ store, handlers, onClose, triggerRef }) => {
   const t = rt()?.t ?? ((key) => key)
+  // ProfileMenu only renders the popover while it is open, so `open` is a
+  // constant here; the controller owns placement and `data-placement`.
+  const panel = useFloatingPanel({
+    open: true,
+    triggerRef,
+    align: 'inline-start',
+    designWidth: 300,
+    designHeight: Math.round((globalThis.innerHeight || 0) * 0.6),
+    fixedWidth: false,
+  })
   const profiles = store?.profiles ?? {}
   // SPEC §5.3: the manage dialog's `includeArchived` read may fill the store, but
   // the switcher menu only ever lists unarchived profiles.
@@ -201,7 +225,7 @@ const ProfilePopover = ({ store, handlers, onClose }) => {
           h(
             'span',
             { class: 'dsg-profile-item-text' },
-            h('span', { class: 'dsg-profile-item-label' }, profileLabel(profile)),
+            h('span', { class: 'dsg-profile-item-label', title: profileLabel(profile) }, profileLabel(profile)),
             h(
               'span',
               { class: 'dsg-profile-item-counts' },
@@ -287,6 +311,9 @@ const ProfilePopover = ({ store, handlers, onClose }) => {
     'div',
     {
       class: 'dsg-view-options-popover dsg-profile-popover',
+      ref: panel.ref,
+      style: panel.style,
+      'data-placement': panel.placement,
       role: 'menu',
       'aria-label': t('profiles.title'),
       'data-testid': 'session-groups-profile-popover',

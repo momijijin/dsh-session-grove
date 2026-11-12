@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.4.0-beta.64 (floating panels, 2026-11-12)
+
+Unreleased `dev` batch: the package version is now `0.4.0-beta.64` and there is no `v0.4.0-beta.64` tag or GitHub Release yet. The latest published release is `0.4.0-beta.63` (2026-11-12; GitHub Release assets: `.tgz` + `SHA256SUMS`, two assets).
+
+### Feature
+
+- Added one viewport placement policy for every floating surface: `src/core/popover-position.js` resolves a popover rect from a **border-box** size (feeding a measured panel back in never grows it by its own padding), a logical inline edge mirrored in RTL, flip → clamp as the last resort, and a height cap from the space actually left below or above the anchor; non-finite/empty viewports fall back to the 8px inset instead of producing NaN coordinates.
+- Added `src/client/floating-panel.js` (`useFloatingPanel`): two-pass measurement inside one layout effect (design constants, then the real `offsetWidth`/`offsetHeight`), a 1px convergent write that skips the DOM when nothing moved, relayout on `window.resize` plus a `ResizeObserver` on the trigger, and `maxHeightCap` so a content-sized panel is never capped at zero height.
+- Migrated the three status popovers, the view-options popover and the configuration popover to `position: fixed` placement through that controller (design widths 248 / 360-cap / 300-cap; `inline-end` for status and view options, `inline-start` for profiles). CSS keeps only the border box and the viewport min/max fallbacks; the physical `left`/`right` anchors and the RTL override are gone.
+- Menus: `menuBoxLimits` caps the menu box at `min(360px, 100vw - 16px)` and at the space left below its anchor; `.dsg-menu` is `border-box`, menu item text is wrapped in `.dsg-menu-item-label` (single-line ellipsis) and every row carries `title`. The x/y shift clamp keeps its original implementation and return shape (only the box math is delegated).
+- Compact header is measurement-driven: `data-narrow` follows the measured `.dsg-root` width with a 377/385 hysteresis (the first frame estimates it as `appliedWidth - 12`); `data-title-collapsed` measures the always-laid-out `.dsg-header-title` (42/50 hysteresis) and hides the whole label below 42px of usable width instead of ellipsizing it.
+- Added the additive `data-placement`, `data-width`, `data-title-collapsed` and `data-fallback="clip"` attributes; all five header triggers (three status buttons, view options, profile chevron) now return focus to the button when their popover closes.
+- Added an I2 self-check: once per open the controller hit-tests the four inset panel corners; if a host `transform`/`filter` re-contains the fixed box it folds the panel into the nearest clipping ancestor and records `data-fallback="clip"` (absent on the normal path).
+- Drag label: the floating drag label is clamped to the viewport before it is written (8px inset, `translate(12px, 10px)` compensated), caps at `min(280px, 100vw - 44px)` and ellipsizes in one line.
+- Accessibility/copy: long labels keep their full copy in `title` (menu rows, running group/item, view option, profile row) and the header title keeps its wrapper `title` while the label is hidden, so truncation never removes information from hover or assistive technology.
+
+### Fix
+
+- `resolvePopoverRect` judged the "below" side by the capped height, so a legitimately short panel (for example a 75px empty state) could be misread as having no room below; the decision now uses the viewport space left below the anchor.
+- A missing design height used to reach the resolver as `max-height: 0`, which made every content-sized panel zero-high; `maxHeightCap` now fills the padded viewport in that case.
+- The profile popover focused its trigger synchronously on the capture phase, so the browser's default focus handling immediately overwrote it (`activeElement` fell back to `body`); focus return now runs in an effect after close and covers Escape, outside pointerdown and option picks.
+- The A12 overflow assertion was unreachable at 1440×900 because all panels fit there; a 1440×480 sub-cell now forces the view-options panel to overflow and scrolls it for real.
+
+### Verification
+
+- Unit/contract **938/938 PASS** (914 at the `.63` tree; +24 across the resolver, the floating-controller pure functions, the menu box limits and the new ui-layout contract assertions). UI runtime **44/44 PASS** (1 module-load + 43 component tests, 19 components across 26 client modules; was 42/25).
+- `check:style` **PASS**; `npm run build` **PASS** — `lib/client.js` was rebuilt from source by the build (the last commit is test-only, so the bundle is unchanged), and `check:lib` **PASS** after the last source change.
+- `check:coverage` **PASS** — **≈94.3% lines / 86.3% branches / 91.0% functions** (94.29–94.31 / 86.26–86.28 / 90.97 across repeated runs; 0.02pp run-to-run variation) against the 92/80/85 thresholds; `check:release` **PASS** (four version sources agree, the `v0.4.0-beta.64` release note exists, the bundle carries `PLUGIN_VERSION = "0.4.0-beta.64"`, every `package.json.files` path exists); `npm pack --dry-run` — **241 files, 3.2 MB unpacked** (the tested `.64` tarball is 824,070 bytes / 824.1 kB). Shipped bundle: `lib/client.js` **660,226 B** plus 17 locale chunks totalling **497,865 B**.
+- Community isolated evidence (2026-11-12, `dsh-session-grove-0.4.0-beta.64.tgz`, **824,070 bytes**, packed from this tree): `test:isolated` **PASS** (exit 0) on a **fresh** test home (`<temp>\<isolated-home>`) with the new narrow matrix — **30 cells, 30 pass, 0 failure, 0 `SKIP(host-rail)`** (Tier A 8 / B 12 / C 4 / D 4, RTL 1, menu 1) and **69 screenshots**; `test:ui-browser` **PASS** (exit 0) on a **second fresh** test home (`<temp>\<isolated-home>`, port <ephemeral>): `bundleEntries:1`, `executedBytes:2570294`, `sourceBytes:2570294`, `executedRatio:1`. Reusing the home right after `test:isolated` hits the 20-profile limit, hence the second fresh host (documented requirement, not a code failure).
+- Launcher note: `scripts/qa/start-isolated-web.ps1`'s URL polling timed out again on the first home; that same test home was served by a manually started isolated web process, so the instance and the plugin under test are unchanged. Port 4490 was already held by an unrelated local process, so the manual instance used port <ephemeral>; the second fresh home launched through the script without a workaround.
+- No locale resource changed (**397 keys × 19 dictionaries** unchanged). The two manual locale gates were run for this batch anyway on a dedicated fresh isolated instance (`.64` tarball + `e2e/fixtures/ja-locale-pack`, `<temp>\<isolated-home>`, port <ephemeral>): `test:locale-pack` **PASS** (`PASS: third-party ja locale pack activates Japanese onboarding and dialog copy`) and `test:all-locales` **PASS 23/23** (19 languages + aliases; last line `PASS: all 23 locale switch cases`).
+
 ## 0.4.0-beta.63 (first-run guide + docs site, 2026-11-12)
 
 Released as `v0.4.0-beta.63` on 2026-11-12. The previous published release is `0.4.0-beta.62` (2026-11-11; GitHub Release assets: `.tgz` + `SHA256SUMS`, two assets).

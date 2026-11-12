@@ -61,12 +61,13 @@ const uiModules = [
   'plugin-locale.js',
   'icons.js',
   'floating-label.js',
+  'floating-panel.js',
   'time.js',
   'state.js',
 ]
 
 test('client UI modules execute under a test React peer', async () => {
-  assert.equal(uiModules.length, 25)
+  assert.equal(uiModules.length, 26)
   for (const file of uiModules) {
     const module = await import(new URL(`../../src/client/${file}`, import.meta.url))
     assert.ok(module && typeof module === 'object', `${file} did not load`)
@@ -443,7 +444,7 @@ test('MenuPopover renders a session menu with fork/archive/copy actions', async 
   const labels = flatten(tree).map((node) => node.props?.children).filter((child) => typeof child === 'string')
   assert.ok(labels.includes('T:session.fork'))
   assert.ok(labels.includes('T:session.copyId'))
-  const rename = flatten(tree).find((node) => node.props?.children === 'T:session.rename')
+  const rename = flatten(tree).find((node) => node.props?.class === 'dsg-menu-item' && textOf(node) === 'T:session.rename')
   rename.props.onClick({ stopPropagation() {} })
   assert.deepEqual(calls[0], ['closeMenu'])
   assert.deepEqual(calls[1], ['openRenameSession', 's1', 'Session'])
@@ -1481,4 +1482,125 @@ test('rename and archive confirm call the bridge with the trimmed name / target 
   byTestId(archiveTree, 'session-groups-profile-archive-confirm').props.onClick()
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.deepEqual(calls[1], ['archive', { id: 'side' }])
+})
+
+// ---------------------------------------------------------------------------
+// 0.4.0-beta.64 floating panels (SPEC §6.2-§6.4, §9.4)
+// ---------------------------------------------------------------------------
+test('floating popover roots expose data-placement and the inline style hook', async () => {
+  const t = (key) => 'T:' + key
+  installClientRuntime({ t })
+  const { ArchiveFilterPopover } = await import(new URL('../../src/client/components-header.js', import.meta.url))
+  const { ProfilePopover } = await import(new URL('../../src/client/profile-switcher.js', import.meta.url))
+  const viewOptions = expand(
+    ArchiveFilterPopover({
+      filter: 'hidden',
+      groupFilter: 'hidden',
+      t,
+      onPick: () => {},
+      onPickGroup: () => {},
+      onResetLayout: () => {},
+      triggerRef: { current: null },
+    })
+  )
+  const profile = ProfilePopover({
+    store: profileSnapshot(),
+    handlers: {},
+    onClose: () => {},
+    triggerRef: { current: null },
+  })
+  const panels = [
+    ['session-groups-view-options-popover', viewOptions],
+    ['session-groups-profile-popover', profile],
+  ]
+  for (const [testid, root] of panels) {
+    assert.equal(root.props['data-testid'], testid)
+    assert.ok(
+      ['inline-end', 'inline-start', 'flipped', 'clamped'].includes(root.props['data-placement']),
+      `${testid} starts on a logical placement token, got ${root.props['data-placement']}`
+    )
+    assert.ok(root.props.ref, `${testid} attaches the floating-panel ref`)
+    const style = root.props.style
+    assert.equal(typeof style, 'object')
+    for (const key of ['left', 'top', 'maxHeight']) {
+      assert.match(style[key], /^\d+px$/, `${testid} style.${key}`)
+    }
+    // Content-sized panels cap `maxWidth`; the border-box `width` is left to
+    // the measured first layout (spec §6.4 convergent write).
+    assert.match(style.maxWidth, /^\d+px$/, `${testid} style.maxWidth`)
+    assert.equal(style.width, undefined, `${testid} must not pin an outer width`)
+  }
+})
+
+test('single-line labels and menu rows keep a title and a label span', async () => {
+  const t = (key) => 'T:' + key
+  installClientRuntime({ t, capabilities: { fork: () => false } })
+  const { ArchiveFilterPopover, Header } = await import(
+    new URL('../../src/client/components-header.js', import.meta.url)
+  )
+  const { ProfilePopover } = await import(new URL('../../src/client/profile-switcher.js', import.meta.url))
+  const { MenuPopover } = await import(new URL('../../src/client/session-menu.js', import.meta.url))
+
+  // 1) View-options single-line labels: six tri-state rows plus reset layout.
+  const viewOptions = expand(
+    ArchiveFilterPopover({
+      filter: 'hidden',
+      groupFilter: 'hidden',
+      t,
+      onPick: () => {},
+      onPickGroup: () => {},
+      onResetLayout: () => {},
+      triggerRef: { current: null },
+    })
+  )
+  const optionLabels = flatten(viewOptions).filter((node) => node.props?.class === 'dsg-view-option-label')
+  assert.equal(optionLabels.length, 7)
+  for (const label of optionLabels) assert.equal(label.props.title, label.props.children)
+
+  // 2) Profile rows: the visible label and the full title always agree.
+  const profile = ProfilePopover({ store: profileSnapshot(), handlers: {}, onClose: () => {} })
+  const profileLabels = flatten(profile).filter((node) => node.props?.class === 'dsg-profile-item-label')
+  assert.equal(profileLabels.length, 2)
+  for (const label of profileLabels) assert.equal(label.props.title, label.props.children)
+
+  // 3) Menu rows: the text lives in `.dsg-menu-item-label` and the button keeps
+  //    the full copy (or the disabled reason) in `title`.
+  const doc = {
+    groups: [{ id: 'g1', name: 'Group one', icon: 'folder', color: 'blue', parentId: null, sessionIds: [] }],
+    ungrouped: [],
+  }
+  const menu = MenuPopover({
+    store: { doc, menu: { kind: 'group', groupId: 'g1', x: 10, y: 20, anchorX: 10, anchorY: 20 } },
+    handlers: new Proxy({}, { get: () => () => {} }),
+  })
+  const menuItems = flatten(menu).filter((node) => node.props?.role === 'menuitem')
+  assert.ok(menuItems.length > 0)
+  for (const item of menuItems) {
+    const label = childByClass(item, 'dsg-menu-item-label')
+    assert.ok(label, `menu item ${item.props['data-testid'] ?? 'unnamed'} keeps its label span`)
+    assert.equal(typeof item.props.title, 'string')
+    assert.ok(item.props.title.length > 0)
+    assert.equal(childrenOf(item).some((child) => typeof child === 'string'), false)
+  }
+
+  // 4) The three status triggers keep their tooltip label (`title`).
+  const header = expand(
+    Header({
+      store: { archiveFilter: 'hidden', groupFilter: 'hidden', viewMode: 'groups' },
+      handlers: new Proxy({}, { get: () => () => {} }),
+      sessionsById: {},
+      workspaces: [],
+      archivedSessionIds: [],
+      runningSessions: { count: 0, sections: [] },
+      blockedSessions: { count: 0, sections: [] },
+      unreadSessions: { count: 0, sections: [] },
+    })
+  )
+  const statusTriggers = flatten(header).filter((node) =>
+    ['session-groups-running-button', 'session-groups-blocked-button', 'session-groups-unread-button'].includes(
+      node.props?.['data-testid']
+    )
+  )
+  assert.equal(statusTriggers.length, 3)
+  for (const trigger of statusTriggers) assert.equal(typeof trigger.props.title, 'string')
 })

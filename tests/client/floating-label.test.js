@@ -58,7 +58,7 @@ const createElement = (document) => {
   return element
 }
 
-const createDocument = () => {
+const createDocument = (options = {}) => {
   const elements = []
   let appends = 0
   const document = {
@@ -83,6 +83,9 @@ const createDocument = () => {
       },
     },
   }
+  // Only install a viewport when a case asks for one: the unclamped assertions
+  // below rely on a document (and globalThis) without innerWidth/innerHeight.
+  if (options.defaultView !== undefined) document.defaultView = options.defaultView
   /** Seed a label node as if a previous plugin instance left it in the DOM. */
   document.seed = (text, visible = true) => {
     const element = document.createElement()
@@ -129,6 +132,7 @@ const createHarness = (options = {}) => {
     document,
     requestAnimationFrame: options.requestAnimationFrame === null ? null : frames.requestAnimationFrame,
     cancelAnimationFrame: options.requestAnimationFrame === null ? null : frames.cancelAnimationFrame,
+    position: options.position,
     onTextChange: (text) => changes.push(text),
   })
   return { document, frames, changes, label }
@@ -240,4 +244,21 @@ test('falls back to synchronous writes when requestAnimationFrame is unavailable
   assert.equal(element.textContent, 'sync')
   assert.equal(element.style.display, 'block')
   assert.deepEqual(changes, ['sync'])
+})
+
+test('clamps left/top into the defaultView viewport before writing them', () => {
+  const defaultView = { innerWidth: 300, innerHeight: 200 }
+  const nearEdge = createHarness({ document: createDocument({ defaultView }), position: { x: 290, y: 190 } })
+  nearEdge.label.setText('near edge')
+  nearEdge.frames.runAll()
+  const clamped = nearEdge.document.querySelectorAll(SELECTOR)[0]
+  assert.equal(clamped.style.left, '280px', 'right bound subtracts translate(12px) + 8px inset')
+  assert.equal(clamped.style.top, '182px', 'bottom bound subtracts translate(10px) + 8px inset')
+
+  const offscreen = createHarness({ document: createDocument({ defaultView }), position: { x: -50, y: -50 } })
+  offscreen.label.setText('off screen')
+  offscreen.frames.runAll()
+  const inset = offscreen.document.querySelectorAll(SELECTOR)[0]
+  assert.equal(inset.style.left, '8px', 'left bound keeps the 8px inset')
+  assert.equal(inset.style.top, '8px', 'top bound keeps the 8px inset')
 })
