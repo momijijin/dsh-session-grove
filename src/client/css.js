@@ -527,7 +527,7 @@ export const CSS = `
   from { opacity: 0; transform: scaleY(.65); }
   to { opacity: 1; transform: none; }
 }
-.dsg-floating-label { position: fixed; z-index: 60; pointer-events: none; transform: translate(12px, 10px); padding: 2px 8px; border-radius: 999px; font-size: var(--dsg-font-12, 12px); color: var(--dsw-alias-label-inverse, Canvas); background: var(--dsw-alias-state-business-primary, #4d6bfe); box-shadow: 0 2px 8px rgba(0,0,0,.18); }
+.dsg-floating-label { position: fixed; z-index: 60; box-sizing: border-box; max-width: min(280px, calc(100vw - 44px)); pointer-events: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transform: translate(12px, 10px); padding: 2px 8px; border-radius: 999px; font-size: var(--dsg-font-12, 12px); color: var(--dsw-alias-label-inverse, Canvas); background: var(--dsw-alias-state-business-primary, #4d6bfe); box-shadow: 0 2px 8px rgba(0,0,0,.18); }
 .dsg-drag-ghost { opacity: .65; }
 .dsg-empty { padding: 8px; font-size: var(--dsg-font-13, 13px); color: var(--dsw-alias-label-tertiary, CanvasText); text-align: center; }
 .dsg-banner { margin: 6px 2px 8px; padding: 8px 10px; border-radius: 6px; font-size: var(--dsg-font-12, 12px); display: flex; gap: 6px; align-items: center; }
