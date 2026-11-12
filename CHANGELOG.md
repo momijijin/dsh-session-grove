@@ -2,7 +2,7 @@
 
 ## 0.4.0-beta.63 (first-run guide + docs site, 2026-11-12)
 
-Unreleased `dev` batch. The latest published release is `0.4.0-beta.62` (2026-11-11; GitHub Release assets: `.tgz` + `SHA256SUMS`, two assets).
+Released as `v0.4.0-beta.63` on 2026-11-12. The previous published release is `0.4.0-beta.62` (2026-11-11; GitHub Release assets: `.tgz` + `SHA256SUMS`, two assets).
 
 ### First-run funnel
 
@@ -31,9 +31,9 @@ Unreleased `dev` batch. The latest published release is `0.4.0-beta.62` (2026-11
 
 ### Verification
 
-- Unit/contract **914/914 PASS**; UI runtime **42/42 PASS** (1 module-load + 41 component tests, 19 components across 25 client modules); `check:style` **PASS**; build **PASS** (`lib/client.js` 642,180 bytes on disk — the build log's 634,341 is its character count — plus 17 lazy locale chunks 497,865 bytes, version stamp `0.4.0-beta.63`); `check:lib` **PASS**; `node --check lib/client.js` **PASS**; coverage **PASS 95.21% lines / 86.06% branches / 91.31% functions** (gates 92/80/85); `check:release` **PASS** (packaged paths 25/25); `npm pack --dry-run` **PASS** (**238 files**, package **796.2 kB**, unpacked **3.1 MB**).
-- Community isolated A+ C (partial): `test:isolated` **PASS** (exit 0) on 2026-11-12, community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2` isolated host (new test home, port <ephemeral>, `.63` tarball), including the entry-hint / onboarding docs-site assertions plus the full existing regression. `test:ui-browser` (fresh host) and the locale sweeps were **not** run for `.63`.
-- User desktop acceptance: pending; the checklist is recorded in [docs/TEST-RESULTS.md](docs/TEST-RESULTS.md).
+- Unit/contract **914/914 PASS**; UI runtime **42/42 PASS** (1 module-load + 41 component tests, 19 components across 25 client modules); `check:style` **PASS**; build **PASS** (`lib/client.js` 642,180 bytes on disk — the build log's 634,341 is its character count — plus 17 lazy locale chunks 497,865 bytes, version stamp `0.4.0-beta.63`); `check:lib` **PASS**; `node --check lib/client.js` **PASS**; coverage **PASS 95.20% lines / 86.02% branches / 91.31% functions** (gates 92/80/85); `check:release` **PASS** (packaged paths 25/25); `npm pack --dry-run` **PASS** (**238 files**, package **797.7 kB**, unpacked **3.1 MB**).
+- Community isolated evidence (2026-11-12, community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2`): `test:isolated` **PASS** (exit 0; port <ephemeral>, new test home, `.63` tarball; entry-hint / onboarding docs-site assertions plus the full existing regression); `test:locale-pack` **PASS** (third-party `ja` pack; fixture expectation updated to the shortened `フリーグループ` onboarding title); `test:all-locales` **PASS 23/23** (19 languages + aliases, 397 keys, including settings/config). `test:ui-browser` (fresh host) was **not** run for `.63`.
+- User desktop acceptance **PASS** on 2026-11-12 (real desktop host, `.63` local install); the checklist is recorded in [docs/TEST-RESULTS.md](docs/TEST-RESULTS.md).
 
 ## 0.4.0-beta.62 (group archive, 2026-11-11)
 
