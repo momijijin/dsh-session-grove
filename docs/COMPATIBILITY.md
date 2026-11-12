@@ -28,11 +28,12 @@ DSH 的 plugin client 是 **单个客户端 bundle**，没有为插件准备 `#i
 
 已验证（最新一轮 community 证据：0.4.0-beta.64（2026-11-12，插件 `.64` 包 +
 fresh home：`test:isolated` PASS，30 格窄视口矩阵、0 skip、69 截图；
-`test:ui-browser` PASS，另一 fresh home；`test:locale-pack` /
-`test:all-locales` 未重跑）；历史序列：0.4.0-beta.63（2026-11-12，
-`test:isolated` + `test:locale-pack` + `test:all-locales` PASS，
-`test:ui-browser` 未跑）；official A+ O：0.4.0-beta.61；0.4.0-beta.62 / .63 /
-.64 的 official A+ O 未重跑）：
+`test:ui-browser` PASS，另一 fresh home；`test:locale-pack` PASS 与
+`test:all-locales` 23/23 PASS，均在带 `e2e/fixtures/ja-locale-pack` 的隔离实例
+（fresh home `<temp>\<isolated-home>`，port <ephemeral>））；历史序列：
+0.4.0-beta.63（2026-11-12，`test:isolated` + `test:locale-pack` +
+`test:all-locales` PASS，`test:ui-browser` 未跑）；official A+ O：
+0.4.0-beta.61；0.4.0-beta.62 / .63 / .64 的 official A+ O 未重跑）：
   community DSH Desktop Stable 2.0.18 (anywhere-labs) / DSH 0.2.1-rc.2
   official DeepSeek Harness desktop 0.2.2.0 / DSH 0.2.2-rc.1
     （官方 bundle DSH host/core 隔离 A+；0.4.0-beta.60 在 0.2.1.0 / rc.5 上另含维护者桌面窗口验收）
@@ -145,7 +146,7 @@ dsh-0.2  >=0.2.0-rc.2 <0.3.0
 
 ## 为什么优先能力检测
 
-- 目前 community Stable 与 official 两个桌面族都已有隔离实例证据（最新一轮 community A+ C 为 `0.4.0-beta.62`，2026-11-11 四项 PASS；official A+ O 为 `0.4.0-beta.61`；`.62` 的 official A+ O 未重跑）；仍不为“壳名”写死版本分支，写死分支等于发布未测试代码。
+- 目前 community Stable 与 official 两个桌面族都已有隔离实例证据（最新一轮 community A+ C 为 `0.4.0-beta.64`，2026-11-12 四项 PASS（locale 两项在独立 fresh home）；official A+ O 为 `0.4.0-beta.61`；`.64` 的 official A+ O 未重跑）；仍不为“壳名”写死版本分支，写死分支等于发布未测试代码。
 - DSH 的扩展点本身是 service/slot 组合，能力检测比版本判断更精确。
 - 插件管理器已经承担版本范围拒绝；插件内部重复版本判断会制造双重真相源。
 
