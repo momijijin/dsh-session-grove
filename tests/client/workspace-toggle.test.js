@@ -148,6 +148,8 @@ const hint = {
   body: 'Drag sessions from different workspaces into one group.',
   primary: 'Take a look',
   dismiss: "Don't show again",
+  docsUrl: 'https://momijijin.github.io/dsh-session-grove-docs-site/',
+  docsLabel: 'Documentation',
 }
 
 test('workspace toggle renders the one-time hint and dismisses it', () => {
@@ -172,6 +174,12 @@ test('workspace toggle renders the one-time hint and dismisses it', () => {
   assert.equal(hintEl.getAttribute('data-visible'), 'true')
   assert.equal(hintEl.children[0].textContent, hint.title)
   assert.equal(hintEl.children[1].textContent, hint.body)
+  const docs = byTestId(doc, 'session-groups-workspace-entry-hint-docs')
+  assert.ok(docs, 'the first-run hint links the documentation site')
+  assert.equal(docs.getAttribute('href'), hint.docsUrl)
+  assert.equal(docs.getAttribute('target'), '_blank')
+  assert.equal(docs.getAttribute('rel'), 'noreferrer noopener')
+  assert.equal(docs.textContent, hint.docsLabel)
 
   // Once the button has a real rect the bubble anchors under it.
   button.rect = { left: 368, top: 6, right: 396, bottom: 34, width: 28, height: 28 }
@@ -223,6 +231,7 @@ test('a dismissed hint installs no dot and no bubble', () => {
   const controller = installWorkspaceToggle({ doc, label: 'Switch to groups', hint: null })
   assert.equal(byTestId(doc, 'session-groups-workspace-entry-hint'), null)
   assert.equal(byTestId(doc, 'session-groups-workspace-entry-hint-dot'), null)
+  assert.equal(byTestId(doc, 'session-groups-workspace-entry-hint-docs'), null)
   assert.ok(byTestId(doc, 'session-groups-workspace-toggle'))
   controller.dispose()
 })
