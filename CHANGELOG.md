@@ -2,7 +2,7 @@
 
 ## 0.4.0-beta.64 (floating panels, 2026-11-12)
 
-Unreleased `dev` batch: the package version is now `0.4.0-beta.64` and there is no `v0.4.0-beta.64` tag or GitHub Release yet. The latest published release is `0.4.0-beta.63` (2026-11-12; GitHub Release assets: `.tgz` + `SHA256SUMS`, two assets).
+Published as `v0.4.0-beta.64` (2026-11-12; GitHub Release assets: `.tgz` + `SHA256SUMS`). The previous published release is `0.4.0-beta.63` (2026-11-12).
 
 ### Feature
 

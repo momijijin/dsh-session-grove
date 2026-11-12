@@ -31,10 +31,9 @@ four-command A+ C evidence below is the previous complete sweep and applies
 to the `.62` tarball; the `.64` batch above now also has all four commands.
 
 **`.64` batch evidence (narrow-viewport floating panels, 2026-11-12).**
-This is the `0.4.0-beta.64` dev batch. The package version is now
-`0.4.0-beta.64` (still unreleased: no tag or GitHub Release), and the plugin
-tarball used below was packed from this tree **after** the bump, so it carries
-the `.64` version string:
+This is the `.64` release (`v0.4.0-beta.64`, published 2026-11-12). The plugin
+tarball used below was packed from this tree, so it carries the `.64` version
+string:
 `dsh-session-grove-0.4.0-beta.64.tgz` (**824,070 bytes**). The batch supersedes
 the `.63` counts in the status
 paragraph above: the dev tree now runs **938/938** unit/contract tests and
