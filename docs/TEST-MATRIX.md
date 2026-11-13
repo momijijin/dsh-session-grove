@@ -20,11 +20,13 @@ all-locales as an automated CI result.
 Counts in this file describe the current `dev` tree unless a line says
 otherwise; the **`.65` batch evidence** below is the current count, and the
 published `.64` and `.63` figures that follow are historical. The `.65` dev tree
-runs **1027/1027** unit/contract tests and **45/45** `check:ui` cases with
+runs **1031/1031** unit/contract tests and **45/45** `check:ui` cases with
 **397 locale keys in 19 dictionaries** (no locale resource changed); its
-real-host `test:isolated` and `test:ui-browser` evidence is **PASS** (2026-11-13,
-agent debug run at the user's explicit request, two fresh homes total — the
-ui-browser retry reused its home; `.65` evidence tarball **835,756 bytes**).
+real-host evidence is **PASS** (2026-11-13, agent debug run at the user's
+explicit request; the S1–S6 lane used two fresh homes, the ui-browser retry
+reusing its home, with the 835,756-byte tarball; after S7 the full
+`test:isolated` run used the **842,325-byte** S7 code-evidence tarball on fresh
+home `160323`).
 The `.64` tree (released as `v0.4.0-beta.64` on 2026-11-12) ran
 **938/938** unit/contract tests and 44/44 `check:ui` cases; the `.64` community
 run passed `test:isolated`, `test:ui-browser`, `test:locale-pack` and
@@ -39,37 +41,47 @@ entries; `onboarding.title` / `onboarding.body` were rewritten shorter). The
 evidence below is the previous complete sweep and applies to the `.62` tarball;
 the `.64` batch below also has all four commands.
 
-**`.65` batch evidence (dialog keyboard timing + architecture cleanup,
-2026-11-13).** This is the current `dev` batch; `0.4.0-beta.65` is **not tagged
-or published** (latest published: `v0.4.0-beta.64`, 2026-11-12). The dev tree
-runs **1027/1027** unit/contract tests and **45/45** UI runtime cases (1
+**`.65` batch evidence (dialog keyboard timing + architecture cleanup + menu
+scroll stability (S7), 2026-11-13).** This is the current `dev` batch;
+`0.4.0-beta.65` is **not tagged or published** (latest published:
+`v0.4.0-beta.64`, 2026-11-12). The dev tree
+runs **1031/1031** unit/contract tests and **45/45** UI runtime cases (1
 module-load + 44 component tests, 19 components across 28 client modules;
 `plugin-host-commands.js` and `dialog-bodies.js` are the new client modules),
 with the same **397** locale keys in 19 dictionaries (no locale resource
 changed). No public API, control-protocol, storage-format or UX contract
 changed; `DOC_VERSION` stays 1.
 
-- `npm run check:coverage` — **PASS**: **94.81% lines / 86.81% branches /
-  91.44% functions** on the final local run (thresholds 92/80/85; batch runs
-  varied within 94.68–94.84 / 86.79–86.87 / 91.44–91.55).
-- `npm run check:style` — **PASS** (227 files); `npm run build` — **PASS**
-  (`lib/client.js` **662,098 bytes** on disk plus 17 lazy locale chunks
-  **497,865 bytes**, version stamp `0.4.0-beta.65`); `npm run check:lib` —
+- `npm run check:coverage` — **PASS**: **94.84% lines / 86.92% branches /
+  91.46% functions** on the final local run (thresholds 92/80/85; batch runs
+  varied within 94.68–94.85 / 86.79–86.94 / 91.44–91.55).
+- `npm run check:style` — **PASS** (228 files); `npm run build` — **PASS**
+  (`lib/client.js` **662,743 bytes** on disk after the S7 rebuild, sha256
+  `01F2B5B6…`, plus 17 lazy locale chunks **497,865 bytes**, version stamp
+  `0.4.0-beta.65`); `npm run check:lib` —
   **PASS**; `node --check lib/client.js` — **PASS**; `npm run check:release` —
   **PASS** (four version sources agree, `.65` release note present, bundle
   stamp, 25/25 packaged paths); `npm pack --dry-run` — **PASS** (**246
-  files**). The evidence tarball `dsh-session-grove-0.4.0-beta.65.tgz`
+  files**).
+- **S1–S6 evidence tarball (historical):** `dsh-session-grove-0.4.0-beta.65.tgz`
   (**835,756 bytes**, sha256
   `AE0DE4AC115B0E39FD9ADBFDDA89A0BFCB211DAF9D5E116972226331F190B766`) is
   packed to `%TEMP%\dsh-grove-pack\` (outside the repository) from the
   `a60f616` tree — the last commit before the fresh-host evidence docs. Its
-  `lib/client.js` is byte-for-byte identical to HEAD (version stamp
-  `0.4.0-beta.65`); its packaged docs predate the evidence section and still say
-  pending, so they must not be read as HEAD. The repository HEAD docs are
+  `lib/client.js` was byte-for-byte identical to the then-HEAD (version stamp
+  `0.4.0-beta.65`) but predates the S7 rebuild (662,098 bytes, not 662,743), so
+  it does not contain the menu scroll fix; its packaged docs predate the
+  evidence section and still say pending, so they must not be read as HEAD.
+- **S7 code-evidence tarball:** `dsh-session-grove-0.4.0-beta.65.tgz`,
+  **842,325 bytes**, sha256
+  `F8680868A88B119DBC0158C81CD2D818AE9AF8DABDEFD06972CEFA548001D2F7`, packed to
+  `%TEMP%\dsh-grove-pack-s7\` (outside the repository) from the `a24a414` tree;
+  it carries the rebuilt `lib/client.js` (662,743 bytes) and is the package used
+  for the post-S7 fresh-host `test:isolated` run. The repository HEAD docs are
   current; repacking HEAD gives a separate **docs-current** package with only
   the docs changed, recorded in `AGENTS.md` (not packaged) and the batch ledger.
 - `npm run test:isolated` — **PASS** (exit 0) on fresh home
-  `<temp>\dsh-sg-e2e-20261113-024652` with the `.65` evidence tarball: the
+  `<temp>\dsh-sg-e2e-20261113-024652` with the S1–S6 evidence tarball: the
   **narrow matrix** ran **30 pass / 0 skip / 0 failure** (the narrow-matrix
   count, not the whole suite) and **71 screenshots** (69 narrow-matrix cells +
   2 baseline); preview geometry dialog **560×560**, narrow sidebar **252**,
@@ -92,6 +104,17 @@ changed; `DOC_VERSION` stays 1.
   line, the absence of a FAIL line, and `ui-runtime-coverage.json`
   (`pageErrors: []`). Hardening `dismissOverlays` in
   `e2e/ui-runtime.spec.mjs` is left to a later batch (not changed for `.65`).
+- **S7 post-rebuild `test:isolated`** — **PASS** (exit 0) on fresh home
+  `<temp>\dsh-sg-e2e-20261113-160323` (port 4493) with the S7 code-evidence
+  tarball (**842,325 bytes**, sha256 `F8680868…D2F7`): **narrow matrix 30 pass /
+  0 skip / 0 failure** (the narrow-matrix count, not the whole suite),
+  **71 screenshots** (69 cells + 2 baseline), preview geometry dialog
+  **560×560** / narrow sidebar **252** / body scroll **3659>466** / row gaps
+  **[0,0,0]**; the new S7 menu case (a probe scroll outside `.dsg-root` keeps
+  the menu, a `.dsg-tree` scroll closes it) passes, and the host is still
+  community 2.0.18 / DSH `0.2.1-rc.2`. The real conversation-pane scroller was
+  **not** targeted by that case, so the five manual menu checks remain
+  **pending** — do not read this row as PASS for the real right-hand pane.
 - Architecture guards: import graph **116 source modules / 335 adjacency edges
   / 0 cycles** (the detector was exercised with a synthetic cycle during
   development, not committed as a fixture); `createHostCommands` exposes the
@@ -246,7 +269,7 @@ are historical and must not be quoted as `.62` evidence.
 | Code | Meaning |
 |---|---|
 | `U` | Unit/contract tests: `npm test` (907 tests on the historical `.62` dev tree; 726 at the `.61` dev tree; 699 at the `.60` release; 529 at the `.59` release) |
-| `A+ C` | Isolated Playwright, community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2` (`.62`: 2026-11-11 PASS, `.62` tarball 829,055 bytes; `.64`: 2026-11-12 PASS; `.65`: 2026-11-13 PASS, agent debug run at the user's explicit request, `.65` evidence tarball 835,756 bytes, two fresh homes total — the ui-browser retry reused its home) |
+| `A+ C` | Isolated Playwright, community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2` (`.62`: 2026-11-11 PASS, `.62` tarball 829,055 bytes; `.64`: 2026-11-12 PASS; `.65`: 2026-11-13 PASS, agent debug run at the user's explicit request. S1–S6 lane: evidence tarball 835,756 bytes on two fresh homes, the ui-browser retry reusing its home. S7 lane: code-evidence tarball **842,325 bytes** / sha256 `F868…`, full `test:isolated` PASS on fresh home `160323` (narrow matrix 30 pass, 71 screenshots, new menu case); the five manual menu checks are pending) |
 | `A+ O` | Isolated Playwright on an official DeepSeek Harness desktop host (`.60`: 0.2.1.0 / DSH `0.2.1-rc.5`; `.61`: 0.2.2.0 / DSH `0.2.2-rc.1`; `.62`: **not run**) |
 | `LP` | Test-only all-locale pack (`e2e/fixtures/ja-locale-pack`): host catalog injection + active locale switch |
 | `H` | Historical/manual evidence in an earlier release note or test-results snapshot; not a current default automation |
@@ -452,6 +475,7 @@ cells remain historical through `.61` (no official `.62` run).
 | Onboarding card | U + `.62` community A+ C + English A+ O (historical) + ja LP (`.62`) | ja LP checks title/dismiss |
 | Settings/config form | U + `.62` community A+ C + all-locale settings smoke (`.62`, 23 cases) | all 23 cases check title/hint/controlApi/skill-repair copy |
 | Group menu / session menu | U + `.62` community A+ C (`test:isolated` menu/dialog paths) + English A+ O (historical) + `.62` U for archive lock items | `.62` archive-locked menu items are covered by logic/UI runtime tests and the 23-case LP group-menu copy, not by a dedicated archive A+ |
+| Row menu scroll stability (S7) | U (`tests/client/menu-scroll.test.js` + `ui-layout` source assertions) + `.65` community A+ C e2e (`test:isolated`: a probe scroll outside `.dsg-root` keeps the menu, a `.dsg-tree` scroll closes it) | the real conversation-pane scroller is **not** targeted by the e2e probe; the five manual checks (conversation scroll keeps the menu, stability during streaming, tree scroll closes, outside/Escape closes, menu action works) are **pending** — not PASS |
 | View options: session + group tri-state segments | U + 41-case UI runtime + `.62` community A+ C (`test:isolated`: session tri-state picks keep the popover open, Escape closes) + updated `e2e/groups.spec.mjs` (group segment, not executed) | two labelled `role=group` segments, 6 rows, keep-open behavior; the group-segment script remains unrun |
 | Group archive row/header/drag surfaces | U + UI runtime (`data-archived`/`data-path-only`/`data-contains-archived`/`data-structural-locked`) + `.62` LP (group-menu/archive copy) | group-archive A+ flows live in `e2e/groups.spec.mjs`, which was not executed; dimming/pathOnly/disabled-`+` visual review still pending |
 | Profile chevron / popover / switch preview / save-as / manage | U + UI runtime (39 cases in `.60`; 41 cases in `.62`) + community A+ C (2026-11-11, `.62`) + `.61` community A+ C (2026-11-10, historical) + official A+ O (2026-11-10, `.60`) + official A+ O (2026-11-10, `.61`) + LP (23 cases, `.62` 385 keys) | 46 keys × 19 dictionaries; the all-locales run checks chevron, popover and preview bounds; official A+ O ran the profile save-as/preview/undo/rename/archive/limit flows in `test:isolated` (both `.60` and `.61`); the `.61` community/official runs and the 2026-11-11 `.62` community run covered the same profile flows plus the preview real-geometry assertions. The `profiles.preview.archiveChanged` key added in `.62` has U parity only |
