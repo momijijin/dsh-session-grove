@@ -1097,9 +1097,42 @@ test('0.2.7 right-click/keyboard menu wiring and clamped anchors', () => {
   assert.match(components, /if \(dragRef\.current\) return/)
   // The mounted menu re-clamps with its real rect.
   assert.match(sessionMenu, /clampMenuPosition\(\{/)
+  // 0.4.0-beta.65 S7: scroll-to-close moved into the menu owner and only fires
+  // when the source row's own ancestors scroll; plugin-host keeps resize only.
+  assert.match(sessionMenu, /'scroll', onScroll/)
+  assert.match(sessionMenu, /addEventListener\?\.\('scroll', onScroll, \{ capture: true, passive: true \}\)/)
+  assert.match(sessionMenu, /removeEventListener\?\.\('scroll', onScroll, true\)/)
+  assert.match(sessionMenu, /scrollAffectsMenu\(target, row\)/)
+  // The callback may only consult the anchor (closest/isConnected/contains) and
+  // close the menu: no layout reads, no DOM queries, no dispatch from the shell.
+  const onScrollStart = sessionMenu.indexOf('const onScroll = (event) => {')
+  const onScrollEnd = sessionMenu.indexOf('const doc = globalThis.document', onScrollStart)
+  assert.ok(onScrollStart >= 0 && onScrollEnd > onScrollStart, 'session-menu.js must own the scroll handler')
+  const onScrollBody = sessionMenu.slice(onScrollStart, onScrollEnd)
+  assert.equal(
+    /getBoundingClientRect|getComputedStyle|offsetWidth|offsetHeight|offsetTop|offsetLeft|scrollTop|querySelectorAll|store\.dispatch/.test(onScrollBody),
+    false,
+    'the scroll handler must not read layout, query or dispatch'
+  )
+  assert.match(onScrollBody, /handlers\.closeMenu\(\)/)
+  assert.match(onScrollBody, /menuSourceRow\(menu\)/)
+  // The pure decision helper is O(1): contains + isConnected only.
+  const scrollDecision = groupsViewMenu.slice(
+    groupsViewMenu.indexOf('export const scrollAffectsMenu'),
+    groupsViewMenu.indexOf('export const createMenuHandlers')
+  )
+  assert.ok(scrollDecision.length > 0, 'groups-view-menu-handlers.js must export scrollAffectsMenu')
+  assert.match(scrollDecision, /target\.contains\(row\)/)
+  assert.match(scrollDecision, /row\.isConnected === false/)
+  assert.equal(
+    /getBoundingClientRect|getComputedStyle|offsetWidth|offsetHeight|offsetTop|offsetLeft|scrollTop|querySelectorAll/.test(scrollDecision),
+    false,
+    'scrollAffectsMenu must not read layout or query the DOM'
+  )
   const plugin = pluginFamily()
-  assert.match(plugin, /'scroll', closeMenuOnViewportChange, true/)
-  assert.match(plugin, /'resize', closeMenuOnViewportChange/)
+  assert.match(plugin, /'resize', closeMenuOnResize/)
+  assert.equal(plugin.includes('closeMenuOnViewportChange'), false)
+  assert.equal(plugin.includes("'scroll', onScroll"), false)
 })
 
 test('0.3.0-beta.70 group menu starts with new session and reuses the group plus action', () => {

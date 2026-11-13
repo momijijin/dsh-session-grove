@@ -234,19 +234,17 @@ export const createHostIntegration = ({ ctx, store, t, documentSync, profiles, n
       if (store.getSnapshot().dialog) closeDialog()
       else if (store.getSnapshot().menu) store.dispatch('menu', { menu: null })
     }
-    // A row menu is anchored to a viewport point: any document scroll or window
-    // resize makes that anchor stale, so close it (scrolls inside the menu itself
-    // stay usable). Focus restoration happens in MenuPopover's unmount cleanup.
-    const closeMenuOnViewportChange = (event) => {
+    // A row menu is anchored to a viewport point, so a window resize makes that
+    // anchor stale and closes it. Scrolls are handled by MenuPopover itself
+    // (0.4.0-beta.65 S7), which only closes when the source row's own ancestor
+    // containers scroll; an unrelated scroller must leave the menu open.
+    const closeMenuOnResize = () => {
       if (!store.getSnapshot().menu) return
-      const target = event?.target
-      if (target && typeof target.closest === 'function' && target.closest('.dsg-menu, .dsg-dialog')) return
       store.dispatch('menu', { menu: null })
     }
     doc?.addEventListener?.('pointerdown', onPointerDown, true)
     doc?.addEventListener?.('keydown', onKeyDown, true)
-    doc?.addEventListener?.('scroll', closeMenuOnViewportChange, true)
-    globalThis.addEventListener?.('resize', closeMenuOnViewportChange)
+    globalThis.addEventListener?.('resize', closeMenuOnResize)
 
     dispose = () => {
       mounted = false
@@ -254,7 +252,7 @@ export const createHostIntegration = ({ ctx, store, t, documentSync, profiles, n
       workspaceChrome?.dispose()
       workspaceChrome = null
       globalThis.removeEventListener?.('resize', onWindowResize)
-      globalThis.removeEventListener?.('resize', closeMenuOnViewportChange)
+      globalThis.removeEventListener?.('resize', closeMenuOnResize)
       clearManagedWidth()
       if (typeof configSlotDisposer === 'function') configSlotDisposer()
       configSlotDisposer = null
@@ -266,7 +264,6 @@ export const createHostIntegration = ({ ctx, store, t, documentSync, profiles, n
       styleDisposer = null
       doc?.removeEventListener?.('pointerdown', onPointerDown, true)
       doc?.removeEventListener?.('keydown', onKeyDown, true)
-      doc?.removeEventListener?.('scroll', closeMenuOnViewportChange, true)
       commands.clearPendingFollow()
     }
 

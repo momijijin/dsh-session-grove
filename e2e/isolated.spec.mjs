@@ -838,6 +838,34 @@ try {
   await page.keyboard.press('Escape')
   await rovingMenu.waitFor({ state: 'hidden' })
 
+  // 0.4.0-beta.65 S7: a row menu must survive a scroll from an unrelated
+  // scroller (the streaming conversation area), but a scroll of its own tree
+  // still dismisses it. Dispatch the non-bubbling event directly: the menu
+  // listens in the document capture phase, exactly like a real scroller event.
+  await groupRowById(targetId).locator('[data-testid="session-groups-group-menu"]').click({ force: true })
+  const scrollMenu = page.locator('[data-testid="session-groups-menu"]')
+  await scrollMenu.waitFor({ state: 'visible' })
+  const scrollProbeId = `dsg-scroll-probe-${Date.now().toString(36)}`
+  await page.evaluate((probeId) => {
+    const probe = document.createElement('div')
+    probe.setAttribute('data-testid', probeId)
+    probe.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px'
+    document.body.appendChild(probe)
+    probe.dispatchEvent(new Event('scroll'))
+  }, scrollProbeId)
+  try {
+    await nextFrame(page)
+    if (!(await scrollMenu.isVisible())) throw new Error('an unrelated scroll closed the group menu')
+    await page.evaluate(() => {
+      const tree = document.querySelector('.dsg-tree')
+      if (!tree) throw new Error('groups tree is missing')
+      tree.dispatchEvent(new Event('scroll'))
+    })
+    await scrollMenu.waitFor({ state: 'hidden' })
+  } finally {
+    await page.evaluate((probeId) => document.querySelector(`[data-testid="${probeId}"]`)?.remove(), scrollProbeId)
+  }
+
   await moveGroup(sourceId, targetId)
   const ordered = await groupRows().evaluateAll((rows) => rows.map((row) => row.getAttribute('data-group-id')))
   const targetAt = ordered.indexOf(targetId)

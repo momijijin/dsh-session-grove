@@ -10,6 +10,52 @@ import { menuAnchorFromEvent, menuAnchorFromRow } from '../core/menu-position.js
 import { dispatch, toast } from './command-runtime.js'
 
 /**
+ * The row element that opened a group/session menu.
+ *
+ * Moved here from `session-menu.js` (0.4.0-beta.65 S7) so the React-free host
+ * and the popover share one lookup. The row is resolved by the menu's `kind`
+ * plus the matching data attribute; a missing document or menu returns `null`.
+ *
+ * @param {{kind:'group', groupId?:string}|{kind:'session', sessionId?:string}|null} menu
+ * @param {Document|undefined} [documentRef]
+ * @returns {Element|null}
+ */
+export const menuSourceRow = (menu, documentRef = globalThis.document) => {
+  if (!menu) return null
+  const testId = menu.kind === 'group' ? 'session-groups-group' : 'session-groups-session'
+  const attr = menu.kind === 'group' ? 'data-group-id' : 'data-session-id'
+  const value = menu.kind === 'group' ? menu.groupId : menu.sessionId
+  const rows = documentRef?.querySelectorAll?.(`[data-testid="${testId}"]`) ?? []
+  for (const row of rows) if (row.getAttribute?.(attr) === value) return row
+  return null
+}
+
+/**
+ * Whether a scroll event invalidates the menu anchor (0.4.0-beta.65 S7).
+ *
+ * The menu is anchored to a viewport point, so only a scroll of the source
+ * row's own ancestor containers (the groups tree) moves the anchor. An
+ * unrelated scroller — the streaming conversation area — leaves the menu where
+ * it is. This is an O(1) decision: it never reads layout, queries the DOM or
+ * dispatches; it only asks whether the row still exists and is contained by the
+ * scrolling element.
+ *
+ * Missing/detached rows and page-level scrolls fall back to closing, matching
+ * the previous scroll semantics (a stale anchor must not keep a stray menu).
+ *
+ * @param {EventTarget|null|undefined} target scroll event target
+ * @param {Element|null|undefined} row cached source row
+ * @returns {boolean} true when the menu should close
+ */
+export const scrollAffectsMenu = (target, row) => {
+  if (!row || row.isConnected === false) return true
+  if (!target) return true
+  if (target === globalThis.document || target === globalThis.window) return true
+  if (typeof target.contains === 'function') return target.contains(row)
+  return true
+}
+
+/**
  * Locale keys for menu entries unavailable under the archive freeze (resources
  * ship in P10). Kept in a computed map so the i18n literal-key guard stays green
  * until the 19-language dictionaries are updated.

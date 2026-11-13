@@ -8,7 +8,7 @@ import { createElement, useEffect, useLayoutEffect, useRef } from 'react'
 import { clientRuntime as rt } from '../adapters/client-runtime.js'
 import { clampMenuPosition, menuBoxLimits } from '../core/menu-position.js'
 import { sessionNeighbors, siblingNeighbors } from '../core/tree.js'
-import { groupMenuLockReason, sessionMenuLockReason } from './groups-view-menu-handlers.js'
+import { groupMenuLockReason, menuSourceRow, scrollAffectsMenu, sessionMenuLockReason } from './groups-view-menu-handlers.js'
 import { groupArchiveMenuState, groupMoveStepReasonKey, deleteGroupActionReasonKey } from './groups-view-dialog-handlers.js'
 import { toast } from './command-runtime.js'
 
@@ -24,17 +24,6 @@ const GROUP_ARCHIVE_MENU_KEYS = Object.freeze({
   archive: 'group.archive',
   unarchive: 'group.unarchive',
 })
-
-/** Restore focus to the row that opened a group/session menu. */
-const menuSourceRow = (menu) => {
-  if (!menu) return null
-  const testId = menu.kind === 'group' ? 'session-groups-group' : 'session-groups-session'
-  const attr = menu.kind === 'group' ? 'data-group-id' : 'data-session-id'
-  const value = menu.kind === 'group' ? menu.groupId : menu.sessionId
-  const rows = globalThis.document?.querySelectorAll?.(`[data-testid="${testId}"]`) ?? []
-  for (const row of rows) if (row.getAttribute?.(attr) === value) return row
-  return null
-}
 
 /**
  * Transient toast. SPEC §7.8/§9.6: besides the message a toast may carry one
@@ -96,7 +85,7 @@ export const MenuPopover = ({ store, handlers }) => {
     node.style.maxHeight = `${Math.min(designCap, limits.maxHeight)}px`
   }, [menu])
   // Focus the first item when the menu opens; when it closes (Escape, outside,
-  // scroll, resize or an action) focus returns to the originating row.
+  // source-row scroll, resize or an action) focus returns to the originating row.
   useEffect(() => {
     if (!menu) return undefined
     const node = menuRef.current
@@ -106,6 +95,26 @@ export const MenuPopover = ({ store, handlers }) => {
       menuSourceRow(menu)?.focus?.({ preventScroll: true })
     }
   }, [menu])
+  // 0.4.0-beta.65 S7: the row menu only closes when the scroll actually moves
+  // its anchor. The listener lives here (not in plugin-host) so it exists only
+  // while the menu is open and can compare against the cached source row.
+  // Unrelated scrollers (the streaming conversation area) return without
+  // dispatching, so they never re-render the view. Capture + passive sees
+  // scroller events that do not bubble without ever blocking the scroll.
+  useEffect(() => {
+    if (!menu) return undefined
+    let row = menuSourceRow(menu)
+    const onScroll = (event) => {
+      const target = event?.target
+      if (target && typeof target.closest === 'function' && target.closest('.dsg-menu, .dsg-dialog')) return
+      // A streaming re-render may replace the row; re-query it once as a fallback.
+      if (!row || row.isConnected === false) row = menuSourceRow(menu)
+      if (scrollAffectsMenu(target, row)) handlers.closeMenu()
+    }
+    const doc = globalThis.document
+    doc?.addEventListener?.('scroll', onScroll, { capture: true, passive: true })
+    return () => doc?.removeEventListener?.('scroll', onScroll, true)
+  }, [menu, handlers])
   if (!menu) return null
   const t = rt()?.t
   const limits = menuBoxLimits({ viewport: { width: globalThis.innerWidth, height: globalThis.innerHeight } })
