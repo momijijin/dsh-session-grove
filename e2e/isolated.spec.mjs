@@ -167,6 +167,36 @@ const groupRow = (name) => groupRows().filter({ hasText: name }).first()
 const groupRowById = (id) => page.locator(`[data-testid="session-groups-group"][data-group-id="${id}"]`)
 const menuItem = (pattern) => page.locator('[role="menuitem"]').filter({ hasText: pattern }).first()
 
+// Arrow-key move/resize reads the dialog's stored rect, so wait until the
+// plugin has written one and flagged it with `data-positioned="true"`
+// (`dialog-host.js` sets the attribute in the same render as the rect).
+const waitForDialogPositioned = async () => {
+  await page.waitForFunction(
+    () => {
+      const dialog = document.querySelector('[data-testid="session-groups-dialog"]')
+      return dialog?.getAttribute('data-positioned') === 'true'
+    },
+    null,
+    { timeout: 5000 }
+  )
+}
+
+// The dialog can auto-focus its own control after the test focuses the titlebar
+// or resizer, sending the following arrow keys elsewhere. Re-assert focus a
+// bounded number of times; on failure report the element that actually kept it.
+const focusAndSettle = async (locator, label) => {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await locator.focus()
+    await page.waitForTimeout(150)
+    if (await locator.evaluate((el) => document.activeElement === el)) return
+  }
+  const active = await page.evaluate(() => {
+    const el = document.activeElement
+    return el?.getAttribute?.('data-testid') ?? el?.tagName ?? 'none'
+  })
+  throw new Error(`${label} did not keep focus before the arrow-key check (activeElement=${active})`)
+}
+
 const createGroup = async (name) => {
   await page.locator('[data-testid="session-groups-new-group"]').click()
   await page.locator('[data-testid="session-groups-dialog-input"]').fill(name)
@@ -758,6 +788,7 @@ try {
   await menuItem(/新建子分组|New subgroup/).click()
   const a11yDialog = page.locator('[data-testid="session-groups-dialog"]')
   await a11yDialog.waitFor({ state: 'visible' })
+  await waitForDialogPositioned()
   const labelledBy = await a11yDialog.getAttribute('aria-labelledby')
   if (!labelledBy || (await page.locator(`#${labelledBy}`).count()) !== 1) {
     throw new Error('dialog has no single accessible title reference')
@@ -772,14 +803,14 @@ try {
   )
   if (!tabStayedInside) throw new Error('Tab escaped the modal dialog')
   const keyboardTitlebar = page.locator('[data-testid="session-groups-dialog-titlebar"]')
-  await keyboardTitlebar.focus()
+  await focusAndSettle(keyboardTitlebar, 'dialog titlebar')
   const beforeMove = await a11yDialog.boundingBox()
   await page.keyboard.press('ArrowRight')
   await page.waitForTimeout(120)
   const afterMove = await a11yDialog.boundingBox()
   if (!beforeMove || !afterMove || afterMove.x <= beforeMove.x) throw new Error('keyboard dialog move did not move right')
   const keyboardResizer = page.locator('[data-testid="session-groups-dialog-resizer"]')
-  await keyboardResizer.focus()
+  await focusAndSettle(keyboardResizer, 'dialog resizer')
   const beforeResize = await a11yDialog.boundingBox()
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('ArrowDown')
@@ -806,6 +837,34 @@ try {
   if (!/新建子分组|New subgroup/.test(rovingLabel)) throw new Error(`menu ArrowDown did not move focus: ${rovingLabel}`)
   await page.keyboard.press('Escape')
   await rovingMenu.waitFor({ state: 'hidden' })
+
+  // 0.4.0-beta.65 S7: a row menu must survive a scroll from an unrelated
+  // scroller (the streaming conversation area), but a scroll of its own tree
+  // still dismisses it. Dispatch the non-bubbling event directly: the menu
+  // listens in the document capture phase, exactly like a real scroller event.
+  await groupRowById(targetId).locator('[data-testid="session-groups-group-menu"]').click({ force: true })
+  const scrollMenu = page.locator('[data-testid="session-groups-menu"]')
+  await scrollMenu.waitFor({ state: 'visible' })
+  const scrollProbeId = `dsg-scroll-probe-${Date.now().toString(36)}`
+  await page.evaluate((probeId) => {
+    const probe = document.createElement('div')
+    probe.setAttribute('data-testid', probeId)
+    probe.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px'
+    document.body.appendChild(probe)
+    probe.dispatchEvent(new Event('scroll'))
+  }, scrollProbeId)
+  try {
+    await nextFrame(page)
+    if (!(await scrollMenu.isVisible())) throw new Error('an unrelated scroll closed the group menu')
+    await page.evaluate(() => {
+      const tree = document.querySelector('.dsg-tree')
+      if (!tree) throw new Error('groups tree is missing')
+      tree.dispatchEvent(new Event('scroll'))
+    })
+    await scrollMenu.waitFor({ state: 'hidden' })
+  } finally {
+    await page.evaluate((probeId) => document.querySelector(`[data-testid="${probeId}"]`)?.remove(), scrollProbeId)
+  }
 
   await moveGroup(sourceId, targetId)
   const ordered = await groupRows().evaluateAll((rows) => rows.map((row) => row.getAttribute('data-group-id')))

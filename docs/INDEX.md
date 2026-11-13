@@ -6,15 +6,40 @@
 
 ## Maintainer documentation
 
-Use these for the current `0.4.0-beta.64` codebase (released as
-`v0.4.0-beta.64` on 2026-11-12; the previous published release is
+Use these for the current `0.4.0-beta.65` dev codebase (not tagged or released;
+the latest published release is `v0.4.0-beta.64`, 2026-11-12; before that
 `v0.4.0-beta.63`, 2026-11-12). `.62` shipped group
 archive, the second view-options tri-state
 and the recursive structural lock; `.63` adds the first-run funnel (entry hint
 + action-first onboarding card), four in-place hints and the documentation-site
 entries, and trims the READMEs to a landing page; `.64` adds one viewport
 placement policy for every floating panel (status / view-options / configuration
-popovers, menus and the drag label), with narrow-width and RTL adaptation:
+popovers, menus and the drag label), with narrow-width and RTL adaptation;
+`.65` fixes the dialog keyboard timing (focus guard + measured-rect fallback +
+e2e focus/positioning assertions), adds menu scroll stability (S7: a row menu
+now closes only when its own source-row ancestors scroll or the row/resize
+invalidates it; unrelated scrollers such as the streaming conversation pane no
+longer close it, and the scroll path reads no layout), and pays down
+architecture debt (`plugin-host` / `dialog-host` splits, shared host
+atomic-write/file-lock, deduplicated `sessionContainer` / registry classifier /
+`MAX_PROFILES`, and an import-cycle guard). `.65` fresh-host evidence passed:
+`test:isolated` (narrow matrix 30 pass) and
+`test:ui-browser` (agent debug run at the user's explicit request; the S1–S6
+lane used two fresh homes — the ui-browser retry reused its home; the first
+ui-browser attempt had only a 12s visibility timeout and no failure screenshot,
+and the "Get started" dialog timing race is inferred from that timeout plus
+`e2e/ui-runtime.spec.mjs:74-82`; PASS on the same-home retry, whose log has no
+explicit PASS line; S1–S6 evidence package 835,756 bytes / `AE0DE4AC…`; S7 adds
+a third fresh home, `160323`, below). After
+the S7 rebuild, the full `test:isolated` run against the S7 code-evidence
+package (842,325 bytes / `F868…`) on fresh home `160323` also passed (narrow
+matrix 30 pass, 71 screenshots, new menu case). The five manual menu checks
+**passed in the user's desktop client on 2026-11-13** (user desktop acceptance:
+profile `desktop`, plugin `0.4.0-beta.65`, `lib/client.js` 662,743 B /
+`01F2B5B6…`); because the e2e probe does not target the real conversation-pane
+scroller, that manual PASS is the direct validation of the real right-hand
+pane. The e2e runs above are still an agent debug run at the user's explicit
+request, not a user run:
 
 - [README](../README.md) — short landing page (English); [README.zh.md](../README.zh.md) — Chinese
 - [ARCHITECTURE.md](ARCHITECTURE.md) — layering, adapters, host/client boundaries, group archive
@@ -22,7 +47,7 @@ popovers, menus and the drag label), with narrow-width and RTL adaptation:
 - [I18N.md](I18N.md) — localized resources, resolution, aliases and language limits
 - [TEST-MATRIX.md](TEST-MATRIX.md) — **single source of truth** for tested surfaces, languages and evidence levels
 - [RELEASE.md](RELEASE.md) — release, install, update and verification
-- [TEST-RESULTS.md](TEST-RESULTS.md) — `.63` local run plus the dated `0.4.0-beta.13` historical snapshot (TEST-MATRIX is current status)
+- [TEST-RESULTS.md](TEST-RESULTS.md) — `.65` local run plus the dated `.63` historical round and `0.4.0-beta.13` snapshot (TEST-MATRIX is current status)
 - [MIGRATION-0.4.md](MIGRATION-0.4.md) — manual old-identity migration
 - [BACKLOG.md](BACKLOG.md) — deferred render/performance work
 

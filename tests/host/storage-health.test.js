@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { DEFAULT_PROFILE_ID, PROFILES_DIR_NAME, REGISTRY_FILE_NAME } from '../../src/host/constants.js'
+import { classifyRegistryText } from '../../src/host/profile-registry.js'
 import { inspectProfileRegistry, inspectProfileStorage, inspectStorageHealth } from '../../src/host/storage-health.js'
 import {
   FIXED_TIMESTAMP,
@@ -251,4 +252,68 @@ test('registry inspector classifies missing, unsupported, backup, and quarantine
   assert.equal(unsupported.backupStatus, 'ok')
   assert.equal(unsupported.backupRevision, 1)
   assert.equal(unsupported.quarantined, 1)
+})
+
+test('the canonical registry classifier and the health inspector agree on the same body', async (t) => {
+  const home = await makeTempProfileHome()
+  t.after(home.cleanup)
+  const cases = [
+    {
+      name: 'ok',
+      kind: 'ok',
+      text: `${JSON.stringify(sampleRegistry({ revision: 3 }), null, 2)}\n`,
+      revision: 3,
+      activeId: DEFAULT_PROFILE_ID,
+      profileCount: 1,
+    },
+    {
+      // version 0 is not newer than the frozen version, so it is invalid rather
+      // than unsupported-version.
+      name: 'invalid',
+      kind: 'invalid',
+      text: `${JSON.stringify(sampleRegistry({ revision: 2, version: 0 }), null, 2)}\n`,
+      revision: 2,
+      activeId: DEFAULT_PROFILE_ID,
+      profileCount: 1,
+    },
+    {
+      name: 'corrupt',
+      kind: 'corrupt',
+      text: '{broken',
+      revision: null,
+      activeId: null,
+      profileCount: 0,
+    },
+  ]
+
+  for (const item of cases) {
+    await writeFile(home.registryFilePath, item.text, 'utf8')
+    const verdict = classifyRegistryText(item.text)
+    const health = await inspectProfileRegistry(home.registryFilePath)
+    // Both entries classify the identical body: canonical kind === health status.
+    assert.equal(verdict.kind, item.kind, `${item.name}: canonical kind`)
+    assert.equal(health.status, item.kind, `${item.name}: health status`)
+    assert.equal(health.status, verdict.kind, `${item.name}: entries agree`)
+    assert.equal(health.revision, verdict.revision ?? null, `${item.name}: revision agrees`)
+    assert.equal(health.activeId, verdict.activeId ?? null, `${item.name}: activeId agrees`)
+    assert.equal(health.profileCount, verdict.profileCount ?? 0, `${item.name}: profileCount agrees`)
+    // The report keeps its frozen field contract, including null/null/0 on corrupt.
+    assert.equal(health.revision, item.revision, `${item.name}: revision`)
+    assert.equal(health.activeId, item.activeId, `${item.name}: activeId`)
+    assert.equal(health.profileCount, item.profileCount, `${item.name}: profileCount`)
+    assert.equal(health.degraded, item.kind !== 'ok', `${item.name}: degraded flag`)
+    if (item.kind === 'ok') {
+      assert.equal(health.error, null)
+      assert.equal(verdict.registry.activeId, DEFAULT_PROFILE_ID)
+    } else {
+      // The corrupt error text is the canonical `invalid JSON: …`; the type stays string.
+      assert.equal(typeof health.error, 'string')
+      assert.equal(verdict.registry, undefined, 'only an ok verdict carries the parsed body')
+      if (item.kind === 'corrupt') assert.match(health.error, /JSON/)
+    }
+    // Classification-only fields must never leak into the doctor report.
+    for (const leaked of ['kind', 'detail', 'version']) {
+      assert.equal(Object.hasOwn(health, leaked), false, `${item.name}: report must not leak ${leaked}`)
+    }
+  }
 })

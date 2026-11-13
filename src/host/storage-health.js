@@ -15,9 +15,8 @@ import {
   PROFILES_DIR_NAME,
   RECORD_FILE_NAME,
   REGISTRY_FILE_NAME,
-  REGISTRY_VERSION,
 } from './constants.js'
-import { isProfileId, validateRegistry } from './profile-registry.js'
+import { classifyRegistryText, isProfileId } from './profile-registry.js'
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 
@@ -139,74 +138,37 @@ const errorText = (error) => (error instanceof Error ? error.message : String(er
 const DEGRADED_REGISTRY_STATUSES = new Set(['corrupt', 'invalid', 'unsupported-version', 'unreadable'])
 
 /**
- * Classify one registry body without touching the filesystem.
- * @param {string} text
+ * Map the canonical registry verdict onto the doctor report shape.
+ *
+ * Explicit fallbacks keep the frozen report contract (`revision: number|null`,
+ * `activeId: string|null`, `profileCount: number`, `error: string|null`,
+ * `registry: object|null`) independent of classifier internals: the
+ * classification-only fields (`kind`, `detail`, `version`) are never spread
+ * into the report.
+ *
+ * @param {ReturnType<typeof classifyRegistryText>} verdict
+ * @returns {{
+ *   status: 'ok'|'corrupt'|'unsupported-version'|'invalid',
+ *   revision: number|null,
+ *   activeId: string|null,
+ *   profileCount: number,
+ *   error: string|null,
+ *   registry: object|null
+ * }}
  */
-const classifyRegistryText = (text) => {
-  let parsed
-  try {
-    parsed = JSON.parse(text)
-  } catch (error) {
-    return {
-      status: 'corrupt',
-      revision: null,
-      activeId: null,
-      profileCount: 0,
-      error: errorText(error),
-      registry: null,
-    }
-  }
-  if (!isObject(parsed)) {
-    return {
-      status: 'corrupt',
-      revision: null,
-      activeId: null,
-      profileCount: 0,
-      error: 'registry is not a JSON object',
-      registry: null,
-    }
-  }
-  const revision = Number.isInteger(parsed.revision) ? parsed.revision : null
-  const activeId = typeof parsed.activeId === 'string' ? parsed.activeId : null
-  const profileCount = Array.isArray(parsed.profiles) ? parsed.profiles.length : 0
-  if (typeof parsed.version === 'number' && parsed.version > REGISTRY_VERSION) {
-    return {
-      status: 'unsupported-version',
-      revision,
-      activeId,
-      profileCount,
-      error: `registry version ${String(parsed.version)} is newer than ${String(REGISTRY_VERSION)}`,
-      registry: null,
-    }
-  }
-  if (parsed.version !== REGISTRY_VERSION) {
-    return {
-      status: 'invalid',
-      revision,
-      activeId,
-      profileCount,
-      error: `version must be ${String(REGISTRY_VERSION)} (got ${JSON.stringify(parsed.version)})`,
-      registry: null,
-    }
-  }
-  const verdict = validateRegistry(parsed)
-  if (!verdict.ok) {
-    return {
-      status: 'invalid',
-      revision,
-      activeId,
-      profileCount,
-      error: verdict.errors.join('; '),
-      registry: null,
-    }
-  }
-  return { status: 'ok', revision, activeId, profileCount, error: null, registry: parsed }
-}
+const registryHealthFromVerdict = (verdict) => ({
+  status: verdict.kind,
+  revision: verdict.revision ?? null,
+  activeId: verdict.activeId ?? null,
+  profileCount: verdict.profileCount ?? 0,
+  error: verdict.kind === 'ok' ? null : verdict.detail,
+  registry: verdict.kind === 'ok' ? verdict.registry : null,
+})
 
 /** Read one registry file (or its absence) without mutating it. */
 const inspectRegistryFile = async (path) => {
   try {
-    return { exists: true, ...classifyRegistryText(await readFile(path, 'utf8')) }
+    return { exists: true, ...registryHealthFromVerdict(classifyRegistryText(await readFile(path, 'utf8'))) }
   } catch (error) {
     if (error?.code === 'ENOENT') {
       return {

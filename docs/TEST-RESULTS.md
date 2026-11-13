@@ -1,13 +1,53 @@
-# 0.4.0-beta.63 本地测试结果（当前轮）
+# 0.4.0-beta.65 本地测试结果（当前轮）
 
-> `docs/TEST-MATRIX.md` 仍是当前可重复验证状态、语言覆盖与测试缺口的**真相源**；本文件记录 2026-11-12 本地候选树的实际执行结果，并保留 `0.4.0-beta.13` 历史快照（见文末）。`.63` 已发布（`v0.4.0-beta.63`，2026-11-12）。
+> `docs/TEST-MATRIX.md` 仍是当前可重复验证状态、语言覆盖与测试缺口的**真相源**；本文件记录 2026-11-13 本地候选树的实际执行结果，并保留 `0.4.0-beta.63` 历史轮与 `0.4.0-beta.13` 历史快照（见文末）。`.65` 是未发布的 dev 批次（未 tag、未发布）；最新已发布仍为 `0.4.0-beta.64`（2026-11-12）。
 
-日期：2026-11-12  
-版本：`0.4.0-beta.63`（已发布，2026-11-12；上一发布为 `0.4.0-beta.62`，2026-11-11）  
+日期：2026-11-13  
+版本：`0.4.0-beta.65`（dev，未发布；最新已发布 `0.4.0-beta.64`，2026-11-12）  
 宿主基线：`@deepseek-ai/dsh` 0.2.1-rc.2（community）/ 0.2.2-rc.1（official，`.61` A+ 证据；0.2.1-rc.5 为 `.60` 历史）  
+变更范围：对话框键盘时序修复（焦点守卫 + rect 兜底 + e2e 定位/焦点断言）+ 菜单滚动稳定性（S7：scroll 关闭移入 `MenuPopover`、O(1) `contains`/`isConnected` 判定、scroll 路径无布局读）+ 架构债清理（plugin-host / dialog-host 拆分、host 原子写/文件锁去重、sessionContainer / registry 分类器 / MAX_PROFILES 去重、import-cycle 守卫）；无公开 API/存储/locale/UX 契约变更
+
+## 本轮自动门禁（2026-11-13，本地 Windows）
+
+- `npm run check:style`：**PASS**（228 files）
+- `npm test`：**1031/1031 PASS**（0 failed / 0 skipped；S7 +4 个用例）
+- `npm run build`：**PASS**（`lib/client.js` 实际 662,743 bytes（S7 重建）；构建日志打印的 654,255 是字符数；17 个 lazy locale chunks 497,865 bytes；版本戳 `0.4.0-beta.65`）
+- `npm run check:lib`：**PASS**
+- `node --check lib/client.js`：**PASS**
+- `npm run check:coverage`：**PASS**，all files **94.84% lines / 86.92% branches / 91.46% functions**（门禁 92/80/85；同批运行在 94.68–94.85 / 86.79–86.94 / 91.44–91.55 波动，最终门禁轮为 94.84 / 86.92 / 91.46）
+- `npm run check:ui`：**45/45 PASS**（1 module-load + 44 component tests，覆盖 19 components / 28 client modules）
+- `npm run check:release`：**PASS**（`check:release` 校验四个机器源版本一致：`package.json` / `dsh.plugin.json` / `src/shared/constants.js` / `package-lock.json`；文档中的版本引用是人工同步，不由该门禁校验。`.65` release note 存在、bundle 版本戳、`package.json.files` 路径 25/25 存在）
+- `npm pack --dry-run`：**PASS**，**246 files**（dry-run 不修改仓库）
+- 证据 tarball（两类，均不进仓库）：
+  - **S1–S6 历史证据**：`dsh-session-grove-0.4.0-beta.65.tgz`，**835,756 bytes**，sha256 `AE0DE4AC115B0E39FD9ADBFDDA89A0BFCB211DAF9D5E116972226331F190B766`，位于 `%TEMP%\dsh-grove-pack\`。它在 `a60f616`（证据文档之前的最后一个提交）打包；包内 `lib/client.js`（662,098 B）与当时 HEAD 逐字节一致、版本戳 `.65`，但**早于 S7 菜单修复**，不含 S7 代码；包内 docs 早于 S1–S6 证据段、release note 仍写 pending，**不得**把包内 docs 当作 HEAD。
+  - **S7 代码证据**：`dsh-session-grove-0.4.0-beta.65.tgz`，**842,325 bytes**，sha256 `F8680868A88B119DBC0158C81CD2D818AE9AF8DABDEFD06972CEFA548001D2F7`，位于 `%TEMP%\dsh-grove-pack-s7\`；从 `a24a414` 树打包，包内 `lib/client.js` 662,743 B / sha256 `01F2B5B62FAF3AE9B649607B5698F5ADF7C1846C55AEEE8676B2E9A54D0A7E8B`。S7 的 fresh-host e2e 使用此包。
+  - 从 HEAD 重打包会得到另一个 **docs-current** 包（仅 docs 不同，代码/lib 相同），字节/sha 记录在 `AGENTS.md`（不打包）与批次台账。
+- locale：**397 keys × 19 dictionaries** 不变（本批无 locale 资源改动）
+
+## 真实宿主证据（S1–S6，`.65`，2026-11-13，agent debug run at the user's explicit request）
+
+用户 2026-11-13 明确要求“这次你先跑”，因此本轮 fresh-host e2e 由 **agent** 执行，**不是**用户桌面验收。被测包为上面的 S1–S6 证据包（历史，不含 S7 代码）`dsh-session-grove-0.4.0-beta.65.tgz`（**835,756 bytes**，sha256 `AE0DE4AC115B0E39FD9ADBFDDA89A0BFCB211DAF9D5E116972226331F190B766`，`%TEMP%\dsh-grove-pack\`，仓库外）。
+
+- `npm run test:isolated`：**PASS**（exit 0），fresh home `<temp>\dsh-sg-e2e-20261113-024652`；**narrow matrix** 计 **30 pass / 0 skip / 0 failure**（不是整个 suite 的计数），**71 screenshots** (69 narrow-matrix cells + 2 baseline)；preview geometry dialog **560×560**、narrow sidebar **252**、body scroll **3659>466**、row gaps **[0,0,0]**；之前失败的 dialog keyboard 段通过。
+- `npm run test:ui-browser`：**PASS（第 2 次）**（exit 0），使用 S1–S6 lane 的第二个 fresh home `<temp>\dsh-sg-e2e-20261113-025209`（02:52 创建，02:57 重试复用同一个 home——**1 次干净失败 + 1 次同 home 复跑**，不是换 home；S1–S6 lane 共两个 fresh home：isolated `024652` + ui-browser `025209`，S7 另有第三个 `160323`）；`bundleEntries 1`、`executedBytes 2,572,166 = sourceBytes`、`executedRatio 1`、`pageErrors []`。首跑 log 只有 12s `session-groups-view` 可见性超时，**未保留失败截图**；宿主 “Get started” 对话框在脚本 3.5s overlay 探测之后才挂载并挡住视图是从该超时与 `e2e/ui-runtime.spec.mjs:74-82` **推断**的，不是直接观察；判断为测试脚本时序竞态，不是插件问题。重试 log 没有显式 PASS 行；PASS 依据 = exit 0 + `UI_RUNTIME {...}` 行 + 无 FAIL 行 + `ui-runtime-coverage.json`（`pageErrors: []`）。`e2e/ui-runtime.spec.mjs` 的 `dismissOverlays` 后续可加固（本批未改）。
+- 无 locale sweep：397 keys × 19 dictionaries 未变；official A+ O 未跑、不声称（最新 official 证据仍是 `.61`）。
+
+## S7 追加证据（`.65`，2026-11-13；e2e 为 agent debug run，手工 5 条为用户桌面验收）
+
+S7（侧栏菜单无关滚动误关闭）在 S1–S6 证据之后追加：`lib/client.js` 重新构建为 **662,743 bytes** / sha256 `01F2B5B62FAF3AE9B649607B5698F5ADF7C1846C55AEEE8676B2E9A54D0A7E8B`（build commit `a24a414`），代码证据包为 **842,325 bytes** / sha256 `F8680868A88B119DBC0158C81CD2D818AE9AF8DABDEFD06972CEFA548001D2F7`（`%TEMP%\dsh-grove-pack-s7\`，仓库外）。
+
+- `npm test`：**1031/1031 PASS**（比 S1–S6 的 1027 +4：`tests/client/menu-scroll.test.js` 覆盖 `scrollAffectsMenu` 全分支 + `menuSourceRow` 命中/未命中，`tests/client/ui-layout.test.js` 增加源码断言）；`check:ui` **45/45 PASS**；`check:coverage` **PASS** 94.84 / 86.92 / 91.46（范围 94.68–94.85 / 86.79–86.94 / 91.44–91.55）。
+- `npm run test:isolated`：**PASS**（exit 0），fresh home `<temp>\dsh-sg-e2e-20261113-160323`（port 4493），被测包为上面的 S7 code-evidence 包（F868…）；**narrow matrix 30 pass / 0 skip / 0 failure**（不是整个 suite 的计数），**71 screenshots**（69 cell + 2 baseline）；preview geometry dialog **560×560**、narrow sidebar **252**、body scroll **3659>466**、row gaps **[0,0,0]**；S7 新菜单用例通过；宿主仍是 community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2`。
+- 新 e2e 用例口径：打开组菜单后，从 `.dsg-root` 之外的探针元素 dispatch `scroll`（菜单必须保持可见），再对 `.dsg-tree` dispatch `scroll`（菜单必须关闭）。**真实右侧会话容器 target 未在该 e2e 中直接验证**（不是打开真实流式会话后滚右侧），因此真实右侧会话区的行为由下面的 2026-11-13 用户桌面验收直接确认；e2e 本身仍是 agent 执行。
+- **用户桌面验收（2026-11-13，PASS）**：用户把最终 docs-current 包装进桌面客户端 profile `desktop`（plugin `0.4.0-beta.65`，`lib/client.js` 662,743 B / sha256 `01F2B5B62FAF3AE9B649607B5698F5ADF7C1846C55AEEE8676B2E9A54D0A7E8B`），5 条菜单手工验收全部 PASS（用户原话“效果很好，手动验收完成”）：①菜单打开后滚右侧会话区 → 菜单保持；②流式输出期间菜单稳定；③滚左侧树 → 菜单关闭；④点外部 / Escape → 菜单关闭；⑤菜单项 action 正常。这是 **user desktop acceptance**，与上面的 agent-run e2e 是两条独立证据；e2e probe 不针对真实右侧容器，故该手工 PASS 才是真实右侧面板的直接验证。用户未升级桌面客户端本体，宿主矩阵保持 community 2.0.18 / DSH `0.2.1-rc.2` 不变。
+- `.65` 的旧证据包 **835,756 B / `AE0DE4AC…`** 是 **S1–S6 历史证据**，不含 S7 代码；S7 代码证据以 F868 为准。
+
+## 0.4.0-beta.63 历史轮（2026-11-12，已发布）
+
+版本：`0.4.0-beta.63`（已发布，2026-11-12；上一发布为 `0.4.0-beta.62`，2026-11-11）  
 变更范围：首次引导漏斗（入口一次性提示 + 动作化说明卡）+ 4 处就地提示 + 三处文档站点入口（入口提示 / 说明卡 / 设置页）+ README 瘦身为入口页（长文迁移到文档站点）+ 移除 QQ 群图片 + 19 语言 397 keys；无文档 schema 变更
 
-## 本轮自动门禁（2026-11-12，本地 Windows）
+### 本轮自动门禁（2026-11-12，本地 Windows）
 
 - `npm run check:style`：**PASS**（217 files）
 - `npm test`：**914/914 PASS**（0 failed / 0 skipped）
@@ -20,7 +60,7 @@
 - `npm pack --dry-run`：**PASS**，**238 files**，package **797.7 kB**，unpacked **3.1 MB**（tarball `dsh-session-grove-0.4.0-beta.63.tgz`；QQ 群图片已移出插件仓并同步移出 `package.json.files`；dry-run 不修改仓库）
 - locale：**397 keys × 19 dictionaries**（385 → 397，新增 12 个 key；`onboarding.title/body` 改写、`onboarding.docs` 指向文档站点）
 
-## 用户本地桌面验收（`.63`，2026-11-12，PASS）
+### 用户本地桌面验收（`.63`，2026-11-12，PASS）
 
 用户在真实桌面宿主安装 `0.4.0-beta.63` 后验收通过（2026-11-12），覆盖：
 
@@ -32,7 +72,7 @@
 
 这是用户本地验收记录，不替代 A+ / locale sweeps；自动化证据见下节。
 
-## 本轮隔离宿主证据（`.63`，2026-11-12，community）
+### 本轮隔离宿主证据（`.63`，2026-11-12，community）
 
 A+ 宿主：community DSH Desktop Stable 2.0.18 / DSH `0.2.1-rc.2` 隔离实例（新 test home `<temp>\<isolated-home>`，port <ephemeral>；安装包 `dsh-session-grove-0.4.0-beta.63.tgz`，安装版本 `0.4.0-beta.63`）。
 

@@ -1,11 +1,11 @@
 # 架构：纯函数核心 + DSH 适配器
 
-当前实现：**0.4.0-beta.64**  
+当前实现：**0.4.0-beta.65**（未发布 dev 批次；最新已发布为 `0.4.0-beta.64`）  
 支持宿主：`@deepseek-ai/dsh` 0.2.1-rc.2 / 0.2.1-rc.5  
 已验证壳：社区版 DSH Desktop **Stable** 2.0.18（rc.2）；官方 DeepSeek Harness 桌面版 0.2.2.0（rc.1，隔离 A+）；0.2.1.0（rc.5）为 `.60` 历史验证（隔离 A+ + 桌面窗口验收）  
 明确不支持：社区版 DSH Desktop Beta、社区版 DSH NEXT（`-next`）  
-分发状态：`.60` 已上架 dshmarket；GitHub Release 附件与本地 beta tarball 仅维护者/调试路径。`.62` 是上一发布版本（分组归档 + 双三态 + 结构锁）；`.63` 已发布（2026-11-12，首次引导漏斗 + 就地提示 + 文档站点入口），README 已瘦身为入口页。  
-测试基线（`.64` dev tree）：938/938 unit/contract、44/44 UI runtime（1 module-load + 43 component tests，19 components / 26 client modules）+ 1 browser spec；397 locale keys × 19 dictionaries。
+分发状态：`.60` 已上架 dshmarket；GitHub Release 附件与本地 beta tarball 仅维护者/调试路径。`.62` 是更早的发布版本（分组归档 + 双三态 + 结构锁）；`.63` 已发布（2026-11-12，首次引导漏斗 + 就地提示 + 文档站点入口），README 已瘦身为入口页；`.64` 已发布（2026-11-12，浮层统一策略），`.65` 是当前未发布的 dev 批次（对话框键盘时序修复 + 菜单滚动稳定性（S7）+ 架构债清理）。  
+测试基线（`.65` dev tree）：1031/1031 unit/contract、45/45 UI runtime（1 module-load + 44 component tests，19 components / 28 client modules）+ 1 browser spec；397 locale keys × 19 dictionaries；coverage 94.84/86.92/91.46（阈值 92/80/85；同批 94.68–94.85 / 86.79–86.94 / 91.44–91.55 波动，记录轮 94.84/86.92/91.46）。真实宿主 **PASS**（agent debug run at the user's explicit request，2026-11-13）：S1–S6 用 **835,756 bytes** / sha256 `AE0DE4AC…` 证据包（两个 fresh home：isolated `024652`；ui-browser `025209`，首跑与 02:57 重试是**同一个 home**；`test:isolated` 的 71 张截图 = 69 个 narrow-matrix cell + `narrow-264.png` + `dark-264.png`（2 张 baseline）；`test:ui-browser` 首跑只有 12s 可见性超时、**无失败截图**，宿主 "Get started" 对话框遮挡视图是从该超时与脚本 3.5s overlay 探测顺序**推断**的，属测试脚本时序竞态，重试 PASS；PASS 依据 = exit 0 + `UI_RUNTIME` 行 + 无 FAIL + coverage JSON `pageErrors []`）；S7 代码用 **842,325 bytes** / sha256 `F868…` 证据包（build `a24a414`，`lib/client.js` 662,743 B），在 fresh home `160323`（port 4493）全量 `test:isolated` **PASS**（narrow matrix 30/0/0、71 截图、新菜单用例通过，宿主仍 community 2.0.18 / DSH 0.2.1-rc.2）；菜单 5 条手工验收 **2026-11-13 用户桌面 PASS**（profile `desktop`，plugin `.65`，`lib/client.js` 662,743 B / `01F2B5B6…`；e2e probe 不针对真实右侧容器）；上述 e2e 仍是 agent debug run at the user's explicit request、**不是**用户桌面验收；official A+ O 最新仍为 `.61`。
 
 插件按洋葱圈分层，宿主升级时只改外圈。
 
@@ -62,6 +62,18 @@ src/index.js     Cordis host 入口
 - additive 属性（不改 testid / class 契约）：`data-placement`（实际策略：逻辑 token、`flipped` 或 `clamped`）、`data-width`（取整的实测 root 宽）、`data-title-collapsed`、`data-fallback="clip"`。
 - 紧凑态由实测驱动：`data-narrow` 取 `.dsg-root` 实测宽，377/385 滞回（首帧用 `appliedWidth - 12` 估计），不取头部行溢出——flex 行只会压缩标题、不会溢出，溢出判据永远不会触发。`data-title-collapsed` 量的是始终参与布局的 `.dsg-header-title` 可用宽（扣 24px chevron 与 4px/窄态 2px 内联间距，<42 折叠、≥50 恢复），绝不量被隐藏的 label（隐藏后读 0，会把自己永久锁在折叠态）。
 - 5 个 header 触发器（3 个状态按钮、视图选项、配置 chevron）关闭后统一 `focus({ preventScroll: true })` 回焦：`wasOpen` 记录，回焦放在关闭后的 `useEffect` 里，避免被浏览器默认聚焦覆盖；首帧不抢焦。行菜单既有回焦不动。
+
+## 菜单关闭与滚动语义（0.4.0-beta.65 S7）
+
+行菜单（组/会话）的关闭条件在 `.65` 收窄：frozen `docs/CONTRACTS.md` 里 V1.1（0.2.7）的旧描述“Escape/外部/滚动/resize 关闭”只保留其余三项，**“任意滚动关闭”不再成立**；该文件是 frozen 历史契约，不追溯修改，当前行为以本节为准。
+
+- **源行祖先容器 scroll** → 关闭：菜单锚在源行上，只有源行自己的祖先滚动容器（左侧分组树）会移动锚点。判定为 `target.contains(row)`（O(1)）。
+- **row 失效** → 关闭：`row.isConnected === false`（流式重渲染把行替换掉）时允许**一次** `menuSourceRow(menu)` 重查；仍找不到才关闭。
+- **resize** → 关闭：`plugin-host.js` 的 window `resize` 监听（`closeMenuOnResize`）保留。
+- **无关容器 scroll 忽略**：右侧会话区自己的滚动容器不是源行祖先，`scrollAffectsMenu` 返回 `false` 后直接 return——不 dispatch、不 setState、不触发 `GroupsView` 重渲染；流式自动滚动因此不再关闭菜单。
+- **scroll 路径无布局读、无子树查询**：每次 scroll 最多一次 `target.closest('.dsg-menu, .dsg-dialog')` 祖先检查，加上行缺失/detached 时的一次 `menuSourceRow` 重查；不做 `querySelectorAll`，也不调用 `getBoundingClientRect` / `getComputedStyle` / `offset*` / `scrollTop`（源行只在菜单打开时缓存一次）。
+- **监听器所有权**：`MenuPopover`（`src/client/session-menu.js`）在 `useEffect([menu])` 里挂 `document` 的 `scroll`（`{ capture: true, passive: true }`），菜单关闭/卸载时移除；`plugin-host.js` 不再有 document scroll 监听，避免双监听。`menuSourceRow` / `scrollAffectsMenu` 在 `src/client/groups-view-menu-handlers.js`（React-free），由 popover 单向 import。
+- 菜单定位/夹紧、outside pointerdown、Escape、菜单项 action 与公开 testid/ARIA 均不变。
 
 ## 分组归档与子树冻结（0.4.0-beta.62）
 
@@ -162,7 +174,7 @@ Host 权威守卫：
 - `src/client/groups-view-search.js`：搜索 reveal/highlight 的 DOM 控制器与 timer 生命周期
 - `src/client/command-runtime.js`：非 React 命令/Toast bridge（dispatch 与 toast）
 - `scripts/build-client.mjs`：主 bundle + `lib/client.locale-*.js` 懒加载 chunk 生成
-- `src/client/groups-view-menu-handlers.js`：菜单锚点/上下文菜单/导航命令
+- `src/client/groups-view-menu-handlers.js`：菜单锚点/上下文菜单/导航命令；`menuSourceRow` 与 `scrollAffectsMenu`（S7，React-free，供 `MenuPopover` 判定 scroll 是否移动锚点）
 - `src/client/groups-view-dialog-handlers.js`：新建/重命名/移动/删除/归档/fork 等 dialog 命令
 - `src/client/profile-switcher.js`：配置 chevron/popover 与 recovery strip
 - `src/client/profile-preview.js`：切换差异预览 body 与预览 footer
@@ -246,13 +258,26 @@ Host 权威守卫：
   - `change-hub` 在每次 commit 后广播 revision；浏览器通过 `/events` SSE 重新 load
   - 0.3.0-beta.79 拆分：`routes.js` 只保留注册编排；控制路由在 `control-routes.js`
   - 0.4.0-beta.61 再拆分：HTTP 原语/请求体解析在 `host/http/wire.js`，冻结响应形状在 `host/http/respond.js`，profile 策略（planHash/目标解析/doctor 存储报告/名称策略）在 `profile-policy.js`，legacy 单 store 适配器在 `legacy-profile-manager.js`
+  - 0.4.0-beta.65 再拆分：host 文档存储与 profile registry 里重复的原子写 helper 与跨进程锁收敛为 `host/atomic-write.js` 与 `host/file-lock.js`（写序列与 `enqueue` promise tail 仍在各模块）；client 的 host command 层移到 `plugin-host-commands.js`（shell → commands 单向），group/session 弹窗 body 移到 `dialog-bodies.js`（`DIALOG_KEYS` / `DESTINATION_REASON_KEYS` 随 body 迁入）
   - 0.4.0-beta.62：`/commit` 的 `archive-frozen` 结果在 `respond.js` 固定为 409 `{ code, reason, groupId, field, message }`；`/control/apply` 的归档冲突由 `control-routes.js` 映射 409，schema/类型错误保持 422
 - `src/client/components.js` + `components-*.js`
   - `components.js` 只保留 GroupsView 编排；primitives、rows、ungrouped、resize-handle、search-box、header 分模块
   - DOM、testid、CSS 类与 props 契约不变
+- `src/client/plugin-host.js` + `src/client/plugin-host-commands.js`（0.4.0-beta.65 拆分）
+  - `plugin-host.js`（split 时 312 行；S7 移除 document scroll 监听后 309 行）只是 mount shell：slot 生命周期、宽度/布局、workspace chrome、settings/styles 安装、store 订阅、window/document 监听、mount/dispose，以及字面列出的 21 键返回面
+  - `plugin-host-commands.js`（682 行）是 host command 层：`createActions` bridge、archive/session 动作、new-session follow、dialog 命令与 `confirmDialog`、filter/epoch、follow-guard 安装/清理；`clipboard` 由 shell 注入
+  - 依赖方向单向：shell → commands → core/shared/client 纯模块；commands 不 import DSH 包、不反向依赖 shell
+- `src/client/dialog-host.js` + `src/client/dialog-bodies.js`（0.4.0-beta.65 拆分）
+  - `dialog-host.js`（710 行）是 modal shell：effects、geometry、focus guard、Tab/Escape、gestures、keyboard、body 组装、footer、`shouldFocusDialogTarget`
+  - `dialog-bodies.js`（315 行）是 group/session 弹窗 body（delete-group、archive-group、archive-running、move-session、move-group、icon、group-color）；`DIALOG_KEYS` / `DESTINATION_REASON_KEYS` 随 body 语义迁入，shell 单向 import 仍在用的键；testid/ARIA/键盘行为不变
 - `src/host/storage-health.js`
   - doctor 的只读存储健康检查；不使用 store.load，不触发 quarantine 或写入
   - 多配置后同时检查 registry、每个 profile 文档、`.bak` 与 quarantine 家族，报告 `storage.registry` 与 `storage.profiles[]`
+  - `.65` 起 registry 状态直接复用 `profile-registry.js` 的分类器，doctor 与 registry 判定不会各写一套
+- `src/host/atomic-write.js` + `src/host/file-lock.js`（0.4.0-beta.65 去重）
+  - `atomic-write.js`（69 行）只导出原子写 helper 原语：retry 循环与可重试错误码、`pathExists`、best-effort 目录 fsync、quarantine 时间戳、`temporaryPathForWrite` 临时路径构造；temp → fsync → `.bak` → rename → 目录 fsync 的写序列本身仍在 `src/host/store.js` 与 `src/host/profile-registry.js` 各自模块
+  - `file-lock.js`（149 行）只共享跨进程 `.lock` 获取、stale lock 回收与 token 校验释放；错误码固定为 `store-busy`，只有 busy 文案由调用方注入（`group store is busy` / `profile registry is busy`），`enqueue` 的同进程 promise tail 仍留在 store / registry 各自模块
+  - 两者只共用 helper 原语，host 层不再各留一份重复实现；写路径行为与拆分前逐字一致
 - `src/host/profile-registry.js` + `profile-manager.js` + `profile-routes.js`
   - registry 原子性/CAS/degraded 在 `profile-registry.js`；路径解析、per-profile store 缓存与只读 peek 在 `profile-manager.js`
   - `/profiles*` 六条路由与 previewToken 在 `profile-routes.js`；`/load`/`/commit` 只按 active 解析，不信任请求里的 profileId
