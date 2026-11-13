@@ -1,17 +1,16 @@
 /**
- * Modal dialog host: group/session dialogs, selectors, geometry and color UI.
- * Extracted from components.js as a behavior-neutral split.
+ * Modal dialog shell: geometry, focus/trap, gestures, footer and body assembly.
+ * Group/session bodies live in dialog-bodies.js; profile bodies stay in
+ * dialog-profile.js and profile-preview.js.
  */
 import { createElement, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { clientRuntime as rt } from '../adapters/client-runtime.js'
-import { deleteGroupDestinationVerdict, deleteGroupOptions, dialogConfirmPayload, initialDialogSelection, isArchiveErrorCode, isSelectionDialog, moveGroupOptions, moveSessionOptions, selectionIsValid } from '../core/dialog-selection.js'
-import { GROUP_COLORS, GROUP_COLOR_HEX, MAX_GROUP_NAME, PLUGIN_VERSION } from '../shared/constants.js'
-import { isColorHex, normalizeColorHex } from '../shared/model.js'
-import { formatActivity } from './actions.js'
-import { centeredDialogRect, clampDialogRect, dragDialogRect, readDialogGeometries, resizeDialogRect, saveDialogGeometry } from './dialog-geometry.js'
+import { dialogConfirmPayload, initialDialogSelection, isSelectionDialog, selectionIsValid } from '../core/dialog-selection.js'
+import { MAX_GROUP_NAME, PLUGIN_VERSION } from '../shared/constants.js'
+import { isColorHex } from '../shared/model.js'
+import { DIALOG_KEYS, groupDialogBody } from './dialog-bodies.js'
+import { centeredDialogRect, clampDialogRect, dialogRectFromElement, dragDialogRect, readDialogGeometries, resolveDialogRect, resizeDialogRect, saveDialogGeometry } from './dialog-geometry.js'
 import { dialogKeyboardDelta } from './dialog-keyboard.js'
-import { GroupListPicker } from './group-list-picker.js'
-import { ICON_GROUPS, renderGlyph, renderIcon } from './icons.js'
 import { ScrollArea } from './scroll-area.js'
 import { ProfilePreviewActions, ProfilePreviewBody } from './profile-preview.js'
 import {
@@ -28,23 +27,6 @@ const dispatch = (action, payload) => rt()?.store.dispatch(action, payload)
 const focusableSelector =
   'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
 
-/**
- * Copy keys for the 0.4.0-beta.62 archive dialogs and disabled destinations
- * (resources ship in P10). Computed maps keep the i18n literal-key guard green.
- */
-const DIALOG_KEYS = Object.freeze({
-  archiveBody: 'dialog.archiveGroupBody',
-  archiveConfirm: 'dialog.archiveGroupConfirm',
-})
-
-const DESTINATION_REASON_KEYS = Object.freeze({
-  'group-archived': 'dialog.destinationArchived',
-  'group-contains-archived': 'dialog.destinationArchived',
-  'group-destination-archived': 'dialog.destinationArchived',
-  'group-position-locked': 'dialog.groupPositionLocked',
-})
-const DEFAULT_DESTINATION_REASON_KEY = 'dialog.destinationArchived'
-
 const focusableIn = (element) =>
   Array.from(element?.querySelectorAll?.(focusableSelector) ?? []).filter(
     (candidate) =>
@@ -52,6 +34,14 @@ const focusableIn = (element) =>
       !candidate.closest('[aria-hidden="true"]') &&
       candidate.getClientRects().length > 0
   )
+
+/**
+ * The delayed auto-focus must not steal focus that the user (or a test) has
+ * already placed inside the open dialog. The dialog element itself, an outside
+ * element, a body-like object and a null activeElement all keep auto-focus.
+ */
+export const shouldFocusDialogTarget = (activeElement, dialogElement) =>
+  !(activeElement && dialogElement?.contains?.(activeElement) && activeElement !== dialogElement)
 
 
 export const DialogHost = ({ store, props, sessionsById }) => {
@@ -121,6 +111,7 @@ export const DialogHost = ({ store, props, sessionsById }) => {
       if (active && active !== globalThis.document?.body) restoreFocusRef.current = active
     }
     const timer = setTimeout(() => {
+      if (!shouldFocusDialogTarget(globalThis.document?.activeElement, dialogRef.current)) return
       if (needsNameInput) {
         inputRef.current?.focus()
         return
@@ -353,10 +344,22 @@ export const DialogHost = ({ store, props, sessionsById }) => {
     return () => clearTimeout(timer)
   }, [dialog?.kind])
 
+  // The explicit in-memory rect is the gesture source of truth; before the
+  // natural measurement lands (or after a reset clears it) fall back to the
+  // element's rendered box so keyboard move/resize still work instead of
+  // silently doing nothing.
+  const currentDialogRect = () =>
+    resolveDialogRect(
+      dialogRectRef.current,
+      dialogRectFromElement(dialogRef.current),
+      globalThis.innerWidth,
+      globalThis.innerHeight
+    )
+
   const beginDialogGesture = (event, dir = null) => {
     if (!dialog || event.button !== 0) return
     if (dir === null && event.target?.closest?.('button, input, textarea, select, a')) return
-    const start = dialogRectRef.current
+    const start = currentDialogRect()
     if (!start) return
     event.preventDefault()
     event.stopPropagation()
@@ -418,11 +421,6 @@ export const DialogHost = ({ store, props, sessionsById }) => {
     const initial = dialog ? initialDialogSelection(dialog, store.doc) : undefined
     setSelection(initial)
     setHexInput(dialog?.kind === 'group-color' && isColorHex(initial) ? initial : '')
-    if (dialog && (dialog.kind === 'new-group' || dialog.kind === 'rename-group' || dialog.kind === 'rename-session')) {
-      const timer = setTimeout(() => inputRef.current?.focus(), 10)
-      return () => clearTimeout(timer)
-    }
-    return undefined
   }, [dialog])
   if (!dialog) return null
   const close = () => {
@@ -439,7 +437,7 @@ export const DialogHost = ({ store, props, sessionsById }) => {
     const delta = dialogKeyboardDelta(event.key, event.shiftKey)
     if (delta.dx === 0 && delta.dy === 0) return false
     event.preventDefault()
-    const current = dialogRectRef.current
+    const current = currentDialogRect()
     if (!current) return true
     const next = dragDialogRect(current, delta.dx, delta.dy, globalThis.innerWidth, globalThis.innerHeight)
     dialogRectRef.current = next
@@ -450,7 +448,7 @@ export const DialogHost = ({ store, props, sessionsById }) => {
     const delta = dialogKeyboardDelta(event.key, event.shiftKey)
     if (delta.dx === 0 && delta.dy === 0) return false
     event.preventDefault()
-    const current = dialogRectRef.current
+    const current = currentDialogRect()
     if (!current) return true
     const next = resizeDialogRect(current, 'se', delta.dx, delta.dy, globalThis.innerWidth, globalThis.innerHeight)
     dialogRectRef.current = next
@@ -485,7 +483,6 @@ export const DialogHost = ({ store, props, sessionsById }) => {
     event.preventDefault()
     void runProfileAction()
   }
-  const optionCheck = () => h('span', { class: 'dsg-dialog-option-check', 'aria-hidden': 'true' }, renderGlyph(h, 'check', 16))
   const bodyNodes = []
   if (isProfilePreview) {
     bodyNodes.push(h(ProfilePreviewBody, { store, t, byId: sessionsById }))
@@ -500,269 +497,22 @@ export const DialogHost = ({ store, props, sessionsById }) => {
     inputRef,
   })
   if (profileBody !== null) bodyNodes.push(profileBody)
-  if (dialog.kind === 'delete-group') {
-    const options = deleteGroupOptions(store.doc, dialog.groupId)
-    // N5: the implicit root/ungrouped destination is validated with the same
-    // candidate-document invariant; a frozen-anchor shift disables it instead of
-    // silently relocating elsewhere.
-    const rootVerdict = deleteGroupDestinationVerdict(store.doc, dialog.groupId, null)
-    const rootDisabled = !rootVerdict.ok && isArchiveErrorCode(rootVerdict.reason)
-    bodyNodes.push(
-      h(
-        'div',
-        { class: 'dsg-dialog-body dsg-dialog-delete-counts', 'data-testid': 'session-groups-dialog-delete-body' },
-        h(
-          'span',
-          { 'data-testid': 'session-groups-dialog-delete-sessions' },
-          t('group.sessionCount', { n: dialog.sessionCount ?? 0 }),
-        ),
-        h(
-          'span',
-          { 'data-testid': 'session-groups-dialog-delete-groups' },
-          t('group.subgroupCount', { n: dialog.childCount ?? 0 }),
-        ),
-      )
-    )
-    bodyNodes.push(
-      h(
-        'div',
-        { class: 'dsg-dialog-body', 'data-testid': 'session-groups-dialog-delete-instruction' },
-        t('dialog.deleteMoveInstruction'),
-      )
-    )
-    bodyNodes.push(h('div', { class: 'dsg-dialog-body' }, t('dialog.deleteDestination')))
-    bodyNodes.push(
-      h(GroupListPicker, {
-        options,
-        selection,
-        onSelect: setSelection,
-        rootLabel: t('dialog.rootDestination'),
-        ariaLabel: t('dialog.deleteDestination'),
-        rootDisabled,
-        rootReason: rootDisabled
-          ? DESTINATION_REASON_KEYS[rootVerdict.reason] ?? DEFAULT_DESTINATION_REASON_KEY
-          : null,
-        testId: 'session-groups-dialog-delete-options',
-      })
-    )
-  }
-  if (dialog.kind === 'archive-group') {
-    bodyNodes.push(
-      h(
-        'div',
-        { class: 'dsg-dialog-body', 'data-testid': 'session-groups-dialog-archive-body' },
-        t(DIALOG_KEYS.archiveBody)
-      )
-    )
-    // Footer-level opt-out: checked means "skip the confirm next time", and only
-    // a successful archive persists it (cancel/failure leave storage untouched).
-    bodyNodes.push(
-      h(
-        'label',
-        { class: 'dsg-dialog-check' },
-        h('input', {
-          type: 'checkbox',
-          checked: dontAskAgain,
-          'data-testid': 'session-groups-dialog-archive-dont-ask',
-          onChange: (event) => setDontAskAgain(event.target.checked === true),
-        }),
-        h('span', { class: 'dsg-dialog-check-label' }, t('dialog.archiveGroupDontAsk'))
-      )
-    )
-  }
-  if (dialog.kind === 'archive-running') bodyNodes.push(h('div', { class: 'dsg-dialog-body' }, t('dialog.archiveRunningBody', { families: formatActivity(dialog.activity) })))
-  if (dialog.kind === 'move-session' || dialog.kind === 'move-group') {
-    const options = dialog.kind === 'move-group' ? moveGroupOptions(store.doc, dialog.groupId) : moveSessionOptions(store.doc)
-    bodyNodes.push(h(GroupListPicker, {
-      options,
+  // Group/session bodies (delete/archive/move/icon/color) live in
+  // dialog-bodies.js; the shell only assembles them in order.
+  bodyNodes.push(
+    ...groupDialogBody({
+      store,
+      t,
+      dialog,
       selection,
       onSelect: setSelection,
-      allowRoot: dialog.kind !== 'move-group',
-    }))
-  }
-  if (dialog.kind === 'icon') {
-    const icons = Array.isArray(dialog.icons) ? dialog.icons : []
-    const available = new Set(icons)
-    const sections = ICON_GROUPS.map((section) => ({
-      ...section,
-      icons: section.icons.filter((icon) => available.has(icon)),
-    })).filter((section) => section.icons.length > 0)
-    const grouped = new Set(sections.flatMap((section) => section.icons))
-    const leftovers = icons.filter((icon) => !grouped.has(icon))
-    if (leftovers.length > 0) {
-      const general = sections.find((section) => section.key === 'general')
-      if (general) general.icons.push(...leftovers)
-      else sections.push({ key: 'general', labelKey: 'iconGroup.general', icons: leftovers })
-    }
-    const iconButton = (icon) => {
-      const active = selection === icon
-      return h(
-        'button',
-        {
-          key: icon,
-          type: 'button',
-          role: 'radio',
-          'aria-checked': active ? 'true' : 'false',
-          class: 'dsg-menu-item dsg-dialog-option dsg-icon-option',
-          'data-testid': 'session-groups-dialog-icon',
-          'data-icon': icon,
-          'data-selected': active ? 'true' : 'false',
-          title: t(`icon.${icon}`),
-          onClick: (event) => {
-            event.stopPropagation()
-            setSelection(icon)
-          },
-        },
-        renderIcon(h, icon, 16),
-        h('span', { class: 'dsg-dialog-option-label' }, t(`icon.${icon}`))
-      )
-    }
-    bodyNodes.push(
-      h(
-        ScrollArea,
-        {
-          className: 'dsg-icon-sections',
-          'data-testid': 'session-groups-dialog-options',
-          'aria-label': t('group.icon'),
-        },
-        ...sections.map((section, index) =>
-          h(
-            'section',
-            {
-              key: section.key,
-              class: 'dsg-icon-section',
-              'data-icon-group': section.key,
-              'aria-label': t(section.labelKey),
-            },
-            h(
-              'div',
-              { class: 'dsg-icon-section-title' },
-              t(section.labelKey)
-            ),
-            h(
-              'div',
-              {
-                class: 'dsg-menu dsg-dialog-icon-grid',
-                role: 'radiogroup',
-                'aria-label': t(section.labelKey),
-              },
-              ...section.icons.map(iconButton)
-            )
-          )
-        )
-      )
-    )
-  }
-  if (dialog.kind === 'group-color') {
-    const customActive = isColorHex(selection)
-    const hexValid = normalizeColorHex(hexInput) !== null
-    const nativeValue = normalizeColorHex(hexInput) ?? (isColorHex(selection) ? selection : GROUP_COLOR_HEX[selection] ?? GROUP_COLOR_HEX.blue)
-    const pickPreset = (color) => {
-      setSelection(color)
-      setHexInput('')
-    }
-    const changeHex = (raw) => {
-      setHexInput(raw)
-      const hex = normalizeColorHex(raw)
-      setSelection(hex ?? undefined)
-    }
-    const pickNative = (raw) => {
-      const hex = normalizeColorHex(raw)
-      if (!hex) return
-      setHexInput(hex)
-      setSelection(hex)
-    }
-    const hint = hexInput.trim() === '' || hexValid ? t('color.hint') : t('color.invalidHex')
-    bodyNodes.push(
-      h(
-        'div',
-        {
-          class: 'dsg-color-grid',
-          role: 'radiogroup',
-          'data-testid': 'session-groups-dialog-options',
-          'aria-label': t('dialog.groupColor'),
-        },
-        ...GROUP_COLORS.map((color) => {
-          const active = selection === color
-          return h(
-            'button',
-            {
-              key: color,
-              type: 'button',
-              role: 'radio',
-              'aria-checked': active ? 'true' : 'false',
-              class: 'dsg-dialog-option dsg-color-option',
-              'data-testid': 'session-groups-dialog-color',
-              'data-color': color,
-              'data-selected': active ? 'true' : 'false',
-              title: t(`color.${color}`),
-              onClick: (event) => {
-                event.stopPropagation()
-                pickPreset(color)
-              },
-            },
-            h('span', { class: 'dsg-color-swatch', 'aria-hidden': 'true', style: { background: `var(--dsg-color-${color})` } }),
-            h('span', { class: 'dsg-dialog-option-label' }, t(`color.${color}`)),
-            // 0.2.7: the check slot is always present and only hidden, so the
-            // label column never shifts when selection moves between cells.
-            h(
-              'span',
-              {
-                class: 'dsg-dialog-option-check',
-                'data-testid': 'session-groups-dialog-color-check',
-                'data-empty': active ? 'false' : 'true',
-                'aria-hidden': 'true',
-                style: { visibility: active ? 'visible' : 'hidden' },
-              },
-              renderGlyph(h, 'check', 16)
-            )
-          )
-        })
-      )
-    )
-    bodyNodes.push(
-      h(
-        'div',
-        { class: 'dsg-color-custom-row', 'data-selected': customActive ? 'true' : 'false' },
-        h('span', { class: 'dsg-color-custom-label' }, t('color.custom')),
-        h('input', {
-          type: 'color',
-          class: 'dsg-color-native',
-          'data-testid': 'session-groups-dialog-color-native',
-          'aria-label': t('color.custom'),
-          value: nativeValue,
-          onChange: (event) => pickNative(event.target.value),
-        }),
-        h('input', {
-          type: 'text',
-          class: 'dsg-dialog-input dsg-color-hex',
-          'data-testid': 'session-groups-dialog-color-hex',
-          maxlength: '7',
-          spellcheck: 'false',
-          autocomplete: 'off',
-          placeholder: '#RRGGBB',
-          'aria-label': t('color.customHex'),
-          value: hexInput,
-          onChange: (event) => changeHex(event.target.value),
-          onKeyDown: (event) => {
-            if (event.key === 'Escape') close()
-          },
-        })
-      )
-    )
-    bodyNodes.push(
-      h(
-        'div',
-        {
-          class: 'dsg-color-hint',
-          'data-testid': 'session-groups-dialog-color-hint',
-          'data-tone': hexInput.trim() !== '' && !hexValid ? 'error' : 'hint',
-          'aria-live': 'polite',
-        },
-        hint
-      )
-    )
-  }
+      dontAskAgain,
+      onDontAskAgain: setDontAskAgain,
+      hexInput,
+      onHexInput: setHexInput,
+      onClose: close,
+    })
+  )
   const needsInput = dialog.kind === 'new-group' || dialog.kind === 'rename-group' || dialog.kind === 'rename-session'
   const selectable = isSelectionDialog(dialog.kind)
   const danger = dialog.kind === 'delete-group' || dialog.kind === 'archive-running'

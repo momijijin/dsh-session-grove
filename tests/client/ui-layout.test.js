@@ -30,6 +30,9 @@ const componentProfiles = [
 ].join('\n')
 const componentProfileDialogs = readFileSync(new URL('../../src/client/components-profile-dialogs.js', import.meta.url), 'utf8')
 const dialogHost = readFileSync(new URL('../../src/client/dialog-host.js', import.meta.url), 'utf8')
+const dialogBodies = readFileSync(new URL('../../src/client/dialog-bodies.js', import.meta.url), 'utf8')
+// Group/session bodies live in dialog-bodies.js; the shell keeps the chrome.
+const dialogHostBodies = [dialogHost, dialogBodies].join('\n')
 // Profile form bodies/validation/actions live in dialog-profile.js; the shell
 // keeps the generic modal chrome and the `dialog.kind` dispatch, so the
 // profile-dialog assertions read both files.
@@ -50,6 +53,7 @@ const components = [
   componentProfiles,
   componentProfileDialogs,
   dialogHost,
+  dialogBodies,
   groupsViewWidth,
   groupsViewState,
   groupsViewMenu,
@@ -59,16 +63,21 @@ const sessionMenu = readFileSync(new URL('../../src/client/session-menu.js', imp
 const scrollArea = readFileSync(new URL('../../src/client/scroll-area.js', import.meta.url), 'utf8')
 const groupPicker = readFileSync(new URL('../../src/client/group-list-picker.js', import.meta.url), 'utf8')
 /**
- * The plugin family is split across the composition root (`plugin.js`) and the
- * three controllers it wires (document / profiles / host). Source-text
- * assertions read the concatenation of all four, plus the small mount adapters.
+ * The plugin family is split across the composition root (`plugin.js`), the
+ * three controllers it wires (document / profiles / host) and the host command
+ * layer (`plugin-host-commands.js`). Source-text assertions read the
+ * concatenation of all five, plus the small mount adapters.
  */
+const pluginHostShell = () => readFileSync(new URL('../../src/client/plugin-host.js', import.meta.url), 'utf8')
+const pluginHostCommands = () =>
+  readFileSync(new URL('../../src/client/plugin-host-commands.js', import.meta.url), 'utf8')
 const pluginFamily = () =>
   [
     readFileSync(new URL('../../src/client/plugin.js', import.meta.url), 'utf8'),
     readFileSync(new URL('../../src/client/plugin-document.js', import.meta.url), 'utf8'),
     readFileSync(new URL('../../src/client/plugin-profiles.js', import.meta.url), 'utf8'),
-    readFileSync(new URL('../../src/client/plugin-host.js', import.meta.url), 'utf8'),
+    pluginHostShell(),
+    pluginHostCommands(),
   ].join('\n')
 const plugin = [
   pluginFamily(),
@@ -188,9 +197,9 @@ test('0.2.39 dialog restores the compact 0.2.30 chrome with theme tokens', () =>
   // confirm payload carries it; cancel/failure never write the preference.
   assert.match(dialogHost, /const \[dontAskAgain, setDontAskAgain\] = useState\(false\)/)
   assert.match(dialogHost, /setDontAskAgain\(false\)/)
-  assert.match(dialogHost, /class: 'dsg-dialog-check'/)
-  assert.match(dialogHost, /'data-testid': 'session-groups-dialog-archive-dont-ask'/)
-  assert.match(dialogHost, /t\('dialog\.archiveGroupDontAsk'\)/)
+  assert.match(dialogHostBodies, /class: 'dsg-dialog-check'/)
+  assert.match(dialogHostBodies, /'data-testid': 'session-groups-dialog-archive-dont-ask'/)
+  assert.match(dialogHostBodies, /t\('dialog\.archiveGroupDontAsk'\)/)
   assert.match(dialogHost, /\{ dontAskAgain \}/)
   assert.match(CSS, /\.dsg-dialog-check \{ display:\s*flex; align-items:\s*center;/)
   assert.match(CSS, /\.dsg-dialog-check input \{ flex:\s*none; width:\s*14px; height:\s*14px;/)
@@ -555,7 +564,7 @@ test('0.2.28 blocked and unread counters reuse the grouped dropdown contract', (
 test('0.2.27 ungrouped inbox is session-only for drops and group move menus', () => {
   assert.match(components, /ungrouped\.sessionsOnly/)
   assert.match(components, /if \(drag\.kind === 'group'\)/)
-  assert.match(components, /allowRoot: dialog\.kind !== 'move-group'/)
+  assert.match(dialogHostBodies, /allowRoot: dialog\.kind !== 'move-group'/)
   assert.equal(components.includes("previewGroupDrop(event, { kind: 'group-root-end' }"), false)
   assert.equal(components.includes("commitGroupDrop(drag.groupId, { kind: 'root-end' })"), false)
 })
@@ -903,9 +912,9 @@ test('0.2.15 group palette: twelve distinct ids, color-token rules and a menu co
   // Menu item opens the color dialog; the dialog renders palette swatches.
   assert.match(sessionMenu, /handlers\.openGroupColor\(menu\.groupId\)/)
   assert.match(components, /kind: 'group-color'/)
-  assert.match(components, /'data-testid': 'session-groups-dialog-color'/)
-  assert.match(components, /role: 'radiogroup'/)
-  assert.match(components, /dsg-color-swatch/)
+  assert.match(dialogHostBodies, /'data-testid': 'session-groups-dialog-color'/)
+  assert.match(dialogHostBodies, /role: 'radiogroup'/)
+  assert.match(dialogHostBodies, /dsg-color-swatch/)
   assert.match(block('.dsg-color-swatch {'), /background:|width:\s*16px/)
   assert.match(block('.dsg-color-option[data-selected="true"] {'), /border-color:\s*var\(--dsw-alias-label-primary/)
   // The plugin applies the choice through the shared model setter.
@@ -1047,20 +1056,21 @@ test('0.2.14 color dialog: 2x3 roomy grid, fixed check slot, custom native+hex r
   assert.match(option, /height:\s*36px/)
   assert.match(option, /width:\s*100%/)
   // Every preset cell renders a check node; unselected cells hide (not remove) it.
-  assert.match(components, /'data-testid': 'session-groups-dialog-color-check'/)
-  assert.match(components, /'data-empty': active \? 'false' : 'true'/)
-  assert.match(components, /visibility: active \? 'visible' : 'hidden'/)
+  assert.match(dialogHostBodies, /'data-testid': 'session-groups-dialog-color-check'/)
+  assert.match(dialogHostBodies, /'data-empty': active \? 'false' : 'true'/)
+  assert.match(dialogHostBodies, /visibility: active \? 'visible' : 'hidden'/)
   assert.match(block('.dsg-dialog-option-check {'), /width:\s*16px/)
   assert.match(block('.dsg-dialog-option-check {'), /flex:\s*none/)
   // Custom row: native color swatch + 7-char hex input + aria-live hint.
-  assert.match(components, /type: 'color'/)
-  assert.match(components, /'data-testid': 'session-groups-dialog-color-native'/)
-  assert.match(components, /'data-testid': 'session-groups-dialog-color-hex'/)
-  assert.match(components, /maxlength: '7'/)
-  assert.match(components, /'aria-live': 'polite'/)
-  assert.match(components, /'data-testid': 'session-groups-dialog-color-hint'/)
-  assert.match(components, /normalizeColorHex\(raw\)/)
-  assert.match(components, /setHexInput\(''\)/)
+  assert.match(dialogHostBodies, /type: 'color'/)
+  assert.match(dialogHostBodies, /'data-testid': 'session-groups-dialog-color-native'/)
+  assert.match(dialogHostBodies, /'data-testid': 'session-groups-dialog-color-hex'/)
+  assert.match(dialogHostBodies, /maxlength: '7'/)
+  assert.match(dialogHostBodies, /'aria-live': 'polite'/)
+  assert.match(dialogHostBodies, /'data-testid': 'session-groups-dialog-color-hint'/)
+  assert.match(dialogHostBodies, /normalizeColorHex\(raw\)/)
+  // Preset picks clear the hex field through the injected callback.
+  assert.match(dialogHostBodies, /onHexInput\(''\)/)
   assert.match(block('.dsg-color-custom-row {'), /height:\s*32px/)
   assert.match(block('.dsg-color-hex {'), /flex:\s*1/)
   assert.match(block('.dsg-color-hint {'), /font-size:\s*var\(--dsg-font-11,\s*11px\)/)
@@ -1087,9 +1097,42 @@ test('0.2.7 right-click/keyboard menu wiring and clamped anchors', () => {
   assert.match(components, /if \(dragRef\.current\) return/)
   // The mounted menu re-clamps with its real rect.
   assert.match(sessionMenu, /clampMenuPosition\(\{/)
+  // 0.4.0-beta.65 S7: scroll-to-close moved into the menu owner and only fires
+  // when the source row's own ancestors scroll; plugin-host keeps resize only.
+  assert.match(sessionMenu, /'scroll', onScroll/)
+  assert.match(sessionMenu, /addEventListener\?\.\('scroll', onScroll, \{ capture: true, passive: true \}\)/)
+  assert.match(sessionMenu, /removeEventListener\?\.\('scroll', onScroll, true\)/)
+  assert.match(sessionMenu, /scrollAffectsMenu\(target, row\)/)
+  // The callback may only consult the anchor (closest/isConnected/contains) and
+  // close the menu: no layout reads, no DOM queries, no dispatch from the shell.
+  const onScrollStart = sessionMenu.indexOf('const onScroll = (event) => {')
+  const onScrollEnd = sessionMenu.indexOf('const doc = globalThis.document', onScrollStart)
+  assert.ok(onScrollStart >= 0 && onScrollEnd > onScrollStart, 'session-menu.js must own the scroll handler')
+  const onScrollBody = sessionMenu.slice(onScrollStart, onScrollEnd)
+  assert.equal(
+    /getBoundingClientRect|getComputedStyle|offsetWidth|offsetHeight|offsetTop|offsetLeft|scrollTop|querySelectorAll|store\.dispatch/.test(onScrollBody),
+    false,
+    'the scroll handler must not read layout, query or dispatch'
+  )
+  assert.match(onScrollBody, /handlers\.closeMenu\(\)/)
+  assert.match(onScrollBody, /menuSourceRow\(menu\)/)
+  // The pure decision helper is O(1): contains + isConnected only.
+  const scrollDecision = groupsViewMenu.slice(
+    groupsViewMenu.indexOf('export const scrollAffectsMenu'),
+    groupsViewMenu.indexOf('export const createMenuHandlers')
+  )
+  assert.ok(scrollDecision.length > 0, 'groups-view-menu-handlers.js must export scrollAffectsMenu')
+  assert.match(scrollDecision, /target\.contains\(row\)/)
+  assert.match(scrollDecision, /row\.isConnected === false/)
+  assert.equal(
+    /getBoundingClientRect|getComputedStyle|offsetWidth|offsetHeight|offsetTop|offsetLeft|scrollTop|querySelectorAll/.test(scrollDecision),
+    false,
+    'scrollAffectsMenu must not read layout or query the DOM'
+  )
   const plugin = pluginFamily()
-  assert.match(plugin, /'scroll', closeMenuOnViewportChange, true/)
-  assert.match(plugin, /'resize', closeMenuOnViewportChange/)
+  assert.match(plugin, /'resize', closeMenuOnResize/)
+  assert.equal(plugin.includes('closeMenuOnViewportChange'), false)
+  assert.equal(plugin.includes("'scroll', onScroll"), false)
 })
 
 test('0.3.0-beta.70 group menu starts with new session and reuses the group plus action', () => {
@@ -1129,6 +1172,16 @@ test('0.3.0-beta.71 dialog exposes keyboard move and resize controls', () => {
   assert.match(dialogHost, /dialogKeyboardDelta/)
 })
 
+test('0.4.0-beta.65 dialog reuses the focus guard and the measured-rect fallback once', () => {
+  assert.match(dialogHost, /dialogRectFromElement\(/)
+  assert.match(dialogHost, /resolveDialogRect\(/)
+  assert.match(dialogHost, /shouldFocusDialogTarget\(/)
+  // Only the [dialog] effect keeps its delayed focus; a second timer in the
+  // seed effect would fight the user's own focus on inline-error re-dispatches.
+  const delayedFocuses = dialogHost.match(/inputRef\.current\?\.focus\(\)/g) ?? []
+  assert.equal(delayedFocuses.length, 1, 'inputRef.current?.focus() must appear exactly once')
+})
+
 test('0.3.0-beta.71 group menu supports roving keyboard focus', () => {
   assert.match(sessionMenu, /role: 'menuitem'/)
   assert.match(sessionMenu, /event\.key === 'ArrowDown'/)
@@ -1155,13 +1208,13 @@ test('0.2.9 delete group: destination picker, empty direct path and move-and-del
   // Non-empty delete dialog: 删除分组 title, counts, destination list and root option.
   assert.match(components, /kind: 'delete-group'/)
   assert.match(components, /titleKey: 'dialog\.deleteGroup'/)
-  assert.match(components, /t\('group\.sessionCount'/)
-  assert.match(components, /t\('group\.subgroupCount'/)
-  assert.match(components, /t\('dialog\.deleteMoveInstruction'/)
-  assert.match(components, /session-groups-dialog-delete-body/)
-  assert.match(components, /deleteGroupOptions\(store\.doc, dialog\.groupId\)/)
-  assert.match(components, /rootLabel: t\('dialog\.rootDestination'\)/)
-  assert.match(components, /session-groups-dialog-delete-options/)
+  assert.match(dialogHostBodies, /t\('group\.sessionCount'/)
+  assert.match(dialogHostBodies, /t\('group\.subgroupCount'/)
+  assert.match(dialogHostBodies, /t\('dialog\.deleteMoveInstruction'/)
+  assert.match(dialogHostBodies, /session-groups-dialog-delete-body/)
+  assert.match(dialogHostBodies, /deleteGroupOptions\(store\.doc, dialog\.groupId\)/)
+  assert.match(dialogHostBodies, /rootLabel: t\('dialog\.rootDestination'\)/)
+  assert.match(dialogHostBodies, /session-groups-dialog-delete-options/)
   // Group and session moves use separate titles; neither claims to move the session.
   assert.equal(zh['dialog.moveGroup'], '移动分组')
   assert.equal(zh['dialog.moveSession'], '归入分组')
@@ -1597,4 +1650,46 @@ test('0.4.0 profiles: save-as echo is local and archive refresh is forced', () =
   // The default copy name is shortened/numbered before the dialog renders so a
   // taken default never opens as nameDuplicate with Create disabled.
   assert.match(componentProfileDialogs, /PROFILE_NAME_MAX - tail\.length - 1/)
+})
+
+test('0.4.0-beta.65 plugin host shell returns exactly the 21 documented keys', () => {
+  // S2 split the command layer out but kept the host surface frozen: the shell
+  // literal return block is the single place the 21 keys are assembled.
+  const source = pluginHostShell().replace(/\r\n/g, '\n')
+  const block = source.match(/\n  return \{\n([\s\S]*?)\n  \}\n\}/)
+  assert.ok(block, 'the shell keeps a literal return block')
+  const keys = block[1]
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.match(/^([A-Za-z_$][\w$]*)\s*[,:]/)?.[1])
+  assert.deepEqual(keys, [
+    'mount',
+    'dispose',
+    'actions',
+    'capabilities',
+    'archiveSession',
+    'unarchiveSession',
+    'forkSession',
+    'copySessionId',
+    'archiveGroup',
+    'unarchiveGroup',
+    'openDialog',
+    'newSessionInGroup',
+    'reconcileNewSessionGroup',
+    'confirmDialog',
+    'deleteGroupDirect',
+    'setArchiveFilter',
+    'setGroupArchiveFilter',
+    'resetLayout',
+    'setMode',
+    'toggleMode',
+    'applyEpoch',
+  ])
+  // No spread: every command key is forwarded literally, so a new key can
+  // never leak into the host surface silently.
+  assert.doesNotMatch(block[1], /\.\.\./)
+  // The moved layer still owns the factory and the follow guard.
+  assert.match(pluginHostCommands(), /export const createHostCommands = \(/)
+  assert.match(pluginHostCommands(), /const installFollowGuard = \(\) =>/)
 })

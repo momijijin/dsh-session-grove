@@ -24,16 +24,41 @@ DSH 的 plugin client 是 **单个客户端 bundle**，没有为插件准备 `#i
 ```text
 主支持：@deepseek-ai/dsh 0.2.1-rc.2 / 0.2.1-rc.5
 插件 engines.dsh: >=0.2.0-rc.2 <0.3.0
-当前 dev 树：0.4.0-beta.64（未发布 dev 批次；最近发布为 0.4.0-beta.63，2026-11-12）
+当前树：0.4.0-beta.65（已发布为 v0.4.0-beta.65，2026-11-13；上一发布 v0.4.0-beta.64，2026-11-12）
 
-已验证（最新一轮 community 证据：0.4.0-beta.64（2026-11-12，插件 `.64` 包 +
-fresh home：`test:isolated` PASS，30 格窄视口矩阵、0 skip、69 截图；
-`test:ui-browser` PASS，另一 fresh home；`test:locale-pack` PASS 与
-`test:all-locales` 23/23 PASS，均在带 `e2e/fixtures/ja-locale-pack` 的隔离实例
-（fresh home `<temp>\<isolated-home>`，port <ephemeral>））；历史序列：
+已验证（最新一轮 community 证据是 0.4.0-beta.65（2026-11-13，S7 code-evidence 包
+**842,325 bytes** / sha256 `F868…`，在 `a24a414` 树打包；S1–S6 历史证据包
+**835,756 bytes** / sha256 `AE0DE4AC…`，在 `a60f616` 代码树打包、包内 docs 早于
+证据段；HEAD 的 docs-current 重打包记录在 `AGENTS.md`；agent debug run at the
+user's explicit request：用户明确要求“这次你先跑”，因此两项 fresh-host e2e 由
+agent 执行、**不是**用户桌面验收（用户桌面手工验收是另一条证据，S7 的 5 条
+在 2026-11-13 PASS，见下文）。S1–S6 lane 的 fresh home 共两个（isolated
+`024652` + ui-browser `025209`，ui-browser 首跑与 02:57 重试复用 `025209`）：
+`test:isolated` PASS，**narrow matrix** 30 pass / 0 skip / 0 failure、71 截图；
+`test:ui-browser` 第 2 次 PASS（1 次干净失败 + 1 次同 home 复跑；首跑 log 只有
+12s 可见性超时、未保留失败截图，“Get started” 对话框在 3.5s 探测后挂载遮挡是从
+timeout 与 `e2e/ui-runtime.spec.mjs:74-82` 的推断，非直接观察；重试 PASS 依据 =
+exit 0 + `UI_RUNTIME` 行 + 无 FAIL + coverage JSON `pageErrors: []`；非插件问题）。
+S7 lane 用 F868 包在 fresh home `160323`（port 4493）全量 `test:isolated`
+**PASS**（narrow matrix 30 pass / 0 skip / 0 failure、71 截图、新菜单用例通过，
+宿主仍 community 2.0.18 / DSH 0.2.1-rc.2）；S7 菜单 5 条手工验收 **2026-11-13
+用户桌面 PASS**（profile `desktop`，plugin `0.4.0-beta.65`，`lib/client.js`
+662,743 B / `01F2B5B6…`；e2e probe 不针对真实右侧会话容器，故该手工 PASS 才是真实
+右侧面板的直接验证）。`.65` 本身无 locale 资源改动，但 release lane 仍复跑了
+locale 两项：final pack **849,797 bytes** / sha256 `1AB22F70…`（从 `ef33b20`
+树打包）在 fresh home `174117`（port 4494）`test:isolated` PASS（narrow matrix
+30 pass / 0 skip / 0 failure、71 截图），在 fresh home `174505`（port 4495，
+带 `e2e/fixtures/ja-locale-pack`）`test:locale-pack` PASS 与
+`test:all-locales` **23/23 PASS**；两者均为 agent run（非用户运行），用户桌面
+5 条菜单手工验收另计 2026-11-13 PASS，两个 host 均已停止）。
+上一轮 community `.64`
+（2026-11-12，插件 `.64` 包 + fresh home：`test:isolated` PASS，30 格窄视口矩阵、
+0 skip、69 截图；`test:ui-browser` PASS，另一 fresh home；`test:locale-pack`
+PASS 与 `test:all-locales` 23/23 PASS，均在带 `e2e/fixtures/ja-locale-pack` 的
+隔离实例（fresh home `<temp>\<isolated-home>`，port <ephemeral>））；历史序列：
 0.4.0-beta.63（2026-11-12，`test:isolated` + `test:locale-pack` +
 `test:all-locales` PASS，`test:ui-browser` 未跑）；official A+ O：
-0.4.0-beta.61；0.4.0-beta.62 / .63 / .64 的 official A+ O 未重跑）：
+0.4.0-beta.61；0.4.0-beta.62 / .63 / .64 / .65 的 official A+ O 未重跑）：
   community DSH Desktop Stable 2.0.18 (anywhere-labs) / DSH 0.2.1-rc.2
   official DeepSeek Harness desktop 0.2.2.0 / DSH 0.2.2-rc.1
     （官方 bundle DSH host/core 隔离 A+；0.4.0-beta.60 在 0.2.1.0 / rc.5 上另含维护者桌面窗口验收）
@@ -146,7 +171,7 @@ dsh-0.2  >=0.2.0-rc.2 <0.3.0
 
 ## 为什么优先能力检测
 
-- 目前 community Stable 与 official 两个桌面族都已有隔离实例证据（最新一轮 community A+ C 为 `0.4.0-beta.64`，2026-11-12 四项 PASS（locale 两项在独立 fresh home）；official A+ O 为 `0.4.0-beta.61`；`.64` 的 official A+ O 未重跑）；仍不为“壳名”写死版本分支，写死分支等于发布未测试代码。
+- 目前 community Stable 与 official 两个桌面族都已有隔离实例证据（最新一轮 community A+ C 为 `0.4.0-beta.65`，2026-11-13：agent debug run at the user's explicit request，S1–S6 lane 两个 fresh home（ui-browser 重试复用同一 home）`test:isolated`（narrow matrix 30 pass）+ `test:ui-browser` PASS，不是用户桌面验收；S7 后又以 F868 包（842,325 bytes）在 fresh home `160323` 复跑 `test:isolated` PASS（narrow matrix 30 pass、71 截图、新菜单用例通过）；release lane 用 final pack（849,797 bytes / `1AB22F70…`）在 fresh home `174117`（port 4494）`test:isolated` PASS（30/0/0、71 截图），在 fresh home `174505`（port 4495，带 `e2e/fixtures/ja-locale-pack`）`test:locale-pack` + `test:all-locales` 23/23 PASS，S7 菜单 5 条手工验收 2026-11-13 用户桌面 PASS（profile `desktop`，plugin `0.4.0-beta.65`，`lib/client.js` 662,743 B / `01F2B5B6…`），e2e 与 release lane 均为 agent 执行；official A+ O 为 `0.4.0-beta.61`；`.64` / `.65` 的 official A+ O 均未重跑）；仍不为“壳名”写死版本分支，写死分支等于发布未测试代码。
 - DSH 的扩展点本身是 service/slot 组合，能力检测比版本判断更精确。
 - 插件管理器已经承担版本范围拒绝；插件内部重复版本判断会制造双重真相源。
 
@@ -177,12 +202,13 @@ dsh-0.2  >=0.2.0-rc.2 <0.3.0
 ```text
 npm ci
 语法检查
-907 项单元/契约测试（0.4.0-beta.62 dev 树；0.4.0-beta.61 dev 树为 726；v0.4.0-beta.60 发布基线为 699；v0.4.0-beta.59 发布时为 529）；0.4.0-beta.63 dev 树为 914
+单元/契约测试 + UI runtime smoke（具体数字随所跑的树不同，见下）
 客户端构建
 coverage gate
-UI runtime smoke（41 cases）
 npm pack --dry-run
 ```
+
+CI **上一次**运行的是 `0.4.0-beta.63` 树：**914** 项单元/契约测试 + **42** UI runtime cases（`0.4.0-beta.62` 为 **907** 项 + **41** cases）。`.65` 的**本地**树是 **1031** 项单元/契约测试 + **45** UI runtime cases，但 `.65` **尚未在 CI 运行**，其 CI 结果以 PR 为准。历史数字保留：`0.4.0-beta.61` dev 树 726、`v0.4.0-beta.60` 发布基线 699、`v0.4.0-beta.59` 发布时 529（均为当时的单元/契约数）。
 
 它**不能**证明真实 DSH UI、真实 fence、sidebar slot、dshmarket 安装/更新在三个平台都可用。Linux/macOS 的真实 UI 在完成真实宿主回归前属于 experimental。
 

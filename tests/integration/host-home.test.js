@@ -64,11 +64,13 @@ test('home: storages directory resolves under an injected/legacy home (no hard-c
   }
 });
 
-test('home: module never string-matches the literal real home path', { skip }, async () => {
+test('home: module never hard-codes any local Windows user directory', { skip }, async () => {
   const source = await import('node:fs/promises').then((fs) => fs.readFile(homeModulePath, 'utf8'));
+  // Guard: any hard-coded absolute Windows user path (C:\Users\<name>, incl. the
+  // escaped C:\\Users\\<name> form in source strings) is a leak and must fail.
   assert.equal(
-    /C:\\\\Users\\\\user|C:\/Users\/user/.test(source),
+    /[A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}[^\\/\r\n"']+/.test(source),
     false,
-    'src/host/home.js must not hard-code the developer machine home path',
+    'src/host/home.js must not hard-code any local Windows user directory',
   );
 });

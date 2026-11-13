@@ -9,6 +9,7 @@
  */
 import { assignSession, findGroup, inferWorkspaceId, workspaceLabel, workspaceOfSession } from '../shared/model.js'
 import { effectiveArchived } from '../shared/archive.js'
+import { sessionContainer } from '../core/tree.js'
 
 export { workspaceLabel }
 
@@ -18,14 +19,6 @@ const archiveRefusal = (groupId) => {
   error.code = 'group-archived'
   error.groupId = groupId
   return error
-}
-
-/** Containing group id for a session, or `null` when ungrouped. */
-const groupIdOfSession = (doc, sessionId) => {
-  for (const group of Array.isArray(doc?.groups) ? doc.groups : []) {
-    if (Array.isArray(group.sessionIds) && group.sessionIds.includes(sessionId)) return group.id
-  }
-  return null
 }
 
 /** Error families reported by `workspace/session-active`. */
@@ -138,7 +131,7 @@ export const createActions = ({ getServices, getDoc, commitDoc, notify, t, clipb
     if (typeof uiWorkspace?.forkSession !== 'function') throw new Error('fork-unavailable')
     // 0.4.0-beta.62 §8: a fork out of an archived container is structurally
     // frozen; refuse before the host creates the child session.
-    const sourceGroupId = groupIdOfSession(getDoc(), sessionId)
+    const sourceGroupId = sessionContainer(getDoc(), sessionId).groupId
     if (sourceGroupId !== null && effectiveArchived(getDoc(), sourceGroupId)) {
       throw archiveRefusal(sourceGroupId)
     }

@@ -1,6 +1,6 @@
 # Test Matrix
 
-Status: `0.4.0-beta.64`  
+Status: `0.4.0-beta.65`  
 This file is the single source of truth for **what has actually been verified**
 and at which level. Other docs should link here instead of restating counts.
 
@@ -10,34 +10,153 @@ Automated gates are `npm run check:style`, `npm run check:lib`, `npm test`,
 `npm run check:release` in the release workflow. Since the `.61` batch both
 workflows also run a production dependency audit
 (`npm audit --omit=dev --audit-level=high`) and the two third-party actions are
-pinned to immutable commit SHAs. `check:ui` is now 44 UI runtime cases (1
-module-load + 43 component tests, covering 19 components across 26 client
+pinned to immutable commit SHAs. `check:ui` is now 45 UI runtime cases (1
+module-load + 44 component tests, covering 19 components across 28 client
 modules) + 1 browser runtime spec, not full browser UI coverage. The A+ / LP
 rows below are manual local evidence: the release workflow does not start an
 isolated DSH instance or run Playwright, so a release note cannot claim A+ or
 all-locales as an automated CI result.
 
 Counts in this file describe the current `dev` tree unless a line says
-otherwise; the **`.64` batch evidence** below is the current count, and the
-published `.63` figures that follow are historical. The `.63` tree (released as
+otherwise; the **`.65` batch evidence** below is the current count, and the
+published `.64` and `.63` figures that follow are historical. The `.65` tree
+runs **1031/1031** unit/contract tests and **45/45** `check:ui` cases with
+**397 locale keys in 19 dictionaries** (no locale resource changed); its
+real-host evidence is **PASS** (2026-11-13, agent debug run at the user's
+explicit request; the S1–S6 lane used two fresh homes, the ui-browser retry
+reusing its home, with the 835,756-byte tarball; after S7 the full
+`test:isolated` run used the **842,325-byte** S7 code-evidence tarball on fresh
+home `160323`).
+The `.64` tree (released as `v0.4.0-beta.64` on 2026-11-12) ran
+**938/938** unit/contract tests and 44/44 `check:ui` cases; the `.64` community
+run passed `test:isolated`, `test:ui-browser`, `test:locale-pack` and
+`test:all-locales` on 2026-11-12. The `.63` tree (released as
 `v0.4.0-beta.63` on 2026-11-12) ran **914/914** unit/contract tests and 42/42
-`check:ui` cases with **397 locale keys in 19 dictionaries** (385 → 397 in this
+`check:ui` cases with **397 locale keys in 19 dictionaries** (385 → 397 in that
 batch: 12 keys for the entry hint, in-place hints and the documentation-site
 entries; `onboarding.title` / `onboarding.body` were rewritten shorter). The
 `.63` community run passed `test:isolated`, `test:locale-pack` and
-`test:all-locales` on 2026-11-12; only the fresh-host
-browser spec (`test:ui-browser`) was **not** run for `.63`. The `.62`
-four-command A+ C evidence below is the previous complete sweep and applies
-to the `.62` tarball; the `.64` batch above now also has all four commands.
+`test:all-locales` on 2026-11-12; only the fresh-host browser spec
+(`test:ui-browser`) was **not** run for `.63`. The `.62` four-command A+ C
+evidence below is the previous complete sweep and applies to the `.62` tarball;
+the `.64` batch below also has all four commands.
+
+**`.65` batch evidence (dialog keyboard timing + architecture cleanup + menu
+scroll stability (S7), 2026-11-13).** This batch is **released as
+`v0.4.0-beta.65`** (2026-11-13; GitHub Release assets: `.tgz` +
+`SHA256SUMS`); the previous published release is `v0.4.0-beta.64`
+(2026-11-12). The tree
+runs **1031/1031** unit/contract tests and **45/45** UI runtime cases (1
+module-load + 44 component tests, 19 components across 28 client modules;
+`plugin-host-commands.js` and `dialog-bodies.js` are the new client modules),
+with the same **397** locale keys in 19 dictionaries (no locale resource
+changed). No public API, control-protocol, storage-format, locale resource,
+test id, CSS or ARIA contract changed; the only behavior change is the S7 menu
+scroll-close bug fix. `DOC_VERSION` stays 1.
+
+- `npm run check:coverage` — **PASS**: **94.84% lines / 86.92% branches /
+  91.46% functions** on the final local run (thresholds 92/80/85; batch runs
+  varied within 94.68–94.85 / 86.79–86.94 / 91.44–91.55).
+- `npm run check:style` — **PASS** (228 files); `npm run build` — **PASS**
+  (`lib/client.js` **662,743 bytes** on disk after the S7 rebuild, sha256
+  `01F2B5B6…`, plus 17 lazy locale chunks **497,865 bytes**, version stamp
+  `0.4.0-beta.65`); `npm run check:lib` —
+  **PASS**; `node --check lib/client.js` — **PASS**; `npm run check:release` —
+  **PASS** (four version sources agree, `.65` release note present, bundle
+  stamp, 25/25 packaged paths); `npm pack --dry-run` — **PASS** (**246
+  files**).
+- **S1–S6 evidence tarball (historical):** `dsh-session-grove-0.4.0-beta.65.tgz`
+  (**835,756 bytes**, sha256
+  `AE0DE4AC115B0E39FD9ADBFDDA89A0BFCB211DAF9D5E116972226331F190B766`) is
+  packed to `%TEMP%\dsh-grove-pack\` (outside the repository) from the
+  `a60f616` tree — the last commit before the fresh-host evidence docs. Its
+  `lib/client.js` was byte-for-byte identical to the then-HEAD (version stamp
+  `0.4.0-beta.65`) but predates the S7 rebuild (662,098 bytes, not 662,743), so
+  it does not contain the menu scroll fix; its packaged docs predate the
+  evidence section and still say pending, so they must not be read as HEAD.
+- **S7 code-evidence tarball:** `dsh-session-grove-0.4.0-beta.65.tgz`,
+  **842,325 bytes**, sha256
+  `F8680868A88B119DBC0158C81CD2D818AE9AF8DABDEFD06972CEFA548001D2F7`, packed to
+  `%TEMP%\dsh-grove-pack-s7\` (outside the repository) from the `a24a414` tree;
+  it carries the rebuilt `lib/client.js` (662,743 bytes) and is the package used
+  for the post-S7 fresh-host `test:isolated` run. The repository HEAD docs are
+  current; repacking HEAD gives a separate **docs-current** package with only
+  the docs changed, recorded in `AGENTS.md` (not packaged) and the batch ledger.
+- `npm run test:isolated` — **PASS** (exit 0) on fresh home
+  `<temp>\dsh-sg-e2e-20261113-024652` with the S1–S6 evidence tarball: the
+  **narrow matrix** ran **30 pass / 0 skip / 0 failure** (the narrow-matrix
+  count, not the whole suite) and **71 screenshots** (69 narrow-matrix cells +
+  2 baseline); preview geometry dialog **560×560**, narrow sidebar **252**,
+  body scroll **3659>466**, row gaps **[0,0,0]**; the dialog-keyboard section
+  that had failed before now passes.
+  This was an **agent debug run at the user's explicit request** ("this time
+  you run it first"), not a user run; it is **not** user desktop acceptance.
+- `npm run test:ui-browser` — **PASS on the second attempt** (exit 0) on the
+  S1–S6 lane's second fresh home `<temp>\dsh-sg-e2e-20261113-025209` (created
+  02:52; the 02:57 retry reused the same home — **one clean failure plus one
+  same-home retry**, not a home swap; the S1–S6 lane used two fresh homes, and
+  S7 has a third fresh home, `160323`): `bundleEntries 1`,
+  `executedBytes 2,572,166 = sourceBytes`, `executedRatio 1`, `pageErrors []`.
+  The first attempt failed with only a 12s `session-groups-view` visibility
+  timeout in its log; **no failure screenshot was retained**. The suspected
+  cause — the host "Get started" dialog mounting after the script's 3.5s
+  overlay probe and covering the view — is an **inference** from that timeout
+  plus `e2e/ui-runtime.spec.mjs:74-82`, not a directly observed DOM state; it
+  points to a test-script timing race, not a plugin failure. The retry log has
+  no explicit PASS line; PASS is established by exit 0, the `UI_RUNTIME {...}`
+  line, the absence of a FAIL line, and `ui-runtime-coverage.json`
+  (`pageErrors: []`). Hardening `dismissOverlays` in
+  `e2e/ui-runtime.spec.mjs` is left to a later batch (not changed for `.65`).
+- **S7 post-rebuild `test:isolated`** — **PASS** (exit 0) on fresh home
+  `<temp>\dsh-sg-e2e-20261113-160323` (port 4493) with the S7 code-evidence
+  tarball (**842,325 bytes**, sha256 `F8680868…D2F7`): **narrow matrix 30 pass /
+  0 skip / 0 failure** (the narrow-matrix count, not the whole suite),
+  **71 screenshots** (69 cells + 2 baseline), preview geometry dialog
+  **560×560** / narrow sidebar **252** / body scroll **3659>466** / row gaps
+  **[0,0,0]**; the new S7 menu case (a probe scroll outside `.dsg-root` keeps
+  the menu, a `.dsg-tree` scroll closes it) passes, and the host is still
+  community 2.0.18 / DSH `0.2.1-rc.2`. The real conversation-pane scroller was
+  **not** targeted by that case. The five manual menu checks **passed in the
+  user's desktop client on 2026-11-13** (user desktop acceptance: profile
+  `desktop`, plugin `0.4.0-beta.65`, `lib/client.js` 662,743 B / sha256
+  `01F2B5B6…`); that manual PASS is the direct validation of the real
+  right-hand pane. The e2e runs above remain an **agent debug run at the user's
+  explicit request**, not a user run.
+- **Release host-test lane (2026-11-13, final pack):** the release evidence
+  tarball is `dsh-session-grove-0.4.0-beta.65.tgz`, **849,797 bytes**, sha256
+  `1AB22F709F708DB70FF3E0564C6FE44C9D39DD09C25EAFF1AF915BEB1DD94D3C`, packed
+  from the `ef33b20` tree. `npm run test:isolated` — **PASS** (exit 0) on
+  fresh home `<temp>\dsh-sg-e2e-20261113-174117` (port 4494): narrow matrix
+  **30 pass / 0 skip / 0 failure**, **71 screenshots** (69 cells + 2 baseline),
+  preview geometry dialog **560×560** / narrow sidebar **252** / body scroll
+  **3659>466** / row gaps **[0,0,0]**. `npm run test:locale-pack` — **PASS**
+  (`PASS: third-party ja locale pack activates Japanese onboarding and dialog
+  copy`) and `npm run test:all-locales` — **PASS 23/23** (last line `PASS: all
+  23 locale switch cases`) on fresh home `<temp>\dsh-sg-e2e-20261113-174505`
+  (port 4495) with `e2e/fixtures/ja-locale-pack`. Both were **agent** runs (at
+  the user's explicit request), not user runs; the user desktop acceptance is
+  the separate five-menu-check PASS above. Both hosts were stopped; the host
+  matrix stays community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2`.
+- Architecture guards: import graph **116 source modules / 335 adjacency edges
+  / 0 cycles** (the detector was exercised with a synthetic cycle during
+  development, not committed as a fixture); `createHostCommands` exposes the
+  **17** documented keys; the shell returns the **21**-key
+  `createHostIntegration` contract; `uiModules` is **28**.
+- No locale resource changed in `.65`, but the release lane above re-ran both
+  locale commands anyway (`test:locale-pack` PASS, `test:all-locales` 23/23
+  PASS); no official A+ O run is claimed, the latest official evidence remains
+  `.61`.
+
+The `.64` section below records the previous release (historical; not `.65`
+evidence).
 
 **`.64` batch evidence (narrow-viewport floating panels, 2026-11-12).**
-This is the `0.4.0-beta.64` dev batch. The package version is now
-`0.4.0-beta.64` (still unreleased: no tag or GitHub Release), and the plugin
-tarball used below was packed from this tree **after** the bump, so it carries
-the `.64` version string:
-`dsh-session-grove-0.4.0-beta.64.tgz` (**824,070 bytes**). The batch supersedes
-the `.63` counts in the status
-paragraph above: the dev tree now runs **938/938** unit/contract tests and
+This is the `.64` release (`v0.4.0-beta.64`, published 2026-11-12). The plugin
+tarball used below was packed from this tree, so it carries the `.64` version
+string:
+`dsh-session-grove-0.4.0-beta.64.tgz` (**824,070 bytes**). The batch superseded
+the `.63` counts in the then-current status
+paragraph: the `.64` dev tree ran **938/938** unit/contract tests and
 **44/44** UI runtime cases (1 module-load + 43 component tests, 19 components
 across 26 client modules; `floating-panel.js` is the new module), with the same
 **397** locale keys in 19 dictionaries (no locale resource changed).
@@ -173,8 +292,8 @@ are historical and must not be quoted as `.62` evidence.
 
 | Code | Meaning |
 |---|---|
-| `U` | Unit/contract tests: `npm test` (907 tests on the current `.62` dev tree; 726 at the `.61` dev tree; 699 at the `.60` release; 529 at the `.59` release) |
-| `A+ C` | Isolated Playwright, community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2` (`.62`: 2026-11-11 PASS, `.62` tarball 829,055 bytes) |
+| `U` | Unit/contract tests: `npm test` (907 tests on the historical `.62` dev tree; 726 at the `.61` dev tree; 699 at the `.60` release; 529 at the `.59` release) |
+| `A+ C` | Isolated Playwright, community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2` (`.62`: 2026-11-11 PASS, `.62` tarball 829,055 bytes; `.64`: 2026-11-12 PASS; `.65`: 2026-11-13 PASS, agent debug run at the user's explicit request. S1–S6 lane: evidence tarball 835,756 bytes on two fresh homes, the ui-browser retry reusing its home. S7 lane: code-evidence tarball **842,325 bytes** / sha256 `F868…`, full `test:isolated` PASS on fresh home `160323` (narrow matrix 30 pass, 71 screenshots, new menu case); release lane: final pack **849,797 bytes** / sha256 `1AB22F70…`, `test:isolated` PASS on fresh home `174117` (narrow matrix 30 pass, 71 screenshots) and `test:locale-pack` + `test:all-locales` 23/23 PASS on fresh home `174505` (ports 4494/4495, ja locale pack); separately, the five manual menu checks passed in the user's desktop client on 2026-11-13 — **user desktop acceptance PASS**, profile `desktop`, plugin `0.4.0-beta.65`, `lib/client.js` 662,743 B / sha256 `01F2B5B6…`) |
 | `A+ O` | Isolated Playwright on an official DeepSeek Harness desktop host (`.60`: 0.2.1.0 / DSH `0.2.1-rc.5`; `.61`: 0.2.2.0 / DSH `0.2.2-rc.1`; `.62`: **not run**) |
 | `LP` | Test-only all-locale pack (`e2e/fixtures/ja-locale-pack`): host catalog injection + active locale switch |
 | `H` | Historical/manual evidence in an earlier release note or test-results snapshot; not a current default automation |
@@ -185,7 +304,7 @@ The default English A+ is `e2e/isolated.spec.mjs`; the language-pack A+ is
 every packaged dictionary and checks the header + new-group dialog + profile
 popover/preview copy and bounds.
 
-## Current `.62` isolated evidence (2026-11-11)
+## Historical `.62` isolated evidence (2026-11-11)
 
 Artifact: `dsh-session-grove-0.4.0-beta.62.tgz`, **829,055 bytes**, sha256
 `47DFB392…11B34` (user-supplied abbreviated digest). Host: community DSH
@@ -292,8 +411,8 @@ official host. Earlier `.22` and `.30` cells remain historical artifacts.
 | Control API, session actions, doctor | PASS | PASS | PASS | — | PASS |
 | English onboarding/settings/menu/dialog copy | PASS | PASS | PASS | — | — |
 | English plural/time labels | PASS | PASS | PASS | — | — |
-| Third-party language activation (`ja`) | PASS | — | — | PASS (`.62` locale-pack, 2026-11-11) | — |
-| All-locale switch: header + new-group dialog + group menu + settings/config + profile popover/preview (19 languages + zh-TW/zh-HK/zh-CN/pt-BR aliases) | PASS | — | — | PASS (23 cases, `.62` 385-key run) | — |
+| Third-party language activation (`ja`) | PASS | — | — | PASS (`.62` locale-pack, 2026-11-11; `.65` release lane 2026-11-13) | — |
+| All-locale switch: header + new-group dialog + group menu + settings/config + profile popover/preview (19 languages + zh-TW/zh-HK/zh-CN/pt-BR aliases) | PASS | — | — | PASS (23 cases, `.62` 385 keys; `.65` release lane 23/23 on 397 keys, 2026-11-13) | — |
 | Arabic RTL smoke: root `dir`, menu/dialog viewport bounds, settings panel direction | PASS | — | — | PASS (23 cases + ru/hi/ar visual notes, `.62`) | PASS (visual review .39) |
 | Multiple profiles: create/save-as, switch + diff preview, same-content direct switch, rename/archive, limit 20, default restore | PASS | PASS (2026-11-11, `.62`; `.59` historical) | PASS (2026-11-10, `.60`; historical) | — | — |
 | Profile multi-window: SSE active convergence and `profile-changed` 409 | PASS | PASS (2026-11-11, `.62`; earlier historical) | PASS (2026-11-10, historical) | — | — |
@@ -308,7 +427,11 @@ official host. Earlier `.22` and `.30` cells remain historical artifacts.
 The language-pack A+ column below is the **2026-11-11 `.62` community run
 (385 keys, 23/23)**; it supersedes the `.61` 331-key cells. It covers the header
 + new-group dialog + group menu + settings/config + profile popover/preview (and
-the Arabic RTL root), not full-surface A+.
+the Arabic RTL root), not full-surface A+. The `.65` release lane re-ran both
+locale commands on 2026-11-13 (final pack + `e2e/fixtures/ja-locale-pack`,
+fresh home `174505`, port 4495): `test:locale-pack` PASS and `test:all-locales`
+PASS 23/23 on the same 397-key dictionaries; the `.62` cells below remain the
+historical 385-key run.
 
 | Locale | Packaged | U parity | Runtime A+ | Language-pack A+ (`.62`, 2026-11-11) | Native/manual | Claim |
 |---|---|---|---|---|---|---|
@@ -380,6 +503,7 @@ cells remain historical through `.61` (no official `.62` run).
 | Onboarding card | U + `.62` community A+ C + English A+ O (historical) + ja LP (`.62`) | ja LP checks title/dismiss |
 | Settings/config form | U + `.62` community A+ C + all-locale settings smoke (`.62`, 23 cases) | all 23 cases check title/hint/controlApi/skill-repair copy |
 | Group menu / session menu | U + `.62` community A+ C (`test:isolated` menu/dialog paths) + English A+ O (historical) + `.62` U for archive lock items | `.62` archive-locked menu items are covered by logic/UI runtime tests and the 23-case LP group-menu copy, not by a dedicated archive A+ |
+| Row menu scroll stability (S7) | U (`tests/client/menu-scroll.test.js` + `ui-layout` source assertions) + `.65` community A+ C e2e (`test:isolated`: a probe scroll outside `.dsg-root` keeps the menu, a `.dsg-tree` scroll closes it) + **user desktop manual acceptance 2026-11-13 PASS** (profile `desktop`, plugin `0.4.0-beta.65`, `lib/client.js` 662,743 B / `01F2B5B6…`) | the real conversation-pane scroller is **not** targeted by the e2e probe; the five manual checks (conversation scroll keeps the menu, stability during streaming, tree scroll closes, outside/Escape closes, menu action works) **passed in the user's desktop client on 2026-11-13**, the direct validation of the real right-hand pane. The e2e remains an agent-run probe |
 | View options: session + group tri-state segments | U + 41-case UI runtime + `.62` community A+ C (`test:isolated`: session tri-state picks keep the popover open, Escape closes) + updated `e2e/groups.spec.mjs` (group segment, not executed) | two labelled `role=group` segments, 6 rows, keep-open behavior; the group-segment script remains unrun |
 | Group archive row/header/drag surfaces | U + UI runtime (`data-archived`/`data-path-only`/`data-contains-archived`/`data-structural-locked`) + `.62` LP (group-menu/archive copy) | group-archive A+ flows live in `e2e/groups.spec.mjs`, which was not executed; dimming/pathOnly/disabled-`+` visual review still pending |
 | Profile chevron / popover / switch preview / save-as / manage | U + UI runtime (39 cases in `.60`; 41 cases in `.62`) + community A+ C (2026-11-11, `.62`) + `.61` community A+ C (2026-11-10, historical) + official A+ O (2026-11-10, `.60`) + official A+ O (2026-11-10, `.61`) + LP (23 cases, `.62` 385 keys) | 46 keys × 19 dictionaries; the all-locales run checks chevron, popover and preview bounds; official A+ O ran the profile save-as/preview/undo/rename/archive/limit flows in `test:isolated` (both `.60` and `.61`); the `.61` community/official runs and the 2026-11-11 `.62` community run covered the same profile flows plus the preview real-geometry assertions. The `profiles.preview.archiveChanged` key added in `.62` has U parity only |

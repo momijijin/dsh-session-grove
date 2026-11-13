@@ -28,7 +28,7 @@ test('formatActivity renders the known families', () => {
 
 test('workspaceLabel prefers title, then path basename, then id', () => {
   assert.equal(workspaceLabel({ title: ' Projects ', path: 'C:\\x\\y' }), 'Projects')
-  assert.equal(workspaceLabel({ title: '', path: 'C:\\Users\\user\\Projects\\' }), 'Projects')
+  assert.equal(workspaceLabel({ title: '', path: 'C:\\Users\\fixture\\Projects\\' }), 'Projects')
   assert.equal(workspaceLabel({ title: '', path: '', workspaceId: 'ws-1' }), 'ws-1')
   assert.equal(workspaceLabel(null), '')
 })

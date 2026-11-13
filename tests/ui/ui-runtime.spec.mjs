@@ -51,6 +51,7 @@ const uiModules = [
   'components-search-box.js',
   'components-resize-handle.js',
   'dialog-host.js',
+  'dialog-bodies.js',
   'session-menu.js',
   'docs-card.js',
   'scroll-area.js',
@@ -59,6 +60,7 @@ const uiModules = [
   'groups-view-search.js',
   'groups-view-state.js',
   'plugin-locale.js',
+  'plugin-host-commands.js',
   'icons.js',
   'floating-label.js',
   'floating-panel.js',
@@ -67,7 +69,7 @@ const uiModules = [
 ]
 
 test('client UI modules execute under a test React peer', async () => {
-  assert.equal(uiModules.length, 26)
+  assert.equal(uiModules.length, 28)
   for (const file of uiModules) {
     const module = await import(new URL(`../../src/client/${file}`, import.meta.url))
     assert.ok(module && typeof module === 'object', `${file} did not load`)
@@ -81,6 +83,19 @@ test('client UI modules execute under a test React peer', async () => {
   assert.equal(typeof menus.MenuPopover, 'function')
 })
 
+test('shouldFocusDialogTarget skips a target that already sits inside the dialog', async () => {
+  const { shouldFocusDialogTarget } = await import(new URL('../../src/client/dialog-host.js', import.meta.url))
+  const child = { tagName: 'INPUT' }
+  const dialog = { contains: (element) => element === child }
+  // The delayed focus must not steal focus the user (or a test) already placed.
+  assert.equal(shouldFocusDialogTarget(child, dialog), false)
+  // The dialog chrome itself, an outside element, a body-like object and the
+  // initial null activeElement all keep the old auto-focus behavior.
+  assert.equal(shouldFocusDialogTarget(dialog, dialog), true)
+  assert.equal(shouldFocusDialogTarget({ tagName: 'BUTTON' }, dialog), true)
+  assert.equal(shouldFocusDialogTarget({}, dialog), true)
+  assert.equal(shouldFocusDialogTarget(null, dialog), true)
+})
 
 test('OnboardingCard renders localized copy, docs link and create/dismiss', async () => {
   const { OnboardingCard } = await import(new URL('../../src/client/components-header.js', import.meta.url))
