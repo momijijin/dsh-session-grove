@@ -1,9 +1,9 @@
 # 0.4.0-beta.65 本地测试结果（当前轮）
 
-> `docs/TEST-MATRIX.md` 仍是当前可重复验证状态、语言覆盖与测试缺口的**真相源**；本文件记录 2026-11-13 本地候选树的实际执行结果，并保留 `0.4.0-beta.63` 历史轮与 `0.4.0-beta.13` 历史快照（见文末）。`.65` 是未发布的 dev 批次（未 tag、未发布）；最新已发布仍为 `0.4.0-beta.64`（2026-11-12）。
+> `docs/TEST-MATRIX.md` 仍是当前可重复验证状态、语言覆盖与测试缺口的**真相源**；本文件记录 2026-11-13 本地候选树的实际执行结果，并保留 `0.4.0-beta.63` 历史轮与 `0.4.0-beta.13` 历史快照（见文末）。`.65` 已发布为 `v0.4.0-beta.65`（2026-11-13）；上一发布为 `0.4.0-beta.64`（2026-11-12）。
 
 日期：2026-11-13  
-版本：`0.4.0-beta.65`（dev，未发布；最新已发布 `0.4.0-beta.64`，2026-11-12）  
+版本：`0.4.0-beta.65`（已发布 2026-11-13；上一发布 `0.4.0-beta.64`，2026-11-12）  
 宿主基线：`@deepseek-ai/dsh` 0.2.1-rc.2（community）/ 0.2.2-rc.1（official，`.61` A+ 证据；0.2.1-rc.5 为 `.60` 历史）  
 变更范围：对话框键盘时序修复（焦点守卫 + rect 兜底 + e2e 定位/焦点断言）+ 菜单滚动稳定性（S7：scroll 关闭移入 `MenuPopover`、O(1) `contains`/`isConnected` 判定、scroll 路径无布局读）+ 架构债清理（plugin-host / dialog-host 拆分、host 原子写/文件锁去重、sessionContainer / registry 分类器 / MAX_PROFILES 去重、import-cycle 守卫）；无公开 API/存储/locale/UX 契约变更
 
@@ -41,6 +41,15 @@ S7（侧栏菜单无关滚动误关闭）在 S1–S6 证据之后追加：`lib/c
 - 新 e2e 用例口径：打开组菜单后，从 `.dsg-root` 之外的探针元素 dispatch `scroll`（菜单必须保持可见），再对 `.dsg-tree` dispatch `scroll`（菜单必须关闭）。**真实右侧会话容器 target 未在该 e2e 中直接验证**（不是打开真实流式会话后滚右侧），因此真实右侧会话区的行为由下面的 2026-11-13 用户桌面验收直接确认；e2e 本身仍是 agent 执行。
 - **用户桌面验收（2026-11-13，PASS）**：用户把最终 docs-current 包装进桌面客户端 profile `desktop`（plugin `0.4.0-beta.65`，`lib/client.js` 662,743 B / sha256 `01F2B5B62FAF3AE9B649607B5698F5ADF7C1846C55AEEE8676B2E9A54D0A7E8B`），5 条菜单手工验收全部 PASS（用户原话“效果很好，手动验收完成”）：①菜单打开后滚右侧会话区 → 菜单保持；②流式输出期间菜单稳定；③滚左侧树 → 菜单关闭；④点外部 / Escape → 菜单关闭；⑤菜单项 action 正常。这是 **user desktop acceptance**，与上面的 agent-run e2e 是两条独立证据；e2e probe 不针对真实右侧容器，故该手工 PASS 才是真实右侧面板的直接验证。用户未升级桌面客户端本体，宿主矩阵保持 community 2.0.18 / DSH `0.2.1-rc.2` 不变。
 - `.65` 的旧证据包 **835,756 B / `AE0DE4AC…`** 是 **S1–S6 历史证据**，不含 S7 代码；S7 代码证据以 F868 为准。
+
+## Release host-test lane (2026-11-13)
+
+发布证据包为 final docs-current 包 `dsh-session-grove-0.4.0-beta.65.tgz`，**849,797 bytes**，sha256 `1AB22F709F708DB70FF3E0564C6FE44C9D39DD09C25EAFF1AF915BEB1DD94D3C`（从 `ef33b20` 树打包，246 files，仓库外 `%TEMP%\dsh-grove-pack-s7-final4\`）。两个 fresh home：
+
+- `npm run test:isolated`：**PASS**（exit 0），fresh home `<temp>\dsh-sg-e2e-20261113-174117`（port 4494）；**narrow matrix 30 pass / 0 skip / 0 failure**（不是整个 suite 的计数），**71 screenshots**（69 cell + 2 baseline）；preview geometry dialog **560×560**、narrow sidebar **252**、body scroll **3659>466**、row gaps **[0,0,0]**。
+- `npm run test:locale-pack`：**PASS**（`PASS: third-party ja locale pack activates Japanese onboarding and dialog copy`）；`npm run test:all-locales`：**PASS 23/23**（最后一行 `PASS: all 23 locale switch cases`）；两者使用同一个 fresh home `<temp>\dsh-sg-e2e-20261113-174505`（port 4495），带 `e2e/fixtures/ja-locale-pack`。
+- 用户桌面 5 条菜单手工验收 **2026-11-13 PASS**（见上节；与 e2e 是两条独立证据）。
+- 两个 host 均已停止；e2e 仍为 **agent run at the user's explicit request**、不是用户运行。宿主未升级，仍为 community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2`；official A+ O 最新仍为 `.61`。
 
 ## 0.4.0-beta.63 历史轮（2026-11-12，已发布）
 

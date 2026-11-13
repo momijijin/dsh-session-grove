@@ -15,7 +15,7 @@ A free-form grouping layer over the DSH Desktop workspace/session sidebar. Sessi
 
 The site covers installation and the 60-second start, groups, session assignment, profiles, search, header status, settings/AI control, data and backups, FAQ and per-version update notes. The same entry is linked from the first-run hint/card and from the plugin settings page.
 
-- Current version: **0.4.0-beta.65** (dev batch, **not released**; latest published release **0.4.0-beta.64**, 2026-11-12; before that **0.4.0-beta.63**, 2026-11-12)
+- Current version: **0.4.0-beta.65** (published 2026-11-13; the previous published release is **0.4.0-beta.64**, 2026-11-12; before that **0.4.0-beta.63**, 2026-11-12)
 - DSH range: `>=0.2.0-rc.2 <0.3.0`; verified on community DSH Desktop Stable 2.0.18 (DSH 0.2.1-rc.2) and official DeepSeek Harness desktop 0.2.2.0 (DSH 0.2.2-rc.1)
 - Not supported: community DSH Desktop Beta and NEXT
 - CI runs the Node-level gate on Ubuntu, Windows and macOS; the real DSH UI has been verified on Windows only

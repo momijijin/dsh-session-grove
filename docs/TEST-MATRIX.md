@@ -19,7 +19,7 @@ all-locales as an automated CI result.
 
 Counts in this file describe the current `dev` tree unless a line says
 otherwise; the **`.65` batch evidence** below is the current count, and the
-published `.64` and `.63` figures that follow are historical. The `.65` dev tree
+published `.64` and `.63` figures that follow are historical. The `.65` tree
 runs **1031/1031** unit/contract tests and **45/45** `check:ui` cases with
 **397 locale keys in 19 dictionaries** (no locale resource changed); its
 real-host evidence is **PASS** (2026-11-13, agent debug run at the user's
@@ -42,9 +42,10 @@ evidence below is the previous complete sweep and applies to the `.62` tarball;
 the `.64` batch below also has all four commands.
 
 **`.65` batch evidence (dialog keyboard timing + architecture cleanup + menu
-scroll stability (S7), 2026-11-13).** This is the current `dev` batch;
-`0.4.0-beta.65` is **not tagged or published** (latest published:
-`v0.4.0-beta.64`, 2026-11-12). The dev tree
+scroll stability (S7), 2026-11-13).** This batch is **released as
+`v0.4.0-beta.65`** (2026-11-13; GitHub Release assets: `.tgz` +
+`SHA256SUMS`); the previous published release is `v0.4.0-beta.64`
+(2026-11-12). The tree
 runs **1031/1031** unit/contract tests and **45/45** UI runtime cases (1
 module-load + 44 component tests, 19 components across 28 client modules;
 `plugin-host-commands.js` and `dialog-bodies.js` are the new client modules),
@@ -121,13 +122,30 @@ scroll-close bug fix. `DOC_VERSION` stays 1.
   `01F2B5B6…`); that manual PASS is the direct validation of the real
   right-hand pane. The e2e runs above remain an **agent debug run at the user's
   explicit request**, not a user run.
+- **Release host-test lane (2026-11-13, final pack):** the release evidence
+  tarball is `dsh-session-grove-0.4.0-beta.65.tgz`, **849,797 bytes**, sha256
+  `1AB22F709F708DB70FF3E0564C6FE44C9D39DD09C25EAFF1AF915BEB1DD94D3C`, packed
+  from the `ef33b20` tree. `npm run test:isolated` — **PASS** (exit 0) on
+  fresh home `<temp>\dsh-sg-e2e-20261113-174117` (port 4494): narrow matrix
+  **30 pass / 0 skip / 0 failure**, **71 screenshots** (69 cells + 2 baseline),
+  preview geometry dialog **560×560** / narrow sidebar **252** / body scroll
+  **3659>466** / row gaps **[0,0,0]**. `npm run test:locale-pack` — **PASS**
+  (`PASS: third-party ja locale pack activates Japanese onboarding and dialog
+  copy`) and `npm run test:all-locales` — **PASS 23/23** (last line `PASS: all
+  23 locale switch cases`) on fresh home `<temp>\dsh-sg-e2e-20261113-174505`
+  (port 4495) with `e2e/fixtures/ja-locale-pack`. Both were **agent** runs (at
+  the user's explicit request), not user runs; the user desktop acceptance is
+  the separate five-menu-check PASS above. Both hosts were stopped; the host
+  matrix stays community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2`.
 - Architecture guards: import graph **116 source modules / 335 adjacency edges
   / 0 cycles** (the detector was exercised with a synthetic cycle during
   development, not committed as a fixture); `createHostCommands` exposes the
   **17** documented keys; the shell returns the **21**-key
   `createHostIntegration` contract; `uiModules` is **28**.
-- No locale sweep is required for `.65` (no locale resource changed) and no
-  official A+ O run is claimed; the latest official evidence remains `.61`.
+- No locale resource changed in `.65`, but the release lane above re-ran both
+  locale commands anyway (`test:locale-pack` PASS, `test:all-locales` 23/23
+  PASS); no official A+ O run is claimed, the latest official evidence remains
+  `.61`.
 
 The `.64` section below records the previous release (historical; not `.65`
 evidence).
@@ -275,7 +293,7 @@ are historical and must not be quoted as `.62` evidence.
 | Code | Meaning |
 |---|---|
 | `U` | Unit/contract tests: `npm test` (907 tests on the historical `.62` dev tree; 726 at the `.61` dev tree; 699 at the `.60` release; 529 at the `.59` release) |
-| `A+ C` | Isolated Playwright, community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2` (`.62`: 2026-11-11 PASS, `.62` tarball 829,055 bytes; `.64`: 2026-11-12 PASS; `.65`: 2026-11-13 PASS, agent debug run at the user's explicit request. S1–S6 lane: evidence tarball 835,756 bytes on two fresh homes, the ui-browser retry reusing its home. S7 lane: code-evidence tarball **842,325 bytes** / sha256 `F868…`, full `test:isolated` PASS on fresh home `160323` (narrow matrix 30 pass, 71 screenshots, new menu case); separately, the five manual menu checks passed in the user's desktop client on 2026-11-13 — **user desktop acceptance PASS**, profile `desktop`, plugin `0.4.0-beta.65`, `lib/client.js` 662,743 B / sha256 `01F2B5B6…`) |
+| `A+ C` | Isolated Playwright, community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2` (`.62`: 2026-11-11 PASS, `.62` tarball 829,055 bytes; `.64`: 2026-11-12 PASS; `.65`: 2026-11-13 PASS, agent debug run at the user's explicit request. S1–S6 lane: evidence tarball 835,756 bytes on two fresh homes, the ui-browser retry reusing its home. S7 lane: code-evidence tarball **842,325 bytes** / sha256 `F868…`, full `test:isolated` PASS on fresh home `160323` (narrow matrix 30 pass, 71 screenshots, new menu case); release lane: final pack **849,797 bytes** / sha256 `1AB22F70…`, `test:isolated` PASS on fresh home `174117` (narrow matrix 30 pass, 71 screenshots) and `test:locale-pack` + `test:all-locales` 23/23 PASS on fresh home `174505` (ports 4494/4495, ja locale pack); separately, the five manual menu checks passed in the user's desktop client on 2026-11-13 — **user desktop acceptance PASS**, profile `desktop`, plugin `0.4.0-beta.65`, `lib/client.js` 662,743 B / sha256 `01F2B5B6…`) |
 | `A+ O` | Isolated Playwright on an official DeepSeek Harness desktop host (`.60`: 0.2.1.0 / DSH `0.2.1-rc.5`; `.61`: 0.2.2.0 / DSH `0.2.2-rc.1`; `.62`: **not run**) |
 | `LP` | Test-only all-locale pack (`e2e/fixtures/ja-locale-pack`): host catalog injection + active locale switch |
 | `H` | Historical/manual evidence in an earlier release note or test-results snapshot; not a current default automation |
@@ -393,8 +411,8 @@ official host. Earlier `.22` and `.30` cells remain historical artifacts.
 | Control API, session actions, doctor | PASS | PASS | PASS | — | PASS |
 | English onboarding/settings/menu/dialog copy | PASS | PASS | PASS | — | — |
 | English plural/time labels | PASS | PASS | PASS | — | — |
-| Third-party language activation (`ja`) | PASS | — | — | PASS (`.62` locale-pack, 2026-11-11) | — |
-| All-locale switch: header + new-group dialog + group menu + settings/config + profile popover/preview (19 languages + zh-TW/zh-HK/zh-CN/pt-BR aliases) | PASS | — | — | PASS (23 cases, `.62` 385-key run) | — |
+| Third-party language activation (`ja`) | PASS | — | — | PASS (`.62` locale-pack, 2026-11-11; `.65` release lane 2026-11-13) | — |
+| All-locale switch: header + new-group dialog + group menu + settings/config + profile popover/preview (19 languages + zh-TW/zh-HK/zh-CN/pt-BR aliases) | PASS | — | — | PASS (23 cases, `.62` 385 keys; `.65` release lane 23/23 on 397 keys, 2026-11-13) | — |
 | Arabic RTL smoke: root `dir`, menu/dialog viewport bounds, settings panel direction | PASS | — | — | PASS (23 cases + ru/hi/ar visual notes, `.62`) | PASS (visual review .39) |
 | Multiple profiles: create/save-as, switch + diff preview, same-content direct switch, rename/archive, limit 20, default restore | PASS | PASS (2026-11-11, `.62`; `.59` historical) | PASS (2026-11-10, `.60`; historical) | — | — |
 | Profile multi-window: SSE active convergence and `profile-changed` 409 | PASS | PASS (2026-11-11, `.62`; earlier historical) | PASS (2026-11-10, historical) | — | — |
@@ -409,7 +427,11 @@ official host. Earlier `.22` and `.30` cells remain historical artifacts.
 The language-pack A+ column below is the **2026-11-11 `.62` community run
 (385 keys, 23/23)**; it supersedes the `.61` 331-key cells. It covers the header
 + new-group dialog + group menu + settings/config + profile popover/preview (and
-the Arabic RTL root), not full-surface A+.
+the Arabic RTL root), not full-surface A+. The `.65` release lane re-ran both
+locale commands on 2026-11-13 (final pack + `e2e/fixtures/ja-locale-pack`,
+fresh home `174505`, port 4495): `test:locale-pack` PASS and `test:all-locales`
+PASS 23/23 on the same 397-key dictionaries; the `.62` cells below remain the
+historical 385-key run.
 
 | Locale | Packaged | U parity | Runtime A+ | Language-pack A+ (`.62`, 2026-11-11) | Native/manual | Claim |
 |---|---|---|---|---|---|---|

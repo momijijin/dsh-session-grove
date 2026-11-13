@@ -6,10 +6,10 @@
 
 ## Maintainer documentation
 
-Use these for the current `0.4.0-beta.65` dev codebase (not tagged or released;
-the latest published release is `v0.4.0-beta.64`, 2026-11-12; before that
-`v0.4.0-beta.63`, 2026-11-12). `.62` shipped group
-archive, the second view-options tri-state
+Use these for the current `0.4.0-beta.65` codebase (published as
+`v0.4.0-beta.65` on 2026-11-13; the previous published release is
+`v0.4.0-beta.64`, 2026-11-12; before that `v0.4.0-beta.63`, 2026-11-12). `.62`
+shipped group archive, the second view-options tri-state
 and the recursive structural lock; `.63` adds the first-run funnel (entry hint
 + action-first onboarding card), four in-place hints and the documentation-site
 entries, and trims the READMEs to a landing page; `.64` adds one viewport
