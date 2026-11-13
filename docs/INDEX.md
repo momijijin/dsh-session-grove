@@ -33,9 +33,13 @@ explicit PASS line; S1–S6 evidence package 835,756 bytes / `AE0DE4AC…`; S7 a
 a third fresh home, `160323`, below). After
 the S7 rebuild, the full `test:isolated` run against the S7 code-evidence
 package (842,325 bytes / `F868…`) on fresh home `160323` also passed (narrow
-matrix 30 pass, 71 screenshots, new menu case); the five manual menu checks
-remain pending because the e2e probe does not target the real conversation-pane
-scroller. This is not a user desktop acceptance:
+matrix 30 pass, 71 screenshots, new menu case). The five manual menu checks
+**passed in the user's desktop client on 2026-11-13** (user desktop acceptance:
+profile `desktop`, plugin `0.4.0-beta.65`, `lib/client.js` 662,743 B /
+`01F2B5B6…`); because the e2e probe does not target the real conversation-pane
+scroller, that manual PASS is the direct validation of the real right-hand
+pane. The e2e runs above are still an agent debug run at the user's explicit
+request, not a user run:
 
 - [README](../README.md) — short landing page (English); [README.zh.md](../README.zh.md) — Chinese
 - [ARCHITECTURE.md](ARCHITECTURE.md) — layering, adapters, host/client boundaries, group archive

@@ -115,8 +115,12 @@ scroll-close bug fix. `DOC_VERSION` stays 1.
   **[0,0,0]**; the new S7 menu case (a probe scroll outside `.dsg-root` keeps
   the menu, a `.dsg-tree` scroll closes it) passes, and the host is still
   community 2.0.18 / DSH `0.2.1-rc.2`. The real conversation-pane scroller was
-  **not** targeted by that case, so the five manual menu checks remain
-  **pending** — do not read this row as PASS for the real right-hand pane.
+  **not** targeted by that case. The five manual menu checks **passed in the
+  user's desktop client on 2026-11-13** (user desktop acceptance: profile
+  `desktop`, plugin `0.4.0-beta.65`, `lib/client.js` 662,743 B / sha256
+  `01F2B5B6…`); that manual PASS is the direct validation of the real
+  right-hand pane. The e2e runs above remain an **agent debug run at the user's
+  explicit request**, not a user run.
 - Architecture guards: import graph **116 source modules / 335 adjacency edges
   / 0 cycles** (the detector was exercised with a synthetic cycle during
   development, not committed as a fixture); `createHostCommands` exposes the
@@ -271,7 +275,7 @@ are historical and must not be quoted as `.62` evidence.
 | Code | Meaning |
 |---|---|
 | `U` | Unit/contract tests: `npm test` (907 tests on the historical `.62` dev tree; 726 at the `.61` dev tree; 699 at the `.60` release; 529 at the `.59` release) |
-| `A+ C` | Isolated Playwright, community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2` (`.62`: 2026-11-11 PASS, `.62` tarball 829,055 bytes; `.64`: 2026-11-12 PASS; `.65`: 2026-11-13 PASS, agent debug run at the user's explicit request. S1–S6 lane: evidence tarball 835,756 bytes on two fresh homes, the ui-browser retry reusing its home. S7 lane: code-evidence tarball **842,325 bytes** / sha256 `F868…`, full `test:isolated` PASS on fresh home `160323` (narrow matrix 30 pass, 71 screenshots, new menu case); the five manual menu checks are pending) |
+| `A+ C` | Isolated Playwright, community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2` (`.62`: 2026-11-11 PASS, `.62` tarball 829,055 bytes; `.64`: 2026-11-12 PASS; `.65`: 2026-11-13 PASS, agent debug run at the user's explicit request. S1–S6 lane: evidence tarball 835,756 bytes on two fresh homes, the ui-browser retry reusing its home. S7 lane: code-evidence tarball **842,325 bytes** / sha256 `F868…`, full `test:isolated` PASS on fresh home `160323` (narrow matrix 30 pass, 71 screenshots, new menu case); separately, the five manual menu checks passed in the user's desktop client on 2026-11-13 — **user desktop acceptance PASS**, profile `desktop`, plugin `0.4.0-beta.65`, `lib/client.js` 662,743 B / sha256 `01F2B5B6…`) |
 | `A+ O` | Isolated Playwright on an official DeepSeek Harness desktop host (`.60`: 0.2.1.0 / DSH `0.2.1-rc.5`; `.61`: 0.2.2.0 / DSH `0.2.2-rc.1`; `.62`: **not run**) |
 | `LP` | Test-only all-locale pack (`e2e/fixtures/ja-locale-pack`): host catalog injection + active locale switch |
 | `H` | Historical/manual evidence in an earlier release note or test-results snapshot; not a current default automation |
@@ -477,7 +481,7 @@ cells remain historical through `.61` (no official `.62` run).
 | Onboarding card | U + `.62` community A+ C + English A+ O (historical) + ja LP (`.62`) | ja LP checks title/dismiss |
 | Settings/config form | U + `.62` community A+ C + all-locale settings smoke (`.62`, 23 cases) | all 23 cases check title/hint/controlApi/skill-repair copy |
 | Group menu / session menu | U + `.62` community A+ C (`test:isolated` menu/dialog paths) + English A+ O (historical) + `.62` U for archive lock items | `.62` archive-locked menu items are covered by logic/UI runtime tests and the 23-case LP group-menu copy, not by a dedicated archive A+ |
-| Row menu scroll stability (S7) | U (`tests/client/menu-scroll.test.js` + `ui-layout` source assertions) + `.65` community A+ C e2e (`test:isolated`: a probe scroll outside `.dsg-root` keeps the menu, a `.dsg-tree` scroll closes it) | the real conversation-pane scroller is **not** targeted by the e2e probe; the five manual checks (conversation scroll keeps the menu, stability during streaming, tree scroll closes, outside/Escape closes, menu action works) are **pending** — not PASS |
+| Row menu scroll stability (S7) | U (`tests/client/menu-scroll.test.js` + `ui-layout` source assertions) + `.65` community A+ C e2e (`test:isolated`: a probe scroll outside `.dsg-root` keeps the menu, a `.dsg-tree` scroll closes it) + **user desktop manual acceptance 2026-11-13 PASS** (profile `desktop`, plugin `0.4.0-beta.65`, `lib/client.js` 662,743 B / `01F2B5B6…`) | the real conversation-pane scroller is **not** targeted by the e2e probe; the five manual checks (conversation scroll keeps the menu, stability during streaming, tree scroll closes, outside/Escape closes, menu action works) **passed in the user's desktop client on 2026-11-13**, the direct validation of the real right-hand pane. The e2e remains an agent-run probe |
 | View options: session + group tri-state segments | U + 41-case UI runtime + `.62` community A+ C (`test:isolated`: session tri-state picks keep the popover open, Escape closes) + updated `e2e/groups.spec.mjs` (group segment, not executed) | two labelled `role=group` segments, 6 rows, keep-open behavior; the group-segment script remains unrun |
 | Group archive row/header/drag surfaces | U + UI runtime (`data-archived`/`data-path-only`/`data-contains-archived`/`data-structural-locked`) + `.62` LP (group-menu/archive copy) | group-archive A+ flows live in `e2e/groups.spec.mjs`, which was not executed; dimming/pathOnly/disabled-`+` visual review still pending |
 | Profile chevron / popover / switch preview / save-as / manage | U + UI runtime (39 cases in `.60`; 41 cases in `.62`) + community A+ C (2026-11-11, `.62`) + `.61` community A+ C (2026-11-10, historical) + official A+ O (2026-11-10, `.60`) + official A+ O (2026-11-10, `.61`) + LP (23 cases, `.62` 385 keys) | 46 keys × 19 dictionaries; the all-locales run checks chevron, popover and preview bounds; official A+ O ran the profile save-as/preview/undo/rename/archive/limit flows in `test:isolated` (both `.60` and `.61`); the `.61` community/official runs and the 2026-11-11 `.62` community run covered the same profile flows plus the preview real-geometry assertions. The `profiles.preview.archiveChanged` key added in `.62` has U parity only |

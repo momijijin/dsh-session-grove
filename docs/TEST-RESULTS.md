@@ -32,14 +32,14 @@
 - `npm run test:ui-browser`：**PASS（第 2 次）**（exit 0），使用 S1–S6 lane 的第二个 fresh home `<temp>\dsh-sg-e2e-20261113-025209`（02:52 创建，02:57 重试复用同一个 home——**1 次干净失败 + 1 次同 home 复跑**，不是换 home；S1–S6 lane 共两个 fresh home：isolated `024652` + ui-browser `025209`，S7 另有第三个 `160323`）；`bundleEntries 1`、`executedBytes 2,572,166 = sourceBytes`、`executedRatio 1`、`pageErrors []`。首跑 log 只有 12s `session-groups-view` 可见性超时，**未保留失败截图**；宿主 “Get started” 对话框在脚本 3.5s overlay 探测之后才挂载并挡住视图是从该超时与 `e2e/ui-runtime.spec.mjs:74-82` **推断**的，不是直接观察；判断为测试脚本时序竞态，不是插件问题。重试 log 没有显式 PASS 行；PASS 依据 = exit 0 + `UI_RUNTIME {...}` 行 + 无 FAIL 行 + `ui-runtime-coverage.json`（`pageErrors: []`）。`e2e/ui-runtime.spec.mjs` 的 `dismissOverlays` 后续可加固（本批未改）。
 - 无 locale sweep：397 keys × 19 dictionaries 未变；official A+ O 未跑、不声称（最新 official 证据仍是 `.61`）。
 
-## S7 追加证据（`.65`，2026-11-13，agent debug run）
+## S7 追加证据（`.65`，2026-11-13；e2e 为 agent debug run，手工 5 条为用户桌面验收）
 
 S7（侧栏菜单无关滚动误关闭）在 S1–S6 证据之后追加：`lib/client.js` 重新构建为 **662,743 bytes** / sha256 `01F2B5B62FAF3AE9B649607B5698F5ADF7C1846C55AEEE8676B2E9A54D0A7E8B`（build commit `a24a414`），代码证据包为 **842,325 bytes** / sha256 `F8680868A88B119DBC0158C81CD2D818AE9AF8DABDEFD06972CEFA548001D2F7`（`%TEMP%\dsh-grove-pack-s7\`，仓库外）。
 
 - `npm test`：**1031/1031 PASS**（比 S1–S6 的 1027 +4：`tests/client/menu-scroll.test.js` 覆盖 `scrollAffectsMenu` 全分支 + `menuSourceRow` 命中/未命中，`tests/client/ui-layout.test.js` 增加源码断言）；`check:ui` **45/45 PASS**；`check:coverage` **PASS** 94.84 / 86.92 / 91.46（范围 94.68–94.85 / 86.79–86.94 / 91.44–91.55）。
 - `npm run test:isolated`：**PASS**（exit 0），fresh home `<temp>\dsh-sg-e2e-20261113-160323`（port 4493），被测包为上面的 S7 code-evidence 包（F868…）；**narrow matrix 30 pass / 0 skip / 0 failure**（不是整个 suite 的计数），**71 screenshots**（69 cell + 2 baseline）；preview geometry dialog **560×560**、narrow sidebar **252**、body scroll **3659>466**、row gaps **[0,0,0]**；S7 新菜单用例通过；宿主仍是 community DSH Desktop 2.0.18 / DSH `0.2.1-rc.2`。
-- 新 e2e 用例口径：打开组菜单后，从 `.dsg-root` 之外的探针元素 dispatch `scroll`（菜单必须保持可见），再对 `.dsg-tree` dispatch `scroll`（菜单必须关闭）。**真实右侧会话容器 target 未在该 e2e 中直接验证**（不是打开真实流式会话后滚右侧），因此真实右侧会话区的行为只能由手工验收确认。
-- **手工验收 5 条仍 pending，不得写成 PASS**：①菜单打开后滚右侧会话区 → 菜单保持；②流式输出期间菜单稳定；③滚左侧树 → 菜单关闭；④点外部 / Escape → 菜单关闭；⑤菜单项 action 正常。
+- 新 e2e 用例口径：打开组菜单后，从 `.dsg-root` 之外的探针元素 dispatch `scroll`（菜单必须保持可见），再对 `.dsg-tree` dispatch `scroll`（菜单必须关闭）。**真实右侧会话容器 target 未在该 e2e 中直接验证**（不是打开真实流式会话后滚右侧），因此真实右侧会话区的行为由下面的 2026-11-13 用户桌面验收直接确认；e2e 本身仍是 agent 执行。
+- **用户桌面验收（2026-11-13，PASS）**：用户把最终 docs-current 包装进桌面客户端 profile `desktop`（plugin `0.4.0-beta.65`，`lib/client.js` 662,743 B / sha256 `01F2B5B62FAF3AE9B649607B5698F5ADF7C1846C55AEEE8676B2E9A54D0A7E8B`），5 条菜单手工验收全部 PASS（用户原话“效果很好，手动验收完成”）：①菜单打开后滚右侧会话区 → 菜单保持；②流式输出期间菜单稳定；③滚左侧树 → 菜单关闭；④点外部 / Escape → 菜单关闭；⑤菜单项 action 正常。这是 **user desktop acceptance**，与上面的 agent-run e2e 是两条独立证据；e2e probe 不针对真实右侧容器，故该手工 PASS 才是真实右侧面板的直接验证。用户未升级桌面客户端本体，宿主矩阵保持 community 2.0.18 / DSH `0.2.1-rc.2` 不变。
 - `.65` 的旧证据包 **835,756 B / `AE0DE4AC…`** 是 **S1–S6 历史证据**，不含 S7 代码；S7 代码证据以 F868 为准。
 
 ## 0.4.0-beta.63 历史轮（2026-11-12，已发布）

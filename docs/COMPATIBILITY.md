@@ -31,7 +31,8 @@ DSH 的 plugin client 是 **单个客户端 bundle**，没有为插件准备 `#i
 **835,756 bytes** / sha256 `AE0DE4AC…`，在 `a60f616` 代码树打包、包内 docs 早于
 证据段；HEAD 的 docs-current 重打包记录在 `AGENTS.md`；agent debug run at the
 user's explicit request：用户明确要求“这次你先跑”，因此两项 fresh-host e2e 由
-agent 执行、**不是**用户桌面验收。S1–S6 lane 的 fresh home 共两个（isolated
+agent 执行、**不是**用户桌面验收（用户桌面手工验收是另一条证据，S7 的 5 条
+在 2026-11-13 PASS，见下文）。S1–S6 lane 的 fresh home 共两个（isolated
 `024652` + ui-browser `025209`，ui-browser 首跑与 02:57 重试复用 `025209`）：
 `test:isolated` PASS，**narrow matrix** 30 pass / 0 skip / 0 failure、71 截图；
 `test:ui-browser` 第 2 次 PASS（1 次干净失败 + 1 次同 home 复跑；首跑 log 只有
@@ -40,8 +41,10 @@ timeout 与 `e2e/ui-runtime.spec.mjs:74-82` 的推断，非直接观察；重试
 exit 0 + `UI_RUNTIME` 行 + 无 FAIL + coverage JSON `pageErrors: []`；非插件问题）。
 S7 lane 用 F868 包在 fresh home `160323`（port 4493）全量 `test:isolated`
 **PASS**（narrow matrix 30 pass / 0 skip / 0 failure、71 截图、新菜单用例通过，
-宿主仍 community 2.0.18 / DSH 0.2.1-rc.2）；S7 菜单的 5 条手工验收仍 **pending**
-（真实右侧会话容器未在 e2e 直接验证）。`.65` 无 locale 改动，不需要
+宿主仍 community 2.0.18 / DSH 0.2.1-rc.2）；S7 菜单 5 条手工验收 **2026-11-13
+用户桌面 PASS**（profile `desktop`，plugin `0.4.0-beta.65`，`lib/client.js`
+662,743 B / `01F2B5B6…`；e2e probe 不针对真实右侧会话容器，故该手工 PASS 才是真实
+右侧面板的直接验证）。`.65` 无 locale 改动，不需要
 `test:locale-pack` / `test:all-locales`）。
 上一轮 community `.64`
 （2026-11-12，插件 `.64` 包 + fresh home：`test:isolated` PASS，30 格窄视口矩阵、
@@ -163,7 +166,7 @@ dsh-0.2  >=0.2.0-rc.2 <0.3.0
 
 ## 为什么优先能力检测
 
-- 目前 community Stable 与 official 两个桌面族都已有隔离实例证据（最新一轮 community A+ C 为 `0.4.0-beta.65`，2026-11-13：agent debug run at the user's explicit request，S1–S6 lane 两个 fresh home（ui-browser 重试复用同一 home）`test:isolated`（narrow matrix 30 pass）+ `test:ui-browser` PASS，不是用户桌面验收；S7 后又以 F868 包（842,325 bytes）在 fresh home `160323` 复跑 `test:isolated` PASS（narrow matrix 30 pass、71 截图、新菜单用例通过），S7 菜单的 5 条手工验收仍 pending；official A+ O 为 `0.4.0-beta.61`；`.64` / `.65` 的 official A+ O 均未重跑）；仍不为“壳名”写死版本分支，写死分支等于发布未测试代码。
+- 目前 community Stable 与 official 两个桌面族都已有隔离实例证据（最新一轮 community A+ C 为 `0.4.0-beta.65`，2026-11-13：agent debug run at the user's explicit request，S1–S6 lane 两个 fresh home（ui-browser 重试复用同一 home）`test:isolated`（narrow matrix 30 pass）+ `test:ui-browser` PASS，不是用户桌面验收；S7 后又以 F868 包（842,325 bytes）在 fresh home `160323` 复跑 `test:isolated` PASS（narrow matrix 30 pass、71 截图、新菜单用例通过），S7 菜单 5 条手工验收 2026-11-13 用户桌面 PASS（profile `desktop`，plugin `0.4.0-beta.65`，`lib/client.js` 662,743 B / `01F2B5B6…`），e2e 仍为 agent 执行；official A+ O 为 `0.4.0-beta.61`；`.64` / `.65` 的 official A+ O 均未重跑）；仍不为“壳名”写死版本分支，写死分支等于发布未测试代码。
 - DSH 的扩展点本身是 service/slot 组合，能力检测比版本判断更精确。
 - 插件管理器已经承担版本范围拒绝；插件内部重复版本判断会制造双重真相源。
 
