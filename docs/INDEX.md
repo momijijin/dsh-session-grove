@@ -24,12 +24,13 @@ architecture debt (`plugin-host` / `dialog-host` splits, shared host
 atomic-write/file-lock, deduplicated `sessionContainer` / registry classifier /
 `MAX_PROFILES`, and an import-cycle guard). `.65` fresh-host evidence passed:
 `test:isolated` (narrow matrix 30 pass) and
-`test:ui-browser` (agent debug run at the user's explicit request, two fresh
-homes total — the ui-browser retry reused its home; the first ui-browser attempt
-had only a 12s visibility timeout and no failure screenshot, and the "Get
-started" dialog timing race is inferred from that timeout plus
+`test:ui-browser` (agent debug run at the user's explicit request; the S1–S6
+lane used two fresh homes — the ui-browser retry reused its home; the first
+ui-browser attempt had only a 12s visibility timeout and no failure screenshot,
+and the "Get started" dialog timing race is inferred from that timeout plus
 `e2e/ui-runtime.spec.mjs:74-82`; PASS on the same-home retry, whose log has no
-explicit PASS line; S1–S6 evidence package 835,756 bytes / `AE0DE4AC…`). After
+explicit PASS line; S1–S6 evidence package 835,756 bytes / `AE0DE4AC…`; S7 adds
+a third fresh home, `160323`, below). After
 the S7 rebuild, the full `test:isolated` run against the S7 code-evidence
 package (842,325 bytes / `F868…`) on fresh home `160323` also passed (narrow
 matrix 30 pass, 71 screenshots, new menu case); the five manual menu checks

@@ -49,8 +49,9 @@ runs **1031/1031** unit/contract tests and **45/45** UI runtime cases (1
 module-load + 44 component tests, 19 components across 28 client modules;
 `plugin-host-commands.js` and `dialog-bodies.js` are the new client modules),
 with the same **397** locale keys in 19 dictionaries (no locale resource
-changed). No public API, control-protocol, storage-format or UX contract
-changed; `DOC_VERSION` stays 1.
+changed). No public API, control-protocol, storage-format, locale resource,
+test id, CSS or ARIA contract changed; the only behavior change is the S7 menu
+scroll-close bug fix. `DOC_VERSION` stays 1.
 
 - `npm run check:coverage` — **PASS**: **94.84% lines / 86.92% branches /
   91.46% functions** on the final local run (thresholds 92/80/85; batch runs
@@ -90,9 +91,10 @@ changed; `DOC_VERSION` stays 1.
   This was an **agent debug run at the user's explicit request** ("this time
   you run it first"), not a user run; it is **not** user desktop acceptance.
 - `npm run test:ui-browser` — **PASS on the second attempt** (exit 0) on the
-  batch's second fresh home `<temp>\dsh-sg-e2e-20261113-025209` (created 02:52;
-  the 02:57 retry reused the same home — **one clean failure plus one same-home
-  retry**, not a home swap; two fresh homes total): `bundleEntries 1`,
+  S1–S6 lane's second fresh home `<temp>\dsh-sg-e2e-20261113-025209` (created
+  02:52; the 02:57 retry reused the same home — **one clean failure plus one
+  same-home retry**, not a home swap; the S1–S6 lane used two fresh homes, and
+  S7 has a third fresh home, `160323`): `bundleEntries 1`,
   `executedBytes 2,572,166 = sourceBytes`, `executedRatio 1`, `pageErrors []`.
   The first attempt failed with only a 12s `session-groups-view` visibility
   timeout in its log; **no failure screenshot was retained**. The suspected

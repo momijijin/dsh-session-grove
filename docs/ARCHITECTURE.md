@@ -71,7 +71,7 @@ src/index.js     Cordis host 入口
 - **row 失效** → 关闭：`row.isConnected === false`（流式重渲染把行替换掉）时允许**一次** `menuSourceRow(menu)` 重查；仍找不到才关闭。
 - **resize** → 关闭：`plugin-host.js` 的 window `resize` 监听（`closeMenuOnResize`）保留。
 - **无关容器 scroll 忽略**：右侧会话区自己的滚动容器不是源行祖先，`scrollAffectsMenu` 返回 `false` 后直接 return——不 dispatch、不 setState、不触发 `GroupsView` 重渲染；流式自动滚动因此不再关闭菜单。
-- **scroll 路径无布局读**：只允许 `contains` / `isConnected` / `closest`；scroll 回调与判定函数都不调用 `getBoundingClientRect` / `getComputedStyle` / `offset*` / `scrollTop`，也不做 DOM 查询（源行只在菜单打开时缓存一次）。
+- **scroll 路径无布局读、无子树查询**：每次 scroll 最多一次 `target.closest('.dsg-menu, .dsg-dialog')` 祖先检查，加上行缺失/detached 时的一次 `menuSourceRow` 重查；不做 `querySelectorAll`，也不调用 `getBoundingClientRect` / `getComputedStyle` / `offset*` / `scrollTop`（源行只在菜单打开时缓存一次）。
 - **监听器所有权**：`MenuPopover`（`src/client/session-menu.js`）在 `useEffect([menu])` 里挂 `document` 的 `scroll`（`{ capture: true, passive: true }`），菜单关闭/卸载时移除；`plugin-host.js` 不再有 document scroll 监听，避免双监听。`menuSourceRow` / `scrollAffectsMenu` 在 `src/client/groups-view-menu-handlers.js`（React-free），由 popover 单向 import。
 - 菜单定位/夹紧、outside pointerdown、Escape、菜单项 action 与公开 testid/ARIA 均不变。
 
@@ -264,7 +264,7 @@ Host 权威守卫：
   - `components.js` 只保留 GroupsView 编排；primitives、rows、ungrouped、resize-handle、search-box、header 分模块
   - DOM、testid、CSS 类与 props 契约不变
 - `src/client/plugin-host.js` + `src/client/plugin-host-commands.js`（0.4.0-beta.65 拆分）
-  - `plugin-host.js`（312 行）只是 mount shell：slot 生命周期、宽度/布局、workspace chrome、settings/styles 安装、store 订阅、window/document 监听、mount/dispose，以及字面列出的 21 键返回面
+  - `plugin-host.js`（split 时 312 行；S7 移除 document scroll 监听后 309 行）只是 mount shell：slot 生命周期、宽度/布局、workspace chrome、settings/styles 安装、store 订阅、window/document 监听、mount/dispose，以及字面列出的 21 键返回面
   - `plugin-host-commands.js`（682 行）是 host command 层：`createActions` bridge、archive/session 动作、new-session follow、dialog 命令与 `confirmDialog`、filter/epoch、follow-guard 安装/清理；`clipboard` 由 shell 注入
   - 依赖方向单向：shell → commands → core/shared/client 纯模块；commands 不 import DSH 包、不反向依赖 shell
 - `src/client/dialog-host.js` + `src/client/dialog-bodies.js`（0.4.0-beta.65 拆分）
