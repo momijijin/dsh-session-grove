@@ -189,12 +189,13 @@ dsh-0.2  >=0.2.0-rc.2 <0.3.0
 ```text
 npm ci
 语法检查
-907 项单元/契约测试（0.4.0-beta.62 dev 树；0.4.0-beta.61 dev 树为 726；v0.4.0-beta.60 发布基线为 699；v0.4.0-beta.59 发布时为 529）；0.4.0-beta.63 dev 树为 914
+单元/契约测试 + UI runtime smoke（具体数字随所跑的树不同，见下）
 客户端构建
 coverage gate
-UI runtime smoke（41 cases）
 npm pack --dry-run
 ```
+
+CI **上一次**运行的是 `0.4.0-beta.63` 树：**914** 项单元/契约测试 + **42** UI runtime cases（`0.4.0-beta.62` 为 **907** 项 + **41** cases）。`.65` 的**本地**树是 **1027** 项单元/契约测试 + **45** UI runtime cases，但 `.65` **尚未在 CI 运行**，其 CI 结果以 PR 为准。历史数字保留：`0.4.0-beta.61` dev 树 726、`v0.4.0-beta.60` 发布基线 699、`v0.4.0-beta.59` 发布时 529（均为当时的单元/契约数）。
 
 它**不能**证明真实 DSH UI、真实 fence、sidebar slot、dshmarket 安装/更新在三个平台都可用。Linux/macOS 的真实 UI 在完成真实宿主回归前属于 experimental。
 

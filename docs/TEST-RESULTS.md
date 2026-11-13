@@ -25,7 +25,7 @@
 
 用户 2026-11-13 明确要求“这次你先跑”，因此本轮 fresh-host e2e 由 **agent** 执行，**不是**用户桌面验收。被测包为上面的证据包 `dsh-session-grove-0.4.0-beta.65.tgz`（**835,756 bytes**，sha256 `AE0DE4AC115B0E39FD9ADBFDDA89A0BFCB211DAF9D5E116972226331F190B766`，`%TEMP%\dsh-grove-pack\`，仓库外）。
 
-- `npm run test:isolated`：**PASS**（exit 0），fresh home `<temp>\dsh-sg-e2e-20261113-024652`；**narrow matrix** 计 **30 pass / 0 skip / 0 failure**（不是整个 suite 的计数），**71 screenshots**；preview geometry dialog **560×560**、narrow sidebar **252**、body scroll **3659>466**、row gaps **[0,0,0]**；之前失败的 dialog keyboard 段通过。
+- `npm run test:isolated`：**PASS**（exit 0），fresh home `<temp>\dsh-sg-e2e-20261113-024652`；**narrow matrix** 计 **30 pass / 0 skip / 0 failure**（不是整个 suite 的计数），**71 screenshots** (69 narrow-matrix cells + 2 baseline)；preview geometry dialog **560×560**、narrow sidebar **252**、body scroll **3659>466**、row gaps **[0,0,0]**；之前失败的 dialog keyboard 段通过。
 - `npm run test:ui-browser`：**PASS（第 2 次）**（exit 0），使用本批第二个 fresh home `<temp>\dsh-sg-e2e-20261113-025209`（02:52 创建，02:57 重试复用同一个 home——**1 次干净失败 + 1 次同 home 复跑**，不是换 home；本批共两个 fresh home：isolated `024652` + ui-browser `025209`）；`bundleEntries 1`、`executedBytes 2,572,166 = sourceBytes`、`executedRatio 1`、`pageErrors []`。首跑 log 只有 12s `session-groups-view` 可见性超时，**未保留失败截图**；宿主 “Get started” 对话框在脚本 3.5s overlay 探测之后才挂载并挡住视图是从该超时与 `e2e/ui-runtime.spec.mjs:74-82` **推断**的，不是直接观察；判断为测试脚本时序竞态，不是插件问题。重试 log 没有显式 PASS 行；PASS 依据 = exit 0 + `UI_RUNTIME {...}` 行 + 无 FAIL 行 + `ui-runtime-coverage.json`（`pageErrors: []`）。`e2e/ui-runtime.spec.mjs` 的 `dismissOverlays` 后续可加固（本批未改）。
 - 无 locale sweep：397 keys × 19 dictionaries 未变；official A+ O 未跑、不声称（最新 official 证据仍是 `.61`）。
 

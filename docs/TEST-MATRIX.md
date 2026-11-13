@@ -71,9 +71,10 @@ changed; `DOC_VERSION` stays 1.
 - `npm run test:isolated` — **PASS** (exit 0) on fresh home
   `<temp>\dsh-sg-e2e-20261113-024652` with the `.65` evidence tarball: the
   **narrow matrix** ran **30 pass / 0 skip / 0 failure** (the narrow-matrix
-  count, not the whole suite) and **71 screenshots**; preview geometry dialog
-  **560×560**, narrow sidebar **252**, body scroll **3659>466**, row gaps
-  **[0,0,0]**; the dialog-keyboard section that had failed before now passes.
+  count, not the whole suite) and **71 screenshots** (69 narrow-matrix cells +
+  2 baseline); preview geometry dialog **560×560**, narrow sidebar **252**,
+  body scroll **3659>466**, row gaps **[0,0,0]**; the dialog-keyboard section
+  that had failed before now passes.
   This was an **agent debug run at the user's explicit request** ("this time
   you run it first"), not a user run; it is **not** user desktop acceptance.
 - `npm run test:ui-browser` — **PASS on the second attempt** (exit 0) on the
