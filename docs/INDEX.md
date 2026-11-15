@@ -12,8 +12,15 @@ batch lands the plugin-side work it measured — P2 CSS-variable width writes,
 chrome measurement suspended during a width drag, the drag line decoupled from
 layout with adaptive backpressure, two dialog fill fixes plus per-frame
 dialog/scrollbar coalescing, and the 70 ms drop-target hold with the speed gate;
-the batch ran only the unit/contract gates, so no new real-runtime evidence is
-claimed. The last published release is `v0.4.0-beta.65`, 2026-11-13; the
+the batch ran the unit/contract gates and produced release-lane evidence:
+on 2026-11-16, `test:isolated` passed on a fresh isolated home (port 4418;
+narrow matrix 30 pass / 0 skip / 0 failure), and `test:locale-pack` plus
+`test:all-locales` 23/23 passed on a fresh home carrying the `ja-locale-pack`
+fixture (port 4419) — both are agent debug runs at the user's explicit
+request, not user runs. The batch package is 899,088 bytes / sha256
+`FB2A4EE93E742B30D85A51A1778A21A3518408C7E444D748D406E9C6C32ABDB8`; the real-host
+UI acceptance remains the 2026-11-15 user desktop run. The last published
+release is `v0.4.0-beta.65`, 2026-11-13; the
 previous published release is `v0.4.0-beta.64`, 2026-11-12; before that
 `v0.4.0-beta.63`, 2026-11-12). `.62`
 shipped group archive, the second view-options tri-state
