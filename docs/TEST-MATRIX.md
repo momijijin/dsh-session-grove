@@ -1,6 +1,20 @@
 # Test Matrix
 
-Status: `0.4.0-beta.65`  
+Status: `0.4.0-beta.66`  
+`.66` is the sidebar performance batch: only the unit/contract gates ran
+(**1156/1156**; the Step 10 patch-round gate measured coverage
+**94.92 / 86.73 / 91.65**, all above the 92/80/85 thresholds; the Step 9
+patch-round gate had 1096/1096 with 94.80–94.82 / 86.58–86.66 / 91.67, final
+gate run 94.80 / 86.58 / 91.67; the pre-patch Step 9 gate had 1085/1085 with
+94.43 / 86.74 / 91.25, repeated runs varying within
+94.42–94.43 / 86.72–86.74 / 91.25), and it claims no new
+real-runtime evidence. The Step 10 delta is +60 cases: `frame-batch.test.js`
+(13), `dialog-frame.test.js` (17), `scroll-frame.test.js` (12) and
+`drag-frame.test.js` (18) cover the rAF coalescer, the dialog gesture settle,
+the scrollbar mount-vs-frame split and the drag-target/label-cache contract.
+The step adds three DOM-free client modules (`frame-batch.js`,
+`dialog-frame.js`, `drag-frame.js`) that the React modules import; `uiModules`
+therefore stays 28 and `check:ui` stays 45/45.
 This file is the single source of truth for **what has actually been verified**
 and at which level. Other docs should link here instead of restating counts.
 

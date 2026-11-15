@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0-beta.66 (sidebar performance batch, 2026-11-13)
+
+- **Current codebase version**: this is the `.66` sidebar performance batch; the last published release remains `v0.4.0-beta.65` (2026-11-13), so this section implies no tag and no GitHub Release.
+- **Controlled observation layer on by default**: `PERF_MEASURE_BUILD = true` enables the client reporter and the host `/dsh-session-grove/perf` route, so resize / scroll / drag attribution needs no setting; whether the layer stays after the batch wraps up is a wrap-up decision.
+- **LoAF attribution**: where the browser supports `long-animation-frame`, every frame contributes `loafDurationMs` / `loafStyleLayoutMs` / `loafScriptMs` / `loafRenderMs` samples plus up to 20 raw entries per record (at most three scripts each, `sourceURL` reduced to its base file name); unsupported browsers keep the existing `longtask` duration.
+- **What and where**: `gesture` / `window` / `final` NDJSON rows (counts, durations, viewport and tree sizes, component names and version; no session ids, titles, group names, text or paths) are appended to `<storages>/dsh-session-grove.perf.ndjson`; writing `localStorage['dsh-session-grove.perf'] = '0'` and reloading stops sending on the spot.
+- **No behavior or visual change**: this batch adds instrumentation only; rollback is reinstalling `dsh-session-grove-0.4.0-beta.65.tgz` from `C:\Users\Momiji\AppData\Local\Temp\dsh-grove-pack-s7-final4\`.
+
 ## 0.4.0-beta.65 (timing fix and architecture cleanup, 2026-11-13)
 
 Published as `v0.4.0-beta.65` (2026-11-13; GitHub Release assets: `.tgz` + `SHA256SUMS`). The previous published release is `v0.4.0-beta.64` (2026-11-12). No public API, control-protocol, storage-format, locale resource, test id, CSS or ARIA contract changed; the only behavior change is the S7 menu scroll-close bug fix. `DOC_VERSION` stays 1, the 21-key `createHostIntegration` surface is intact, and the 397 keys in 19 dictionaries are untouched.

@@ -6,9 +6,11 @@
 
 ## Maintainer documentation
 
-Use these for the current `0.4.0-beta.65` codebase (published as
-`v0.4.0-beta.65` on 2026-11-13; the previous published release is
-`v0.4.0-beta.64`, 2026-11-12; before that `v0.4.0-beta.63`, 2026-11-12). `.62`
+Use these for the current `0.4.0-beta.66` codebase (the sidebar performance
+batch, which adds a controlled performance-observation layer with Long
+Animation Frame attribution; the last published release is `v0.4.0-beta.65`,
+2026-11-13; the previous published release is `v0.4.0-beta.64`, 2026-11-12;
+before that `v0.4.0-beta.63`, 2026-11-12). `.62`
 shipped group archive, the second view-options tri-state
 and the recursive structural lock; `.63` adds the first-run funnel (entry hint
 + action-first onboarding card), four in-place hints and the documentation-site
@@ -53,6 +55,8 @@ request, not a user run:
 
 ## Batch design records
 
+- [specs/2026-11-13-perf-instrumentation.md](specs/2026-11-13-perf-instrumentation.md) — `.66` performance-instrumentation SPEC (capture, routing, LoAF increment)
+- [specs/2026-11-13-perf-instrumentation-plan.md](specs/2026-11-13-perf-instrumentation-plan.md) — `.66` implementation plan (Step 1 instrumentation, Step 2 version/docs/pack, Step 4 LoAF + wording increment)
 - [specs/2026-11-10-group-archive-freeze.md](specs/2026-11-10-group-archive-freeze.md) — `.62` group-archive/freeze SPEC
 - [specs/2026-11-10-group-archive-freeze-plan.md](specs/2026-11-10-group-archive-freeze-plan.md) — `.62` implementation plan (P1–P12) and execution records
 - [adr/0004-group-archive-freeze.md](adr/0004-group-archive-freeze.md) — additive `archived` field, visibility, before-state invariant, host guard and compatibility decisions
