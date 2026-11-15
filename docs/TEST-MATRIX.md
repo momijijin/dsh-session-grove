@@ -3,12 +3,21 @@
 Status: `0.4.0-beta.66`  
 `.66` is the sidebar performance batch: the release build ships with the perf
 capture **off** (a local two-end opt-in), and only the unit/contract gates ran —
-**1171/1171** with coverage **95.00–95.01% lines / 86.89–86.92% branches /
-91.97% functions** in the final gate round (92/80/85 thresholds), so this file
+**1173/1173** with coverage **95.00% lines / 86.89% branches / 91.97%
+functions** in the final gate round (92/80/85 thresholds), so this file
 claims **no new real-runtime evidence** for `.66`. `check:ui` stays **45/45**
 (1 module-load + 44 component tests, 19 components across 28 client modules),
 `uiModules` stays 28, `DOC_VERSION` stays 1 and the 397 keys in 19 dictionaries
 are untouched.
+
+The coverage denominator is exactly what `npm test` loads: **93 of the 120**
+`src/**/*.js` files. The 27 unloaded files are 26 non-entry client modules plus
+the bundle entry `src/client/index.js`; of the component modules only
+`components-resize-handle.js` is loaded (dynamically, from
+`width-gesture.test.js`), and the `GroupsView` component graph is **not** in the
+denominator. This is a different number from `check:ui`'s **28 `uiModules`**:
+the UI runtime loads the component graph that `npm test` does not, so the two
+figures must not be mixed.
 
 | Step | Scope | Unit/contract | Coverage (lines / branches / functions) |
 |---|---|---|---|
@@ -17,6 +26,7 @@ are untouched.
 | 11 | A: 70 ms drop-target candidate hold | 1160/1160 | 94.94 / 86.79–86.82 / 91.93 |
 | 12 | A2: 100 ms speed gate + 40 ms hold upgrade | 1168/1168 | 94.97–94.99 / 86.85–86.88 / 91.96 |
 | 13 | closeout: capture off by default, audit hardening, final docs | 1171/1171 | 95.00–95.01 / 86.89–86.92 / 91.97 |
+| 14 | cheap-debt cleanup: docs truth, dead aliases, comment drift, threshold contract tests | 1173/1173 (+2) | 95.00 / 86.89 / 91.97 |
 
 The Step 12 delta is +8 cases in `drag-frame.test.js` (22 → 30): the drop-target
 committer now has the v10 speed gate — a fast sweep still holds a new target for
@@ -46,7 +56,17 @@ starts reset the window and the pointer dedupe; `perf.test.js`,
 `scroll-frame.test.js`, `dialog-frame.test.js` and `tests/host/entry.test.js`
 now opt in explicitly because the release build ships capture off, and the
 default-off case was kept as the first assertion (it fails if
-`PERF_MEASURE_BUILD` is flipped back to `true`).
+`PERF_MEASURE_BUILD` is flipped back to `true`). The Step 14 delta is +2 cases
+in `drag-frame.test.js` (33 → 35) and no production behavior change: one case
+pins the six drag thresholds as literals (70 ms hold, 0.5 px/ms gate, 100 ms
+entry window, 40 ms upgrade window, 2 ms sample dedupe, 100 ms pause) so a
+silent retune fails, and one 0.45 px/ms aim case (3–9 ms samples) proves the
+slow path counts a `drag:targetImmediate` decision and publishes its target
+exactly once without requiring the publish on one particular event. The same
+step deletes the unused `handleWidthChange` / `handleWidthCommit` aliases (the
+tests call `previewWidth`/`commitWidth` directly) and fixes the `frame-batch` /
+`drag-frame` / `dialog-frame` header comments; none of that changes runtime
+behavior.
 This file is the single source of truth for **what has actually been verified**
 and at which level. Other docs should link here instead of restating counts.
 
@@ -564,7 +584,7 @@ cells remain historical through `.61` (no official `.62` run).
 ## Not verified
 
 - **`.66` real-runtime evidence is not claimed.** The batch ran only the
-  unit/contract gates (1171/1171 plus the coverage/UI/release gates); the
+  unit/contract gates (1173/1173 plus the coverage/UI/release gates); the
   `test:isolated`, `test:ui-browser`, `test:locale-pack` and `test:all-locales`
   commands and the user desktop acceptance were **not** run for `.66`. The
   latest real-host evidence and the 2026-11-13 user desktop acceptance remain

@@ -60,8 +60,8 @@ request, not a user run:
 
 ## Batch design records
 
-- [specs/2026-11-13-perf-instrumentation.md](specs/2026-11-13-perf-instrumentation.md) — `.66` performance-instrumentation SPEC, archived at the final §17 closeout: 634 lines, 53,914 bytes, sha256 `DD21A4A6C3F9B750EFCF3FFCD45153C39CFCB4C0934E5E035A1C810FA2C03165`
-- [specs/2026-11-13-perf-instrumentation-plan.md](specs/2026-11-13-perf-instrumentation-plan.md) — `.66` implementation plan through Step 13: 363 lines, 27,705 bytes, sha256 `2870258AE1C504642CA901DEB5D0BF3EC3DF43E45A0CE7B4E0AE4CE33CA0DAB3`
+- [specs/2026-11-13-perf-instrumentation.md](specs/2026-11-13-perf-instrumentation.md) — `.66` performance-instrumentation SPEC, archived at the final §18 closeout: 668 lines, 57,333 bytes, sha256 `CD9708C8C233064908CCC097AF74D18BB0945316D0F39DC08B3C09905AACEC15`
+- [specs/2026-11-13-perf-instrumentation-plan.md](specs/2026-11-13-perf-instrumentation-plan.md) — `.66` implementation plan through Step 14: 386 lines, 30,027 bytes, sha256 `D713C9B8FDB3C37F792E66F5CB11FD23E7E0AFF14F68A6730C806D6EBB764A27`
 - [specs/2026-11-10-group-archive-freeze.md](specs/2026-11-10-group-archive-freeze.md) — `.62` group-archive/freeze SPEC
 - [specs/2026-11-10-group-archive-freeze-plan.md](specs/2026-11-10-group-archive-freeze-plan.md) — `.62` implementation plan (P1–P12) and execution records
 - [adr/0004-group-archive-freeze.md](adr/0004-group-archive-freeze.md) — additive `archived` field, visibility, before-state invariant, host guard and compatibility decisions
