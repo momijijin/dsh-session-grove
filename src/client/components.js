@@ -11,7 +11,6 @@ import { useGroupsSidebarWidth } from './groups-view-width.js'
 import { isWidthGestureActive, onWidthGestureEnd } from './width-gesture.js'
 import { resolveNarrow, shouldCollapseTitle } from './floating-panel.js'
 import { createDragLabelCache, createDropTargetCommit } from './drag-frame.js'
-import { createFrameBatch } from './frame-batch.js'
 import { useGroupsViewState } from './groups-view-state.js'
 import { useGroupsSearchReveal } from './groups-view-search.js'
 import { createMenuHandlers } from './groups-view-menu-handlers.js'
@@ -168,17 +167,17 @@ export const GroupsView = (props) => {
   const dropTargetRef = useRef(null)
   const dragTargetLockRef = useRef(null)
   /**
-   * Frame-coalesced drop-target commit (SPEC §14.2.3): the newest target of a
-   * frame is committed once instead of once per dragover. The stable-equality
-   * dedupe from 0.2.2 stays inside the commit, so a stationary pointer still
-   * performs no React update; `dropTargetRef` is the published mirror every
+   * Hold-timer drop-target commit (SPEC §15.2): a new target is published only
+   * after it survives 70 ms, so crossing a row during a fast drag no longer
+   * inserts/removes the placeholder on every pass (`drag:targetPending` vs
+   * `drag:frame` measure the ratio). The stable-equality dedupe from 0.2.2
+   * stays inside the commit; `dropTargetRef` is the published mirror every
    * handler and the placeholder read. Drop/end paths call `flushDropTarget()`
-   * first so they never act on the previous frame's target.
+   * first so they never act on a previous target.
    */
   const dropCommitRef = useRef(null)
   if (dropCommitRef.current === null) {
     dropCommitRef.current = createDropTargetCommit({
-      batch: createFrameBatch(),
       same: sameDropTarget,
       read: () => dropTargetRef.current,
       publish: (next) => {
@@ -206,9 +205,9 @@ export const GroupsView = (props) => {
       count: () => perfCount('drag:frame'),
     })
   }
-  /** Queue a drop target; the next frame commits only the newest one. */
+  /** Record a drop target as the candidate; its hold timer commits it. */
   const setDropTargetTracked = (next) => dropCommitRef.current.set(next)
-  /** Commit a queued dragover target now (drop handlers read the mirror). */
+  /** Commit the current candidate now (drop handlers read the mirror). */
   const flushDropTarget = () => dropCommitRef.current.flush()
   /** Queue null and settle it in this tick (the placeholder must not outlive the event). */
   const settleDropTarget = () => {

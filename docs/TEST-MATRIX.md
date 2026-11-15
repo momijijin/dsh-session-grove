@@ -2,19 +2,29 @@
 
 Status: `0.4.0-beta.66`  
 `.66` is the sidebar performance batch: only the unit/contract gates ran
-(**1156/1156**; the Step 10 patch-round gate measured coverage
-**94.92 / 86.73 / 91.65**, all above the 92/80/85 thresholds; the Step 9
+(**1160/1160**; the Step 11-A gate measured coverage
+**94.94 / 86.79–86.82 / 91.93**, all above the 92/80/85 thresholds; the Step 10
+patch-round gate had 1156/1156 with 94.92 / 86.73 / 91.65; the Step 9
 patch-round gate had 1096/1096 with 94.80–94.82 / 86.58–86.66 / 91.67, final
 gate run 94.80 / 86.58 / 91.67; the pre-patch Step 9 gate had 1085/1085 with
 94.43 / 86.74 / 91.25, repeated runs varying within
 94.42–94.43 / 86.72–86.74 / 91.25), and it claims no new
-real-runtime evidence. The Step 10 delta is +60 cases: `frame-batch.test.js`
+real-runtime evidence. The Step 11-A delta is +4 cases in
+`drag-frame.test.js` (18 → 22): the drop-target committer now holds a candidate
+for `TARGET_HOLD_MS` (70 ms) under a fake clock instead of committing on the
+next animation frame — a repeated same target does not restart the hold, a
+changed target restarts it, drop/dragend/dragleave flush the candidate
+synchronously, and one case exercises the default `performance.now` /
+`setTimeout` / `clearTimeout` path. It supersedes the frame batch only for the
+drop target and adds no module (`drag-frame.js` keeps its name,
+`frame-batch.js` still serves the dialog and scrollbar), so `uiModules` stays 28
+and `check:ui` stays 45/45. The
+Step 10 delta was +60 cases: `frame-batch.test.js`
 (13), `dialog-frame.test.js` (17), `scroll-frame.test.js` (12) and
 `drag-frame.test.js` (18) cover the rAF coalescer, the dialog gesture settle,
 the scrollbar mount-vs-frame split and the drag-target/label-cache contract.
 The step adds three DOM-free client modules (`frame-batch.js`,
-`dialog-frame.js`, `drag-frame.js`) that the React modules import; `uiModules`
-therefore stays 28 and `check:ui` stays 45/45.
+`dialog-frame.js`, `drag-frame.js`) that the React modules import.
 This file is the single source of truth for **what has actually been verified**
 and at which level. Other docs should link here instead of restating counts.
 
