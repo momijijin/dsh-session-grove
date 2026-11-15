@@ -7,10 +7,15 @@
 ## Maintainer documentation
 
 Use these for the current `0.4.0-beta.66` codebase (the sidebar performance
-batch, which adds a controlled performance-observation layer with Long
-Animation Frame attribution; the last published release is `v0.4.0-beta.65`,
-2026-11-13; the previous published release is `v0.4.0-beta.64`, 2026-11-12;
-before that `v0.4.0-beta.63`, 2026-11-12). `.62`
+batch: the observation layer now ships **off** behind a two-end opt-in, and the
+batch lands the plugin-side work it measured — P2 CSS-variable width writes,
+chrome measurement suspended during a width drag, the drag line decoupled from
+layout with adaptive backpressure, two dialog fill fixes plus per-frame
+dialog/scrollbar coalescing, and the 70 ms drop-target hold with the speed gate;
+the batch ran only the unit/contract gates, so no new real-runtime evidence is
+claimed. The last published release is `v0.4.0-beta.65`, 2026-11-13; the
+previous published release is `v0.4.0-beta.64`, 2026-11-12; before that
+`v0.4.0-beta.63`, 2026-11-12). `.62`
 shipped group archive, the second view-options tri-state
 and the recursive structural lock; `.63` adds the first-run funnel (entry hint
 + action-first onboarding card), four in-place hints and the documentation-site
@@ -55,8 +60,8 @@ request, not a user run:
 
 ## Batch design records
 
-- [specs/2026-11-13-perf-instrumentation.md](specs/2026-11-13-perf-instrumentation.md) — `.66` performance-instrumentation SPEC (capture, routing, LoAF increment)
-- [specs/2026-11-13-perf-instrumentation-plan.md](specs/2026-11-13-perf-instrumentation-plan.md) — `.66` implementation plan (Step 1 instrumentation, Step 2 version/docs/pack, Step 4 LoAF + wording increment)
+- [specs/2026-11-13-perf-instrumentation.md](specs/2026-11-13-perf-instrumentation.md) — `.66` performance-instrumentation SPEC, archived at the final §17 closeout: 634 lines, 53,914 bytes, sha256 `DD21A4A6C3F9B750EFCF3FFCD45153C39CFCB4C0934E5E035A1C810FA2C03165`
+- [specs/2026-11-13-perf-instrumentation-plan.md](specs/2026-11-13-perf-instrumentation-plan.md) — `.66` implementation plan through Step 13: 363 lines, 27,705 bytes, sha256 `2870258AE1C504642CA901DEB5D0BF3EC3DF43E45A0CE7B4E0AE4CE33CA0DAB3`
 - [specs/2026-11-10-group-archive-freeze.md](specs/2026-11-10-group-archive-freeze.md) — `.62` group-archive/freeze SPEC
 - [specs/2026-11-10-group-archive-freeze-plan.md](specs/2026-11-10-group-archive-freeze-plan.md) — `.62` implementation plan (P1–P12) and execution records
 - [adr/0004-group-archive-freeze.md](adr/0004-group-archive-freeze.md) — additive `archived` field, visibility, before-state invariant, host guard and compatibility decisions
