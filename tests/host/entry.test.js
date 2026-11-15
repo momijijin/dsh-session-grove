@@ -10,6 +10,8 @@ import {
   DEBUG_FILE_NAME,
   DIAGNOSTICS_FILE_NAME,
   LOAD_PATH,
+  PERF_FILE_NAME,
+  PERF_PATH,
   PROFILES_ACTIVATE_PATH,
   PROFILES_ARCHIVE_PATH,
   PROFILES_CREATE_PATH,
@@ -58,7 +60,7 @@ test('0.2.18 exposes a plugin-manager Config with diagnostics and debug probe of
   assert.equal(Config.dict.diagnostics.meta.default, false)
   assert.equal(Config.dict.debugProbe.type, 'boolean')
   assert.equal(Config.dict.debugProbe.meta.default, false)
-  for (const key of ['diagnostics', 'debugProbe', 'controlApi', 'controlDestructive', 'controlSessions']) {
+  for (const key of ['diagnostics', 'debugProbe', 'controlApi', 'controlDestructive', 'controlSessions', 'perf']) {
     assert.equal(Config.dict[key].meta.volatile, true, `${key} must be served by the host config form`)
     assert.equal(Config.dict[key].meta.default, false, `${key} must default off`)
   }
@@ -131,8 +133,9 @@ test('apply() returns void synchronously and mounts the host routes inside ctx.e
 
   // Cordis 4.0.5 treats the return value as the plugin effect list.
   assert.equal(returned, undefined)
-  assert.equal(routes.length, 21)
+  assert.equal(routes.length, 22)
   assert.equal(routes.some((route) => route.path === '/dsh-session-grove/control/catalog'), true)
+  assert.equal(routes.some((route) => route.path === PERF_PATH), true, 'the .66 perf ingest is mounted in production')
   for (const path of [
     PROFILES_PATH,
     PROFILES_PREVIEW_PATH,
@@ -243,6 +246,33 @@ test('global artifacts stay in storageDir while a named profile is active', asyn
     [RECORD_FILE_NAME],
     'no diagnostics/debug/token files may leak into the profile directory',
   )
+
+  // 0.4.0-beta.66: the perf capture writes its own file next to the other
+  // global artifacts (never into the active profile directory). The build
+  // constant is on, so the route accepts without any config switch.
+  const perf = routes.find((route) => route.path === PERF_PATH)
+  const perfResponse = makeResponse()
+  await perf.handler(
+    makeRequest({
+      method: 'POST',
+      headers: { host: '127.0.0.1:4400', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        runId: 'run-entry',
+        schemaVersion: 1,
+        record: { kind: 'window', gesture: null, durationMs: 15000 },
+      }),
+    }),
+    perfResponse,
+  )
+  assert.equal(perfResponse.statusCode, 200)
+  const perfFile = join(home.storageDir, PERF_FILE_NAME)
+  assert.deepEqual(Object.keys(JSON.parse((await readFile(perfFile, 'utf8')).trimEnd())).sort(), [
+    'receivedAt',
+    'record',
+    'runId',
+    'schemaVersion',
+  ])
+  assert.deepEqual(await readdir(join(home.profilesDir, PROFILE_ID)), [RECORD_FILE_NAME])
 
   const load = routes.find((route) => route.path === LOAD_PATH)
   const res = makeResponse()

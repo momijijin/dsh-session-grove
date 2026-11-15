@@ -1550,6 +1550,31 @@ test('0.4.0 profiles: preview diff uses a two-level hierarchy and a capped scrol
   assert.match(positionedScrollArea, /min-height:\s*0/)
   assert.match(block('.dsg-dialog[data-positioned="true"] .dsg-dialog-content {'), /flex:\s*1 1 auto/)
   assert.match(block('.dsg-dialog-content {'), /overflow-y:\s*auto/)
+  // 0.4.0-beta.66 §9: the nested scroll bodies (icon picker / move-to list) sit
+  // inside `.dsg-dialog-content`; a positioned dialog must stretch both the
+  // wrapper and the scroller so the extra height lands inside the body instead
+  // of as a gap above the footer. The selectors must stay anchored on
+  // `[data-positioned="true"]`: the first frame measures the natural height.
+  const positionedNestedScrollArea = block(
+    '.dsg-dialog[data-positioned="true"] .dsg-dialog-content > .dsg-scroll-area {'
+  )
+  assert.match(positionedNestedScrollArea, /flex:\s*1 1 auto/)
+  assert.match(positionedNestedScrollArea, /min-height:\s*0/)
+  const positionedNestedScrollers = block('.dsg-dialog[data-positioned="true"] .dsg-icon-sections,')
+  assert.match(positionedNestedScrollers, /flex:\s*1 1 auto/)
+  assert.match(positionedNestedScrollers, /min-height:\s*0/)
+  assert.match(positionedNestedScrollers, /max-height:\s*none/)
+  // The base caps must survive: deleting them would "pass" the rules above while
+  // making the first measured frame too tall, so they are asserted separately.
+  assert.match(CSS, /\.dsg-icon-sections \{[^}]*max-height:\s*min\(56vh, 430px\)/)
+  assert.match(CSS, /\.dsg-dialog-list \{[^}]*max-height:\s*300px/)
+  // 0.4.0-beta.66 §10: the same nested bodies inherit `.dsg-menu`'s 360px width
+  // cap, so a widened (positioned) dialog still rendered them 1/3 wide. They
+  // must follow the content width instead, while the real body-level `.dsg-menu`
+  // cap stays as the first-frame natural-width measurement.
+  assert.match(CSS, /\.dsg-dialog\[data-positioned="true"\] \.dsg-dialog-list \{[^}]*width:\s*100%[^}]*max-width:\s*none/)
+  assert.match(CSS, /\.dsg-dialog\[data-positioned="true"\] \.dsg-dialog-icon-grid \{[^}]*width:\s*100%[^}]*max-width:\s*none/)
+  assert.match(CSS, /\.dsg-menu \{[^}]*max-width:\s*min\(360px/)
 
   // RTL: list indent/dividers use logical properties; only the flow arrow flips.
   assert.match(
@@ -1692,4 +1717,50 @@ test('0.4.0-beta.65 plugin host shell returns exactly the 21 documented keys', (
   // The moved layer still owns the factory and the follow guard.
   assert.match(pluginHostCommands(), /export const createHostCommands = \(/)
   assert.match(pluginHostCommands(), /const installFollowGuard = \(\) =>/)
+})
+
+test('0.4.0-beta.66 §12: a width drag suspends chrome layout reads but keeps narrow live', () => {
+  // §12.4 B1: a frozen `narrow` overflows the 264px header, so a drag may skip
+  // only the layout reads and must keep resolving the flag from the width.
+  assert.match(componentsSource, /import \{ isWidthGestureActive, onWidthGestureEnd \} from '\.\/width-gesture\.js'/)
+  // The effect is frozen by `[wide, store?.docState]` for a whole drag, so the
+  // width it compares against is maintained during render instead of closed over.
+  assert.match(
+    componentsSource,
+    /const appliedWidthRef = useRef\(appliedWidth\)\r?\n\s+appliedWidthRef\.current = appliedWidth/
+  )
+  const effectStart = componentsSource.indexOf('const applyChrome = (next) => {')
+  const effectEnd = componentsSource.indexOf('}, [wide, store?.docState])', effectStart)
+  assert.ok(effectStart !== -1 && effectEnd > effectStart, 'the chrome measure effect must expose its shared applyChrome helper')
+  const chromeEffect = componentsSource.slice(effectStart, effectEnd)
+  // Gate first, sample/counter after: a gated callback is attributed to
+  // `chrome:skip`, never to `chromeMeasureMs` / `chrome:measure`.
+  const gateAt = chromeEffect.indexOf('if (isWidthGestureActive()) {')
+  const measureSampleAt = chromeEffect.indexOf("perfMs('chromeMeasureMs'")
+  const measureCountAt = chromeEffect.indexOf("perfCount('chrome:measure')")
+  assert.ok(gateAt !== -1, 'the measure gate must exist')
+  assert.ok(measureSampleAt > gateAt, 'the gate must run before perfMs(chromeMeasureMs)')
+  assert.ok(measureCountAt > gateAt, 'the gate must run before perfCount(chrome:measure)')
+  assert.match(chromeEffect, /perfCount\('chrome:skip'\)/)
+  assert.match(chromeEffect, /dirtyRef\.current = true/)
+  assert.match(
+    chromeEffect,
+    /const narrow = resolveNarrow\(\(getLiveWidth\(\) \?\? appliedWidthRef\.current\) - 12, chromeRef\.current\.narrow\)/
+  )
+  assert.match(
+    chromeEffect,
+    /if \(narrow !== chromeRef\.current\.narrow\) applyChrome\(\{ \.\.\.chromeRef\.current, narrow \}\)/
+  )
+  // The deferred pass is subscribed once and owned by the effect cleanup.
+  assert.match(chromeEffect, /const unsubscribeWidthGesture = onWidthGestureEnd\(/)
+  assert.match(
+    chromeEffect,
+    /if \(!dirtyRef\.current\) return\r?\n\s+dirtyRef\.current = false\r?\n\s+pendingFrameRef\.current = requestAnimationFrame\(measure\)/
+  )
+  assert.match(chromeEffect, /unsubscribeWidthGesture\(\)/)
+  assert.match(chromeEffect, /cancelAnimationFrame\(pendingFrameRef\.current\)/)
+  // The two-pass narrow convergence must survive: the effect still exposes
+  // `measure` to the `[chrome.narrow]` re-measure (spec §6.6 / §12.3).
+  assert.match(chromeEffect, /measureChromeRef\.current = measure/)
+  assert.match(components, /useEffect\(\(\) => \{\r?\n\s+measureChromeRef\.current\?\.\(\)\r?\n\s+\}, \[chrome\.narrow\]\)/)
 })

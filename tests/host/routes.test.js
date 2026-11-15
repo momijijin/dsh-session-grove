@@ -10,6 +10,10 @@ import {
   MAX_BODY_BYTES,
   MAX_DIAGNOSTICS_BODY_BYTES,
   MAX_DIAGNOSTICS_EVENTS,
+  MAX_PERF_BODY_BYTES,
+  MAX_PERF_FILE_BYTES,
+  PERF_FILE_NAME,
+  PERF_PATH,
   PROFILES_ACTIVATE_PATH,
   PROFILES_ARCHIVE_PATH,
   PROFILES_CREATE_PATH,
@@ -23,9 +27,11 @@ import { commitResponse, loadResponse } from '../../src/host/http/respond.js'
 import { parseCommitBody, parseDiagnosticsBody } from '../../src/host/http/wire.js'
 import { createChangeHub } from '../../src/host/change-hub.js'
 import { createStore } from '../../src/host/store.js'
+import { registerRoutes } from '../../src/host/routes.js'
 import {
   PROFILE_ID,
   createTestProfileManager,
+  makeContext,
   makeRequest,
   makeResponse,
   makeTempProfileHome,
@@ -64,7 +70,7 @@ const commitBody = (baseRevision, doc) => JSON.stringify({ baseRevision, doc })
 test('route registration mounts the frozen paths and diagnostics by default', async (t) => {
   const mounted = await mountRoutes()
   t.after(() => mounted.cleanup())
-  assert.equal(mounted.routes.length, 13)
+  assert.equal(mounted.routes.length, 14)
   for (const path of [LOAD_PATH, COMMIT_PATH, DIAGNOSTICS_PATH, DEBUG_PATH]) {
     assert.equal(mounted.routes.some((route) => route.path === path), true)
   }
@@ -79,7 +85,7 @@ test('route registration mounts the frozen paths and diagnostics by default', as
   )
 })
 
-test('a legacy single-store composition with events and skill repair keeps 15 routes', async (t) => {
+test('a legacy single-store composition with events and skill repair keeps 16 routes', async (t) => {
   const temp = await makeTempStore()
   t.after(temp.cleanup)
   const hub = createChangeHub()
@@ -92,7 +98,7 @@ test('a legacy single-store composition with events and skill repair keeps 15 ro
     changeHub: hub,
     skillDshHome: temp.dir,
   })
-  assert.equal(mounted.routes.length, 15)
+  assert.equal(mounted.routes.length, 16)
   assert.equal(
     mounted.routes.some((route) => route.path.startsWith('/dsh-session-grove/profiles')),
     false,
@@ -645,9 +651,9 @@ const makeProfileRoutes = async (t, { activeId, revision = 3, profiles } = {}) =
   return { home, manager, mounted }
 }
 
-test('a profile-manager composition mounts the six profile routes (19 total)', async (t) => {
+test('a profile-manager composition mounts the six profile routes (20 total)', async (t) => {
   const { mounted } = await makeProfileRoutes(t, { activeId: 'default' })
-  assert.equal(mounted.routes.length, 19)
+  assert.equal(mounted.routes.length, 20)
   for (const path of [
     PROFILES_PATH,
     PROFILES_PREVIEW_PATH,
@@ -1042,4 +1048,198 @@ test('0.2.18 diagnostics disabled: load advertises off and ingest is refused', a
   )
   assert.equal(posted.res.statusCode, 403)
   assert.equal(posted.json.code, 'diagnostics-disabled')
+})
+
+// ---------------------------------------------------------------------------
+// Perf capture route (0.4.0-beta.66, spec §3.5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mount the host routes with the perf ingest wired explicitly. The shared
+ * `mountRoutes` helper does not know the `.66` options, so the perf cases mount
+ * through `registerRoutes` directly and keep the same fake connection/fence.
+ */
+const mountPerfRoutes = async (t, { perfEnabled = true, perfFilePath, connection = cookieConnection() } = {}) => {
+  const temp = await makeTempStore()
+  t.after(temp.cleanup)
+  const context = makeContext(connection === null ? {} : { connection })
+  const filePath =
+    typeof perfFilePath === 'function'
+      ? perfFilePath(temp)
+      : perfFilePath ?? join(temp.storages, PERF_FILE_NAME)
+  const mounted = registerRoutes(context.ctx, temp.store, {
+    diagnosticsEnabled: true,
+    perfEnabled,
+    perfFilePath: filePath,
+  })
+  return {
+    ...temp,
+    ...context,
+    mounted,
+    perfFilePath: filePath,
+    async call(path, request) {
+      const route = context.routes.find((candidate) => candidate.path === path)
+      if (route === undefined) throw new Error(`route not registered: ${path}`)
+      const res = makeResponse()
+      await route.handler(request, res)
+      let json
+      try {
+        json = JSON.parse(res.body)
+      } catch {
+        json = undefined
+      }
+      return { res, json }
+    },
+  }
+}
+
+const perfEnvelope = (record = { kind: 'window', gesture: null, durationMs: 15000 }, extra = {}) =>
+  JSON.stringify({ runId: 'run-perf', schemaVersion: 1, record, ...extra })
+
+const perfPost = (body, headers = { cookie: 'token=ok', 'content-type': 'application/json' }) =>
+  makeRequest({ method: 'POST', headers, body })
+
+test('POST perf appends one NDJSON record under storages and never touches the record file', async (t) => {
+  const mounted = await mountPerfRoutes(t)
+  const first = await mounted.call(
+    PERF_PATH,
+    perfPost(perfEnvelope({ kind: 'gesture', gesture: 'drag-session', durationMs: 812, deltas: { renders: { GroupsView: 3 } } })),
+  )
+  assert.equal(first.res.statusCode, 200)
+  assert.deepEqual(first.json, { ok: true })
+  assert.equal(first.res.headers['cache-control'], 'no-store')
+
+  const lines = (await readFile(mounted.perfFilePath, 'utf8')).trimEnd().split('\n')
+  assert.equal(lines.length, 1)
+  const entry = JSON.parse(lines[0])
+  assert.match(entry.receivedAt, /^\d{4}-\d{2}-\d{2}T/)
+  assert.equal(entry.runId, 'run-perf')
+  assert.equal(entry.schemaVersion, 1)
+  assert.equal(entry.record.kind, 'gesture')
+  assert.equal(entry.record.gesture, 'drag-session')
+  assert.equal(entry.record.durationMs, 812)
+  assert.deepEqual(entry.record.deltas, { renders: { GroupsView: 3 } })
+
+  const second = await mounted.call(PERF_PATH, perfPost(perfEnvelope({ kind: 'final' })))
+  assert.equal(second.res.statusCode, 200)
+  assert.equal((await readFile(mounted.perfFilePath, 'utf8')).trimEnd().split('\n').length, 2)
+
+  // Append-only against its own file: the official record file never appears.
+  await assert.rejects(access(mounted.filePath), /ENOENT/)
+  assert.deepEqual((await readdir(mounted.storages)).sort(), [PERF_FILE_NAME])
+})
+
+test('POST perf is refused with 403 perf-disabled when capture is off (route stays mounted)', async (t) => {
+  const mounted = await mountPerfRoutes(t, { perfEnabled: false })
+  assert.equal(mounted.mounted.routes.includes(PERF_PATH), true, 'opt-out stops the client, not the route')
+  const posted = await mounted.call(PERF_PATH, perfPost(perfEnvelope()))
+  assert.equal(posted.res.statusCode, 403)
+  assert.equal(posted.json.code, 'perf-disabled')
+  await assert.rejects(access(mounted.perfFilePath), /ENOENT/)
+})
+
+test('POST perf rejects non-POST methods with 405 and an Allow header', async (t) => {
+  const mounted = await mountPerfRoutes(t)
+  const get = await mounted.call(PERF_PATH, makeRequest({ headers: { cookie: 'token=ok' } }))
+  assert.equal(get.res.statusCode, 405)
+  assert.equal(get.res.headers.allow, 'POST')
+})
+
+test('POST perf runs the fence first and requires a JSON content type', async (t) => {
+  const fenced = await mountPerfRoutes(t, { connection: null })
+  const denied = await fenced.call(PERF_PATH, perfPost(perfEnvelope(), { 'content-type': 'application/json' }))
+  assert.equal(denied.res.statusCode, 503)
+  assert.equal(denied.json.code, 'fence-unavailable')
+
+  const mounted = await mountPerfRoutes(t)
+  const wrongType = await mounted.call(PERF_PATH, perfPost('{}', { cookie: 'token=ok', 'content-type': 'text/plain' }))
+  assert.equal(wrongType.res.statusCode, 415)
+  assert.equal(wrongType.json.code, 'unsupported-media-type')
+  await assert.rejects(access(mounted.perfFilePath), /ENOENT/)
+})
+
+test('POST perf rejects bodies over 64 KiB with 413 (streamed and declared)', async (t) => {
+  const mounted = await mountPerfRoutes(t)
+  const streamed = await mounted.call(PERF_PATH, perfPost('x'.repeat(MAX_PERF_BODY_BYTES + 2)))
+  assert.equal(streamed.res.statusCode, 413)
+  assert.equal(streamed.json.code, 'payload-too-large')
+
+  const declared = await mounted.call(
+    PERF_PATH,
+    perfPost('{}', {
+      cookie: 'token=ok',
+      'content-type': 'application/json',
+      'content-length': String(MAX_PERF_BODY_BYTES + 1),
+    }),
+  )
+  assert.equal(declared.res.statusCode, 413)
+  await assert.rejects(access(mounted.perfFilePath), /ENOENT/)
+})
+
+test('POST perf maps a non-JSON or unreadable body to 400', async (t) => {
+  const mounted = await mountPerfRoutes(t)
+  const malformed = await mounted.call(PERF_PATH, perfPost('{'))
+  assert.equal(malformed.res.statusCode, 400)
+  assert.equal(malformed.json.code, 'bad-request')
+
+  const request = {
+    method: 'POST',
+    headers: { host: '127.0.0.1:4400', cookie: 'token=ok', 'content-type': 'application/json' },
+    socket: { remoteAddress: '127.0.0.1' },
+    resume() {},
+    async *[Symbol.asyncIterator]() {
+      throw new Error('socket reset')
+    },
+  }
+  const res = makeResponse()
+  await mounted.routes.find((route) => route.path === PERF_PATH).handler(request, res)
+  assert.equal(res.statusCode, 400)
+  assert.match(String(res.body), /bad-request/)
+  await assert.rejects(access(mounted.perfFilePath), /ENOENT/)
+})
+
+test('POST perf validates the runId/schemaVersion/record envelope with 422', async (t) => {
+  const mounted = await mountPerfRoutes(t)
+  const bodies = [
+    '[]',
+    JSON.stringify({ runId: '', schemaVersion: 1, record: { kind: 'window' } }),
+    JSON.stringify({ runId: 'x'.repeat(65), schemaVersion: 1, record: { kind: 'window' } }),
+    JSON.stringify({ runId: 'run-perf', schemaVersion: 2, record: { kind: 'window' } }),
+    JSON.stringify({ runId: 'run-perf', schemaVersion: 1, record: 'nope' }),
+    JSON.stringify({ runId: 'run-perf', schemaVersion: 1, record: { kind: 'bogus' } }),
+    JSON.stringify({ runId: 'run-perf', schemaVersion: 1 }),
+  ]
+  for (const body of bodies) {
+    const invalid = await mounted.call(PERF_PATH, perfPost(body))
+    assert.equal(invalid.res.statusCode, 422, body.slice(0, 80))
+    assert.equal(invalid.json.code, 'invalid')
+  }
+  await assert.rejects(access(mounted.perfFilePath), /ENOENT/, 'a rejected record performs zero writes')
+})
+
+test('POST perf truncates its file past 4 MiB instead of growing it without limit', async (t) => {
+  const mounted = await mountPerfRoutes(t)
+  await writeFile(mounted.perfFilePath, 'x'.repeat(MAX_PERF_FILE_BYTES), 'utf8')
+  const posted = await mounted.call(PERF_PATH, perfPost(perfEnvelope({ kind: 'window' })))
+  assert.equal(posted.res.statusCode, 200)
+  const text = await readFile(mounted.perfFilePath, 'utf8')
+  assert.equal(text.trimEnd().split('\n').length, 1)
+  assert.equal(JSON.parse(text.trimEnd()).record.kind, 'window')
+})
+
+test('POST perf maps an IO failure to 503 io', async (t) => {
+  const mounted = await mountPerfRoutes(t, {
+    perfFilePath: (temp) => join(temp.storages, 'blocker', PERF_FILE_NAME),
+  })
+  await writeFile(join(mounted.storages, 'blocker'), 'not a directory', 'utf8')
+  const posted = await mounted.call(PERF_PATH, perfPost(perfEnvelope()))
+  assert.equal(posted.res.statusCode, 503)
+  assert.equal(posted.json.code, 'io')
+
+  // A composition without the injected path refuses instead of defaulting.
+  const unconfigured = await mountPerfRoutes(t, { perfFilePath: '' })
+  const missingPath = await unconfigured.call(PERF_PATH, perfPost(perfEnvelope()))
+  assert.equal(missingPath.res.statusCode, 503)
+  assert.equal(missingPath.json.code, 'io')
+  assert.equal(missingPath.json.message, 'perf path is not configured')
 })
