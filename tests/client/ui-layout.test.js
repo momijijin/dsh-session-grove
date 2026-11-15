@@ -451,7 +451,7 @@ test('0.4.0-beta.62 drag preview and commit share the archive drop checks', () =
   // A rejected commit reports the stable reason instead of writing the doc.
   assert.match(componentsSource, /if \(!verdict\.ok\) \{\s*toast\('error', dropReasonText\(t, verdict\.reason\)\)/)
   // Forbidden group previews keep the existing surface, never a placeholder.
-  assert.match(componentsSource, /setDropTargetTracked\(\{ \.\.\.viewTarget, kind: 'group-forbidden' \}\)/)
+  assert.match(componentsSource, /setDropTargetTracked\(\{ \.\.\.viewTarget, kind: 'group-forbidden' \}, dragPointer\(\)\)/)
   assert.match(componentsSource, /rejectSessionDragOver\(event, verdict\.reason, \{ kind: 'group-forbidden', targetId: groupId \}\)/)
   // Archived bodies keep the reject handler and stop the bubble.
   assert.match(componentsSource, /if \(!effectiveArchived\(store\.doc, groupId\)\) return/)

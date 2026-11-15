@@ -167,13 +167,15 @@ export const GroupsView = (props) => {
   const dropTargetRef = useRef(null)
   const dragTargetLockRef = useRef(null)
   /**
-   * Hold-timer drop-target commit (SPEC §15.2): a new target is published only
-   * after it survives 70 ms, so crossing a row during a fast drag no longer
-   * inserts/removes the placeholder on every pass (`drag:targetPending` vs
-   * `drag:frame` measure the ratio). The stable-equality dedupe from 0.2.2
-   * stays inside the commit; `dropTargetRef` is the published mirror every
-   * handler and the placeholder read. Drop/end paths call `flushDropTarget()`
-   * first so they never act on a previous target.
+   * Hold-timer drop-target commit (SPEC §15.2) with the v10 speed gate
+   * (SPEC §16.2): a new target is published only after it survives 70 ms while
+   * the pointer sweeps, but a slow aim (or a pause) commits it immediately, so
+   * crossing a row during a fast drag no longer inserts/removes the
+   * placeholder on every pass (`drag:targetPending` vs `drag:frame` measure the
+   * ratio; `drag:targetImmediate` the slow-aim path). The stable-equality dedupe
+   * from 0.2.2 stays inside the commit; `dropTargetRef` is the published mirror
+   * every handler and the placeholder read. Drop/end paths call
+   * `flushDropTarget()` first so they never act on a previous target.
    */
   const dropCommitRef = useRef(null)
   if (dropCommitRef.current === null) {
@@ -203,10 +205,34 @@ export const GroupsView = (props) => {
         if (perfEnabled()) perfDropTarget(false)
       },
       count: () => perfCount('drag:frame'),
+      immediateCount: () => perfCount('drag:targetImmediate'),
     })
   }
-  /** Record a drop target as the candidate; its hold timer commits it. */
-  const setDropTargetTracked = (next) => dropCommitRef.current.set(next)
+  /**
+   * Speed-gate pointer samples (SPEC §16.2/§16.3). The dragover dispatch
+   * boundary records `{ x, y, t }` once per native event: one native event can
+   * bubble through several surfaces (row → group body → ungrouped body), and
+   * `event.timeStamp` identifies it, so the later surface reuses the first
+   * sample instead of opening a second one. The four non-null drop-target set
+   * points pass the latest sample to the gate; a missing sample keeps the fixed
+   * 70 ms hold.
+   */
+  const dragPointerRef = useRef(null)
+  const sampleDragPointer = (event) => {
+    const stamp = Number.isFinite(event?.timeStamp) && event.timeStamp > 0 ? event.timeStamp : null
+    const previous = dragPointerRef.current
+    if (previous !== null && stamp !== null && previous.stamp === stamp) return previous.pointer
+    const pointer =
+      Number.isFinite(event?.clientX) && Number.isFinite(event?.clientY)
+        ? { x: event.clientX, y: event.clientY, t: perfNow() }
+        : null
+    dragPointerRef.current = { stamp, pointer }
+    return pointer
+  }
+  /** Latest dragover pointer sample (null before the first one or without coordinates). */
+  const dragPointer = () => dragPointerRef.current?.pointer ?? null
+  /** Record a drop target as the candidate; its hold timer or the speed gate commits it. */
+  const setDropTargetTracked = (next, pointer) => dropCommitRef.current.set(next, pointer)
   /** Commit the current candidate now (drop handlers read the mirror). */
   const flushDropTarget = () => dropCommitRef.current.flush()
   /** Queue null and settle it in this tick (the placeholder must not outlive the event). */
@@ -607,7 +633,7 @@ export const GroupsView = (props) => {
     event.preventDefault()
     event.stopPropagation()
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
-    setDropTargetTracked(target)
+    setDropTargetTracked(target, dragPointer())
     lockTargetAt(event, target)
   }
   const ungroupedBodyRows = (container) =>
@@ -656,7 +682,7 @@ export const GroupsView = (props) => {
     if (!verdict.ok) {
       // Keep a frozen slot/header from bubbling into a live ancestor's handler.
       event.stopPropagation()
-      setDropTargetTracked({ ...viewTarget, kind: 'group-forbidden' })
+      setDropTargetTracked({ ...viewTarget, kind: 'group-forbidden' }, dragPointer())
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
       const stopRejectLabel = perfSpan('dragoverLabelMs')
       perfCount('drag:label')
@@ -681,7 +707,9 @@ export const GroupsView = (props) => {
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
     // A rejected surface must never keep a pending 500ms auto-expand alive.
     clearAutoExpand()
-    setDropTargetTracked(forbiddenTarget)
+    // A null settle is never speed-gated: only a real forbidden surface carries
+    // the pointer sample.
+    setDropTargetTracked(forbiddenTarget, forbiddenTarget === null ? null : dragPointer())
     const stopLabel = perfSpan('dragoverLabelMs')
     perfCount('drag:label')
     rt()?.setFloatingLabel?.(dropReasonText(t, reason))
@@ -965,7 +993,7 @@ export const GroupsView = (props) => {
         stopZoneRect()
         if (zone === null) {
           event.stopPropagation()
-          setDropTargetTracked({ kind: 'group-forbidden', targetId: groupId })
+          setDropTargetTracked({ kind: 'group-forbidden', targetId: groupId }, dragPointer())
           if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
           rt()?.setFloatingLabel?.(dropReasonText(t, 'target-invalid'))
           return
@@ -1232,6 +1260,20 @@ export const GroupsView = (props) => {
           : ungroupedBodyTarget(ungroupedBodyRows(event.currentTarget), event.clientY)
       commitDrop(drag, target)
     },
+  }
+  // SPEC §16.3: sample the pointer at the dragover dispatch boundary, once per
+  // native event and before any surface logic (including the sticky
+  // early-return) runs. The four non-null set points read `dragPointer()` and
+  // hand it to the gate; null settles and non-dragover calls leave it unset,
+  // which keeps the fixed hold. This wrapper is unconditional: the speed gate
+  // must not depend on the perf/diag switches.
+  for (const name of Object.keys(handlers)) {
+    if (!name.startsWith('onDragOver')) continue
+    const original = handlers[name]
+    handlers[name] = (event, ...args) => {
+      sampleDragPointer(event)
+      return original(event, ...args)
+    }
   }
   // Time every drag handler for the opt-in perf probe and for diagnostics
   // (0.2.5, default on). Handlers stay unwrapped when both are off.
