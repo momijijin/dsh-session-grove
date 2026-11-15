@@ -10,9 +10,12 @@ import { MAX_GROUP_NAME, PLUGIN_VERSION } from '../shared/constants.js'
 import { isColorHex } from '../shared/model.js'
 import { DIALOG_KEYS, groupDialogBody } from './dialog-bodies.js'
 import { centeredDialogRect, clampDialogRect, dialogRectFromElement, dragDialogRect, readDialogGeometries, resolveDialogRect, resizeDialogRect, saveDialogGeometry } from './dialog-geometry.js'
+import { createDialogGestureFrame } from './dialog-frame.js'
+import { createFrameBatch } from './frame-batch.js'
 import { dialogKeyboardDelta } from './dialog-keyboard.js'
 import { ScrollArea } from './scroll-area.js'
 import { ProfilePreviewActions, ProfilePreviewBody } from './profile-preview.js'
+import { perfBeginGesture, perfCount, perfEnabled, perfEndGesture, perfNow, perfRender, perfSample, perfSpan } from './perf.js'
 import {
   isProfileDialogKind,
   isProfileFormKind,
@@ -45,6 +48,8 @@ export const shouldFocusDialogTarget = (activeElement, dialogElement) =>
 
 
 export const DialogHost = ({ store, props, sessionsById }) => {
+  const perfRenderStart = perfEnabled() ? perfNow() : 0
+  perfRender('DialogHost')
   const dialog = store.dialog
   const t = rt()?.t
   const dialogKind = dialog?.kind ?? ''
@@ -363,27 +368,53 @@ export const DialogHost = ({ store, props, sessionsById }) => {
     if (!start) return
     event.preventDefault()
     event.stopPropagation()
+    perfBeginGesture(dir === null ? 'dialog-move' : 'dialog-resize')
     const doc = event.currentTarget?.ownerDocument ?? globalThis.document
     const gesture = { start, x: event.clientX, y: event.clientY, dir }
     gestureRef.current = gesture
+    // SPEC §14.2.1: pointermoves only record the newest sample; one frame solves
+    // and commits the rect. The frame owns `dialogRectRef` so the ref never lags
+    // the state the next `onEnd` persists (N2).
+    const frame = createDialogGestureFrame({
+      batch: createFrameBatch(),
+      solve: (x, y) => {
+        // A newer pointerdown replaced this gesture: its frame must not commit.
+        if (gestureRef.current !== gesture) return null
+        // P4: the sample covers one applied frame, not every pointermove.
+        const stopMove = perfSpan('dialogGestureMoveMs')
+        try {
+          const dx = x - gesture.x
+          const dy = y - gesture.y
+          return gesture.dir
+            ? resizeDialogRect(gesture.start, gesture.dir, dx, dy, globalThis.innerWidth, globalThis.innerHeight)
+            : dragDialogRect(gesture.start, dx, dy, globalThis.innerWidth, globalThis.innerHeight)
+        } finally {
+          stopMove()
+        }
+      },
+      rectRef: dialogRectRef,
+      setRect: setDialogRect,
+    })
     const onMove = (moveEvent) => {
-      const current = gestureRef.current
-      if (!current) return
-      const dx = moveEvent.clientX - current.x
-      const dy = moveEvent.clientY - current.y
-      const next = current.dir
-        ? resizeDialogRect(current.start, current.dir, dx, dy, globalThis.innerWidth, globalThis.innerHeight)
-        : dragDialogRect(current.start, dx, dy, globalThis.innerWidth, globalThis.innerHeight)
-      setDialogRect(next)
+      perfCount('dialog:gestureMove')
+      frame.move(moveEvent.clientX, moveEvent.clientY)
     }
-    const onEnd = () => {
+    const onEnd = (endEvent) => {
       const current = gestureRef.current
-      gestureRef.current = null
       doc?.removeEventListener?.('pointermove', onMove)
       doc?.removeEventListener?.('pointerup', onEnd)
       doc?.removeEventListener?.('pointercancel', onEnd)
       gestureCleanupRef.current = null
+      // pointerup/pointercancel: drop the queued frame and land the release
+      // position synchronously, so the saved geometry matches the last sample.
+      // Chromium reports pointercancel with clientX/clientY = 0 when scrolling
+      // takes over, so only a real pointerup contributes release coordinates; a
+      // cancel settles from the frame's newest pending sample instead.
+      const release = endEvent?.type === 'pointerup' ? endEvent : null
+      frame.end(release?.clientX, release?.clientY)
+      gestureRef.current = null
       if (current && dialogRectRef.current) saveDialogGeometry(dialog.kind, dialogRectRef.current)
+      if (current) perfEndGesture(current.dir ? 'dialog-resize' : 'dialog-move')
     }
     doc?.addEventListener?.('pointermove', onMove)
     doc?.addEventListener?.('pointerup', onEnd)
@@ -392,15 +423,21 @@ export const DialogHost = ({ store, props, sessionsById }) => {
       doc?.removeEventListener?.('pointermove', onMove)
       doc?.removeEventListener?.('pointerup', onEnd)
       doc?.removeEventListener?.('pointercancel', onEnd)
+      // Unmount mid-gesture: never leave the queued frame running.
+      frame.dispose()
     }
   }
 
-  // A dialog can unmount mid-gesture; release its window listeners.
+  // A dialog can unmount mid-gesture; release its window listeners and close
+  // only the gesture this dialog opened. A bare `perfEndGesture()` would end
+  // whatever gesture happens to be open (e.g. a sidebar resize).
   useEffect(
     () => () => {
+      const gesture = gestureRef.current
       gestureRef.current = null
       gestureCleanupRef.current?.()
       gestureCleanupRef.current = null
+      if (gesture) perfEndGesture(gesture.dir ? 'dialog-resize' : 'dialog-move')
     },
     []
   )
@@ -422,6 +459,10 @@ export const DialogHost = ({ store, props, sessionsById }) => {
     setSelection(initial)
     setHexInput(dialog?.kind === 'group-color' && isColorHex(initial) ? initial : '')
   }, [dialog])
+  if (perfEnabled()) {
+    perfCount('dialog:render')
+    perfSample('dialogRenderMs', perfNow() - perfRenderStart)
+  }
   if (!dialog) return null
   const close = () => {
     // SPEC §9.5: cancel/Escape on the rename/archive confirm returns to manage.

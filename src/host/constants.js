@@ -17,6 +17,9 @@ export const DIAGNOSTICS_PATH = `${BASE_PATH}/diagnostics`
 /** Opt-in dialog style probe (0.2.36; separate from drag diagnostics). */
 export const DEBUG_PATH = `${BASE_PATH}/debug`
 
+/** Perf capture ingest route (0.4.0-beta.66; append-only NDJSON). */
+export const PERF_PATH = `${BASE_PATH}/perf`
+
 /**
  * Multi-profile management routes (SPEC 5.3-5.8). Exact paths only: the
  * composition registers exact paths, so preview carries the target id in the
@@ -46,6 +49,8 @@ export const CONTROL_TOKEN_FILE_NAME = 'dsh-session-grove.control-token'
 /** Diagnostics trace file under the Harness `storages` directory. */
 export const DIAGNOSTICS_FILE_NAME = 'dsh-session-grove.diagnostics.ndjson'
 export const DEBUG_FILE_NAME = 'dsh-session-grove.debug.ndjson'
+/** Perf capture file (0.4.0-beta.66), next to the diagnostics trace. */
+export const PERF_FILE_NAME = 'dsh-session-grove.perf.ndjson'
 
 /** Directory under the Harness home that holds the record file. */
 export const STORAGE_DIR_NAME = 'storages'
@@ -81,3 +86,12 @@ export const MAX_DIAGNOSTICS_EVENTS = 500
 
 /** 0.2.18: keep the local trace bounded; truncate before appending past 8 MiB. */
 export const MAX_DIAGNOSTICS_FILE_BYTES = 8 * 1024 * 1024
+
+/**
+ * 0.4.0-beta.66 perf capture bounds. One record per POST is tiny
+ * (counters + summaries + at most 20 raw LoAF entries), so the body ceiling is
+ * deliberately smaller than the diagnostics batch, and the file is truncated
+ * instead of growing forever.
+ */
+export const MAX_PERF_BODY_BYTES = 64 * 1024
+export const MAX_PERF_FILE_BYTES = 4 * 1024 * 1024

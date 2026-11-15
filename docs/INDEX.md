@@ -6,9 +6,16 @@
 
 ## Maintainer documentation
 
-Use these for the current `0.4.0-beta.65` codebase (published as
-`v0.4.0-beta.65` on 2026-11-13; the previous published release is
-`v0.4.0-beta.64`, 2026-11-12; before that `v0.4.0-beta.63`, 2026-11-12). `.62`
+Use these for the current `0.4.0-beta.66` codebase (the sidebar performance
+batch: the observation layer now ships **off** behind a two-end opt-in, and the
+batch lands the plugin-side work it measured — P2 CSS-variable width writes,
+chrome measurement suspended during a width drag, the drag line decoupled from
+layout with adaptive backpressure, two dialog fill fixes plus per-frame
+dialog/scrollbar coalescing, and the 70 ms drop-target hold with the speed gate;
+the batch ran only the unit/contract gates, so no new real-runtime evidence is
+claimed. The last published release is `v0.4.0-beta.65`, 2026-11-13; the
+previous published release is `v0.4.0-beta.64`, 2026-11-12; before that
+`v0.4.0-beta.63`, 2026-11-12). `.62`
 shipped group archive, the second view-options tri-state
 and the recursive structural lock; `.63` adds the first-run funnel (entry hint
 + action-first onboarding card), four in-place hints and the documentation-site
@@ -53,6 +60,8 @@ request, not a user run:
 
 ## Batch design records
 
+- [specs/2026-11-13-perf-instrumentation.md](specs/2026-11-13-perf-instrumentation.md) — `.66` performance-instrumentation SPEC, archived at the final §18 closeout: 668 lines, 57,333 bytes, sha256 `CD9708C8C233064908CCC097AF74D18BB0945316D0F39DC08B3C09905AACEC15`
+- [specs/2026-11-13-perf-instrumentation-plan.md](specs/2026-11-13-perf-instrumentation-plan.md) — `.66` implementation plan through Step 14: 386 lines, 30,027 bytes, sha256 `D713C9B8FDB3C37F792E66F5CB11FD23E7E0AFF14F68A6730C806D6EBB764A27`
 - [specs/2026-11-10-group-archive-freeze.md](specs/2026-11-10-group-archive-freeze.md) — `.62` group-archive/freeze SPEC
 - [specs/2026-11-10-group-archive-freeze-plan.md](specs/2026-11-10-group-archive-freeze-plan.md) — `.62` implementation plan (P1–P12) and execution records
 - [adr/0004-group-archive-freeze.md](adr/0004-group-archive-freeze.md) — additive `archived` field, visibility, before-state invariant, host guard and compatibility decisions

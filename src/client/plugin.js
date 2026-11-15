@@ -21,7 +21,7 @@ import { createLocaleRuntime } from './plugin-locale.js'
 import { createFloatingLabel } from './floating-label.js'
 import { createOptimisticQueue } from './optimistic.js'
 import { diagContext, diagEnabled, diagLabel, diagnosticsEnabled, diagTrace, getDiagnostics, initDiagnostics, stopDiagnostics } from './diagnostics.js'
-import { perfCount, perfEnabled, perfNow, perfSample } from './perf.js'
+import { perfCount, perfEnabled, perfNow, perfSample, startPerfReporter, stopPerfReporter } from './perf.js'
 import { installClientRuntime } from '../adapters/client-runtime.js'
 import { createChangeStream } from '../adapters/change-stream.js'
 import { CLIENT_REQUIRED, compatibilityReport, detectClientCapabilities } from '../adapters/dsh-capabilities.js'
@@ -213,6 +213,8 @@ export const createPlugin = () => {
     localeRuntime = null
     if (typeof perfDisposer === 'function') perfDisposer()
     perfDisposer = null
+    // 0.4.0-beta.66: release the perf reporter's timers/observers/listeners.
+    stopPerfReporter()
     floatingLabel?.dispose()
     floatingLabel = null
     queue?.dispose()
@@ -405,6 +407,9 @@ export const createPlugin = () => {
     // non-JSON 404 and the store silently switches to single-profile mode.
     profiles.refreshProfiles()
     host.mount()
+    // Lazily start the 0.4.0-beta.66 perf reporter only after the view mounted;
+    // Node/test environments never start it.
+    startPerfReporter()
   }
 
   return { mount }

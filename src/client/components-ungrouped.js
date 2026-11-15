@@ -15,8 +15,13 @@ import { isExpanded } from '../core/tree.js'
 
 import { SessionRow } from './components-rows.js'
 import { EmptyDropBox } from './components-primitives.js'
+import { isWidthGestureActive, onWidthGestureEnd } from './width-gesture.js'
+import { perfBeginGesture, perfCount, perfEnabled, perfEndGesture, perfRender, perfSpan } from './perf.js'
 
 const h = createElement
+
+/** Debounce that closes a tree-scroll gesture after the last wheel tick. */
+const SCROLL_GESTURE_GRACE_MS = 300
 
 const VirtualSpacer = ({ height, position }) =>
   h('div', {
@@ -35,6 +40,7 @@ const VirtualSpacer = ({ height, position }) =>
  * reveal a row that is outside the current window (spec §3.3).
  */
 const UngroupedSection = ({ node, store, props, handlers, virtualRef }) => {
+  perfRender('UngroupedSection')
   const collapsedId = '__ungrouped__'
   const expanded = isExpanded(store.collapsed, collapsedId)
   const dropTarget = store.dropTarget
@@ -67,10 +73,21 @@ const UngroupedSection = ({ node, store, props, handlers, virtualRef }) => {
     if (!tree) return undefined
     let scrollFrame = null
     let layoutFrame = null
+    // The sidebar-width drag resizes the tree on every frame; the layout measure
+    // is deferred to one pass after the drag instead of running per frame.
+    let layoutDirty = false
+    let scrollEndTimer = null
     let disposed = false
     let listTop = VIRTUAL_HEADER_HEIGHT + 4
     let viewportHeight = tree.clientHeight || estimatedTreeHeight(globalThis.innerHeight)
+    // Mirror of the last committed metrics: the identical-object bail-out still
+    // runs, but the change counter needs to know whether the window moved.
+    let applied = { scrollTop: metrics.scrollTop, viewportHeight: metrics.viewportHeight, listTop: metrics.listTop }
     const setIfChanged = (scrollTop) => {
+      if (applied.scrollTop !== scrollTop || applied.viewportHeight !== viewportHeight || applied.listTop !== listTop) {
+        applied = { scrollTop, viewportHeight, listTop }
+        perfCount('treeScroll:setState')
+      }
       setMetrics((previous) =>
         previous.scrollTop === scrollTop &&
         previous.viewportHeight === viewportHeight &&
@@ -82,27 +99,64 @@ const UngroupedSection = ({ node, store, props, handlers, virtualRef }) => {
     const measureScroll = () => {
       scrollFrame = null
       if (disposed) return
+      const stopScrollFrame = perfSpan('treeScrollFrameMs')
+      perfCount('treeScroll:frame')
       setIfChanged(tree.scrollTop)
+      stopScrollFrame()
     }
     const measureLayout = () => {
       layoutFrame = null
+      layoutDirty = false
       if (disposed) return
       const current = bodyRef.current
       if (!current || current.isConnected === false) return
       // Layout reads run only on mount/resize. Scrolling reuses this cached
       // offset instead of forcing getBoundingClientRect() every frame.
+      const stopLayoutMeasure = perfSpan('treeLayoutMeasureMs')
       const treeRect = tree.getBoundingClientRect()
       const bodyRect = current.getBoundingClientRect()
       listTop = bodyRect.top - treeRect.top + tree.scrollTop
       viewportHeight = tree.clientHeight
       setIfChanged(tree.scrollTop)
+      stopLayoutMeasure()
     }
     const scheduleScroll = () => {
-      if (scrollFrame === null) scrollFrame = requestAnimationFrame(measureScroll)
+      if (perfEnabled()) {
+        // P5: one scroll gesture per wheel burst; re-beginning the open
+        // gesture only refreshes the activity clock instead of flushing.
+        perfCount('treeScroll:event')
+        perfBeginGesture('scroll')
+        if (scrollEndTimer !== null) globalThis.clearTimeout?.(scrollEndTimer)
+        scrollEndTimer = globalThis.setTimeout?.(() => {
+          scrollEndTimer = null
+          perfEndGesture('scroll')
+        }, SCROLL_GESTURE_GRACE_MS)
+      }
+      if (scrollFrame !== null) {
+        perfCount('treeScroll:skip')
+        return
+      }
+      scrollFrame = requestAnimationFrame(measureScroll)
     }
     const scheduleLayout = () => {
+      // P2: while the sidebar width is dragged the tree gets a new width every
+      // frame. Two layout reads per frame (4-5 ms) would be invalidated by the
+      // next width tick, so only remember that the layout moved and measure
+      // once after the drag ends. Mount still measures synchronously below, and
+      // scrolling keeps its own cached path (`measureScroll`).
+      if (isWidthGestureActive()) {
+        layoutDirty = true
+        return
+      }
       if (layoutFrame === null) layoutFrame = requestAnimationFrame(measureLayout)
     }
+    const flushWidthGestureLayout = () => {
+      // One rAF after the final width was applied measures the settled layout.
+      // A notification delivered after release takes the normal path instead.
+      if (disposed || !layoutDirty) return
+      if (layoutFrame === null) layoutFrame = requestAnimationFrame(measureLayout)
+    }
+    const unsubscribeWidthGesture = onWidthGestureEnd(flushWidthGestureLayout)
     measureLayout()
     tree.addEventListener('scroll', scheduleScroll, { passive: true })
     globalThis.addEventListener('resize', scheduleLayout)
@@ -114,8 +168,12 @@ const UngroupedSection = ({ node, store, props, handlers, virtualRef }) => {
     resizeObserver?.observe(body)
     return () => {
       disposed = true
+      unsubscribeWidthGesture()
       if (scrollFrame !== null) cancelAnimationFrame(scrollFrame)
       if (layoutFrame !== null) cancelAnimationFrame(layoutFrame)
+      if (scrollEndTimer !== null) globalThis.clearTimeout?.(scrollEndTimer)
+      scrollEndTimer = null
+      perfEndGesture('scroll')
       tree.removeEventListener('scroll', scheduleScroll)
       globalThis.removeEventListener('resize', scheduleLayout)
       resizeObserver?.disconnect()

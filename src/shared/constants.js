@@ -1,7 +1,28 @@
 export const DOC_VERSION = 1
 
 /** Plugin version shipped in this build (also stamped into diagnostics traces). */
-export const PLUGIN_VERSION = '0.4.0-beta.65'
+export const PLUGIN_VERSION = '0.4.0-beta.66'
+
+/**
+ * Performance-capture build switch for the 0.4.0-beta.66 sidebar performance
+ * batch.
+ *
+ * The release build ships OFF: `.66` captures nothing by default. The
+ * observation layer stays in place and capture can be turned on locally from
+ * both ends:
+ *
+ * - client: `localStorage['dsh-session-grove.perf'] = '1'` (or
+ *   `globalThis.__DSG_PERF__ = true`) and reload;
+ * - host: the plugin's `perf` configuration key must also be true, otherwise
+ *   the client's POST to `/dsh-session-grove/perf` is rejected with 403.
+ *
+ * Writing `'0'` into that same localStorage key force-disables capture, even
+ * when one of the opt-ins is on. The flag is cached for the page load, so the
+ * opt-out only takes effect after a reload (or `perfReset()`, which re-reads
+ * it). Flipping this constant back to `true` turns capture on by default
+ * again, for a local measurement build.
+ */
+export const PERF_MEASURE_BUILD = false
 
 /**
  * Public illustrated documentation site. The one-time onboarding card, the

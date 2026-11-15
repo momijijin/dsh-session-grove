@@ -955,6 +955,20 @@ export const CSS = `
 .dsg-icon-section + .dsg-icon-section { border-top: 0.5px solid var(--dsw-alias-border-l2, color-mix(in srgb, CanvasText 18%, transparent)); margin-top: 8px; padding-top: 8px; }
 .dsg-icon-section-title { padding: 2px 4px 4px; font-size: var(--dsg-font-11, 11px); line-height: 16px; font-weight: 500; color: var(--dsw-alias-label-tertiary, CanvasText); }
 .dsg-icon-section .dsg-dialog-icon-grid { max-height: none; overflow: visible; padding: 0; border: 0; box-shadow: none; background: transparent; }
+/* 0.4.0-beta.66 §9: once a dialog has a dragged/saved geometry the nested
+ * scroll bodies must absorb the extra height, otherwise they stop at their base
+ * cap and leave a gap above the footer. The base caps themselves stay (see
+ * .dsg-icon-sections / .dsg-dialog-list): they are what the first-frame
+ * natural-height measurement reads while data-positioned="false". */
+.dsg-dialog[data-positioned="true"] .dsg-dialog-content > .dsg-scroll-area { flex: 1 1 auto; min-height: 0; }
+.dsg-dialog[data-positioned="true"] .dsg-icon-sections, .dsg-dialog[data-positioned="true"] .dsg-dialog-list { flex: 1 1 auto; min-height: 0; max-height: none; }
+/* 0.4.0-beta.66 §10: the same nested bodies also inherit the .dsg-menu
+ * max-width cap (360px), so a widened dialog left them narrow with blank space
+ * to the right. A positioned dialog lets them follow the content width; the
+ * menu cap itself stays for the real body-level dropdowns and for the
+ * first-frame natural-width measurement. */
+.dsg-dialog[data-positioned="true"] .dsg-dialog-list { width: 100%; max-width: none; }
+.dsg-dialog[data-positioned="true"] .dsg-dialog-icon-grid { width: 100%; max-width: none; }
 /* Official workspace-style overflow row: quiet left-aligned 12px text, no
  * background until hover, 28px row height. */
 .dsg-session-overflow { box-sizing: border-box; width: 100%; height: 28px; padding: 0 12px 0 28px; border: 0; border-radius: var(--dsw-radius-sm, 6px); background: transparent; color: var(--dsw-alias-label-tertiary, CanvasText); font-family: inherit; font-size: var(--dsg-font-12, 12px); line-height: 16px; text-align: left; cursor: pointer; }

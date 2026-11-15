@@ -24,7 +24,7 @@ DSH 的 plugin client 是 **单个客户端 bundle**，没有为插件准备 `#i
 ```text
 主支持：@deepseek-ai/dsh 0.2.1-rc.2 / 0.2.1-rc.5
 插件 engines.dsh: >=0.2.0-rc.2 <0.3.0
-当前树：0.4.0-beta.65（已发布为 v0.4.0-beta.65，2026-11-13；上一发布 v0.4.0-beta.64，2026-11-12）
+当前树：0.4.0-beta.66（未发布；最近发布 v0.4.0-beta.65，2026-11-13）
 
 已验证（最新一轮 community 证据是 0.4.0-beta.65（2026-11-13，S7 code-evidence 包
 **842,325 bytes** / sha256 `F868…`，在 `a24a414` 树打包；S1–S6 历史证据包
