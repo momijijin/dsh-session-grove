@@ -8,7 +8,10 @@
  */
 import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useGroupsSidebarWidth } from './groups-view-width.js'
+import { isWidthGestureActive, onWidthGestureEnd } from './width-gesture.js'
 import { resolveNarrow, shouldCollapseTitle } from './floating-panel.js'
+import { createDragLabelCache, createDropTargetCommit } from './drag-frame.js'
+import { createFrameBatch } from './frame-batch.js'
 import { useGroupsViewState } from './groups-view-state.js'
 import { useGroupsSearchReveal } from './groups-view-search.js'
 import { createMenuHandlers } from './groups-view-menu-handlers.js'
@@ -25,10 +28,10 @@ import { effectiveArchived, hasArchivedDescendant } from '../shared/archive.js'
 import { computeGroupVisibility } from '../shared/archive.js'
 import { diagContext, diagDragEnd, diagDragStart, diagDropState, diagEnabled, diagHandler, diagRender, diagTargetChange, diagTrace } from './diagnostics.js'
 import { GROUP_DRAG_MIME, groupHeaderZoneFromRect } from '../core/group-drag.js'
-import { perfDragOver, perfDropTarget, perfEnabled, perfMark, perfNow, perfRender, perfSample } from './perf.js'
+import { perfBeginGesture, perfCount, perfDragOver, perfDropTarget, perfEnabled, perfEndGesture, perfMark, perfMs, perfNow, perfRender, perfSample, perfSidebarWidth, perfSpan, perfTreeCounts } from './perf.js'
 import { readOnboardingDone, writeOnboardingDone } from './state.js'
 import { DOCS_SITE_URL } from '../shared/constants.js'
-import { SIDEBAR_WIDTH_MIN } from './sidebar-width.js'
+import { SIDEBAR_WIDTH_MIN, readSidebarWidth } from './sidebar-width.js'
 import { expandAncestors, isExpanded } from '../core/tree.js'
 import { GROUP_DROP_NOOP, useViewStore, usePerfCommit, dispatch, toast, TextButton, DropPlaceholder, GROUP_PLACEHOLDER_HEIGHT } from './components-primitives.js'
 import { SessionRow, GroupNode } from './components-rows.js'
@@ -163,35 +166,71 @@ export const GroupsView = (props) => {
   // re-rendered the whole tree on every event (0.2.2 perf probe: 48 renders for
   // 45 stationary dragovers, 800 SessionRow renders for 30 paced dragovers).
   const dropTargetRef = useRef(null)
+  const dragTargetLockRef = useRef(null)
   /**
-   * Drop-target setter used by every drag handler: skips React when the stable
-   * target descriptor is unchanged. The opt-in probe records set attempts and
-   * the ones that actually changed the rendered target.
+   * Frame-coalesced drop-target commit (SPEC §14.2.3): the newest target of a
+   * frame is committed once instead of once per dragover. The stable-equality
+   * dedupe from 0.2.2 stays inside the commit, so a stationary pointer still
+   * performs no React update; `dropTargetRef` is the published mirror every
+   * handler and the placeholder read. Drop/end paths call `flushDropTarget()`
+   * first so they never act on the previous frame's target.
    */
-  const setDropTargetTracked = (next) => {
-    if (next === null) dragTargetLockRef.current = null
-    if (sameDropTarget(dropTargetRef.current, next)) {
-      if (perfEnabled()) perfDropTarget(false)
-      return
-    }
-    // Diagnostics: record the stable target transition before React updates; the
-    // helper also emits placeholder insert/remove for the placeholder kinds.
-    if (diagEnabled()) diagTargetChange(dropTargetRef.current, next)
-    dropTargetRef.current = next
-    if (!perfEnabled()) {
-      setDropTarget(next)
-      return
-    }
-    const started = perfNow()
-    setDropTarget(next)
-    perfDropTarget(true, perfNow() - started)
+  const dropCommitRef = useRef(null)
+  if (dropCommitRef.current === null) {
+    dropCommitRef.current = createDropTargetCommit({
+      batch: createFrameBatch(),
+      same: sameDropTarget,
+      read: () => dropTargetRef.current,
+      publish: (next) => {
+        dropTargetRef.current = next
+        if (!perfEnabled()) {
+          setDropTarget(next)
+          return
+        }
+        const started = perfNow()
+        perfCount('drag:targetChange')
+        setDropTarget(next)
+        perfDropTarget(true, perfNow() - started)
+      },
+      clearLock: () => {
+        dragTargetLockRef.current = null
+      },
+      onChange: (previous, next) => {
+        // Diagnostics: record the stable target transition before React updates;
+        // the helper also emits placeholder insert/remove for the placeholder kinds.
+        if (diagEnabled()) diagTargetChange(previous, next)
+      },
+      onSkip: () => {
+        if (perfEnabled()) perfDropTarget(false)
+      },
+      count: () => perfCount('drag:frame'),
+    })
   }
+  /** Queue a drop target; the next frame commits only the newest one. */
+  const setDropTargetTracked = (next) => dropCommitRef.current.set(next)
+  /** Commit a queued dragover target now (drop handlers read the mirror). */
+  const flushDropTarget = () => dropCommitRef.current.flush()
+  /** Queue null and settle it in this tick (the placeholder must not outlive the event). */
+  const settleDropTarget = () => {
+    setDropTargetTracked(null)
+    flushDropTarget()
+  }
+  // One drag-time groupId -> name map instead of `findGroup`'s O(G) scan per
+  // dragover event; rebuilt when the document identity changes (N3).
+  const labelCacheRef = useRef(null)
+  if (labelCacheRef.current === null) labelCacheRef.current = createDragLabelCache()
+  /** Group name for a drag label: cached during a drag, live lookup on a miss. */
+  const groupName = (groupId) => labelCacheRef.current.nameOf(store.doc, groupId)
+  // A groups-view unmount mid-drag must not leave a queued commit behind.
+  useEffect(() => () => {
+    dropCommitRef.current?.cancel()
+    labelCacheRef.current?.clear()
+  }, [])
   // Search highlight is a transient DOM class (1.5 s) on the revealed row: the
   // rows are plain React nodes and the class must survive the host-triggered
   // re-render right after openSession without adding new view-store state.
   const autoExpandRef = useRef({ groupId: null, timer: null })
   const dragRef = useRef(null)
-  const dragTargetLockRef = useRef(null)
   const suppressedClickRef = useRef(null)
   // Pointerdown origin for the group row: a dragstart always targets the
   // draggable row, so the button check must be captured on pointerdown (where the
@@ -210,15 +249,18 @@ export const GroupsView = (props) => {
   // destroys the stored preference.
   const rootRef = useRef(null)
   /** True only when the drag pointer is definitely outside the sidebar root. */
-  const pointerOutsideRoot = (event) => {
-    const root = rootRef.current
-    const rect = root?.getBoundingClientRect?.()
-    if (!rect) return false
-    const x = event?.clientX
-    const y = event?.clientY
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return false
-    return x < rect.left || x > rect.right || y < rect.top || y > rect.bottom
-  }
+  const pointerOutsideRoot = (event) =>
+    // P6: every dragleave reads the sidebar root box (forced layout).
+    perfMs('dragLeaveRectMs', () => {
+      perfCount('drag:leave')
+      const root = rootRef.current
+      const rect = root?.getBoundingClientRect?.()
+      if (!rect) return false
+      const x = event?.clientX
+      const y = event?.clientY
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return false
+      return x < rect.left || x > rect.right || y < rect.top || y > rect.bottom
+    })
   // Imperative bridge to the virtualized ungrouped list (search reveal).
   const virtualRef = useRef(null)
   const {
@@ -226,8 +268,10 @@ export const GroupsView = (props) => {
     appliedWidth,
     maxAppliedWidth,
     widthSupported,
-    handleWidthChange,
-    handleWidthCommit,
+    getLiveWidth,
+    previewWidth,
+    commitWidth,
+    cancelWidth,
     handleWidthReset,
   } = useGroupsSidebarWidth({ wide, docState: store?.docState, rootRef })
   // Compact chrome (0.4.0-beta.64, spec §6.6): both flags are driven by
@@ -242,7 +286,18 @@ export const GroupsView = (props) => {
   }))
   const chromeRef = useRef(chrome)
   chromeRef.current = chrome
+  // The chrome effect below is keyed on `[wide, store?.docState]`, so it never
+  // re-runs while the width handle is dragged (~60 renders/s). The live
+  // viewport-clamped width is therefore read through this render-time ref: a
+  // bare `appliedWidth` would freeze `data-narrow` at the width the effect
+  // closed over, and the 264px sidebar would overflow the header (spec §12.4).
+  const appliedWidthRef = useRef(appliedWidth)
+  appliedWidthRef.current = appliedWidth
   const measureChromeRef = useRef(null)
+  /** True while a gated measure still owes one post-drag pass (spec §12.2). */
+  const dirtyRef = useRef(false)
+  /** Pending post-drag measure frame; the effect cleanup cancels it. */
+  const pendingFrameRef = useRef(null)
   useEffect(() => {
     if (!wide) return undefined
     const root = rootRef.current
@@ -253,19 +308,43 @@ export const GroupsView = (props) => {
     // overflow check would never fire. `data-title-collapsed` measures the
     // always-laid-out `.dsg-header-title`, never the label it hides (a hidden
     // label reads 0 and would lock itself away).
-    const measure = () => {
-      const rect = root.getBoundingClientRect()
-      const rootWidth = rect ? rect.width : NaN
-      const title = root.querySelector?.('.dsg-header-title')
-      const titleWidth = title ? title.clientWidth : NaN
-      const current = chromeRef.current
-      const narrow = resolveNarrow(rootWidth, current.narrow)
-      const collapsed = shouldCollapseTitle(titleWidth, current.collapsed, narrow)
-      const width = Math.round(Number.isFinite(rootWidth) ? rootWidth : current.width)
-      if (narrow === current.narrow && collapsed === current.collapsed && width === current.width) return
-      const next = { narrow, collapsed, width }
+    /** Commit one chrome snapshot; both measure paths share the one counter. */
+    const applyChrome = (next) => {
       chromeRef.current = next
+      perfCount('chrome:stateChange')
       setChrome(next)
+    }
+    const measure = () => {
+      // P1 (spec §12): while the sidebar width is dragged the root box and the
+      // header title change every frame, so the ResizeObserver callback would
+      // force one layout read (and usually one whole-view re-render) per frame.
+      // Only remember that a settled pass is owed, and keep `data-narrow` live
+      // from pure arithmetic instead: root = sidebar − 12, fed to the same
+      // `resolveNarrow` hysteresis a real measurement uses. The layout reads,
+      // the `chromeMeasureMs` sample and the `chrome:measure` counter all stay
+      // behind the gate so a drag cannot be attributed to this callback.
+      if (isWidthGestureActive()) {
+        perfCount('chrome:skip')
+        dirtyRef.current = true
+        const narrow = resolveNarrow((getLiveWidth() ?? appliedWidthRef.current) - 12, chromeRef.current.narrow)
+        if (narrow !== chromeRef.current.narrow) applyChrome({ ...chromeRef.current, narrow })
+        return
+      }
+      // P1: the `.dsg-root` ResizeObserver fires once per width frame on top of
+      // the width state update, so its callback cost is measured on its own.
+      perfMs('chromeMeasureMs', () => {
+        perfCount('chrome:measure')
+        const rect = root.getBoundingClientRect()
+        const rootWidth = rect ? rect.width : NaN
+        const title = root.querySelector?.('.dsg-header-title')
+        const titleWidth = title ? title.clientWidth : NaN
+        const current = chromeRef.current
+        const narrow = resolveNarrow(rootWidth, current.narrow)
+        const collapsed = shouldCollapseTitle(titleWidth, current.collapsed, narrow)
+        const width = Math.round(Number.isFinite(rootWidth) ? rootWidth : current.width)
+        if (narrow === current.narrow && collapsed === current.collapsed && width === current.width) return
+        applyChrome({ narrow, collapsed, width })
+      })
     }
     measureChromeRef.current = measure
     measure()
@@ -273,7 +352,21 @@ export const GroupsView = (props) => {
     const Observer = globalThis.ResizeObserver
     const observer = typeof Observer === 'function' ? new Observer(measure) : null
     observer?.observe?.(root)
+    // One deferred pass after the drag settles: `endDrag` applies the final
+    // width before ending the gesture, so this frame measures the committed
+    // layout (spec §12.2). A notification delivered after release takes the
+    // normal path instead and clears the flag without an extra read.
+    const unsubscribeWidthGesture = onWidthGestureEnd(() => {
+      if (!dirtyRef.current) return
+      dirtyRef.current = false
+      pendingFrameRef.current = requestAnimationFrame(measure)
+    })
     return () => {
+      unsubscribeWidthGesture()
+      if (pendingFrameRef.current !== null) {
+        cancelAnimationFrame(pendingFrameRef.current)
+        pendingFrameRef.current = null
+      }
       measureChromeRef.current = null
       globalThis.removeEventListener?.('resize', measure)
       observer?.disconnect?.()
@@ -307,6 +400,13 @@ export const GroupsView = (props) => {
   useLayoutEffect(() => {
     if (currentId) rt()?.reconcileNewSessionGroup?.(currentId)
   }, [currentId, currentBlank, currentWorkspaceId])
+  if (perfEnabled()) {
+    // P3 context: the record `state` block needs the counts of the tree that
+    // was actually rendered this pass, plus the persisted sidebar width.
+    perfSample('groupsViewRenderMs', perfNow() - perfRenderStart)
+    perfTreeCounts(tree.groups.length, countTreeSessions(tree))
+    perfSidebarWidth(readSidebarWidth())
+  }
   usePerfCommit('groups-view', perfRenderStart)
   if (!wide) return h(Rail, { props })
   if (store === null) return h('div', { class: 'dsg-root', 'data-testid': 'session-groups-view', dir: direction }, t('flat.title'))
@@ -342,8 +442,10 @@ export const GroupsView = (props) => {
   const onlyGroupsEmpty = treeEmpty && store.groupArchiveFilter === 'only' && groupVisibility.full.size === 0
   const filterEmptyKind = archivedGroupsHidden ? 'archived-hidden' : onlyGroupsEmpty ? 'only-empty' : 'none'
   const commitDrop = async (source, target) => {
+    perfEndGesture()
     perfMark('commitDrop:start', { kind: target?.kind ?? null })
-    setDropTargetTracked(null)
+    settleDropTarget()
+    labelCacheRef.current.clear()
     setDragState(null)
     if (!source || !target || target.kind === 'invalid') return
     // Preview and commit share `checkSessionDrop`: a rejected target is reported
@@ -407,8 +509,10 @@ export const GroupsView = (props) => {
    * queue sends any request, so no revision is bumped.
    */
   const commitGroupDrop = async (draggedId, target) => {
+    perfEndGesture()
     perfMark('commitGroupDrop:start', { kind: target?.kind ?? null })
-    setDropTargetTracked(null)
+    settleDropTarget()
+    labelCacheRef.current.clear()
     setDragState(null)
     dragRef.current = null
     rt()?.setFloatingLabel?.(null)
@@ -546,17 +650,26 @@ export const GroupsView = (props) => {
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
       return
     }
+    const stopCheck = perfSpan('dragoverCheckMs')
+    perfCount('drag:check')
     const verdict = checkGroupDrop(store.doc, draggedId, resolveTargetFor(viewTarget))
+    stopCheck()
     if (!verdict.ok) {
       // Keep a frozen slot/header from bubbling into a live ancestor's handler.
       event.stopPropagation()
       setDropTargetTracked({ ...viewTarget, kind: 'group-forbidden' })
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
+      const stopRejectLabel = perfSpan('dragoverLabelMs')
+      perfCount('drag:label')
       rt()?.setFloatingLabel?.(dropReasonText(t, verdict.reason))
+      stopRejectLabel()
       return
     }
     rowDragOver(event, viewTarget)
+    const stopLabel = perfSpan('dragoverLabelMs')
+    perfCount('drag:label')
     rt()?.setFloatingLabel?.(label)
+    stopLabel()
   }
   /**
    * Reject one session dragover: no placeholder, no drop effect, and the stable
@@ -570,7 +683,10 @@ export const GroupsView = (props) => {
     // A rejected surface must never keep a pending 500ms auto-expand alive.
     clearAutoExpand()
     setDropTargetTracked(forbiddenTarget)
+    const stopLabel = perfSpan('dragoverLabelMs')
+    perfCount('drag:label')
     rt()?.setFloatingLabel?.(dropReasonText(t, reason))
+    stopLabel()
   }
   /** Top/bottom edge zone of a group header; the middle 50% is invalid. */
   const groupHeaderZone = (row, clientY) => groupHeaderZoneFromRect(row?.getBoundingClientRect?.(), clientY)
@@ -605,9 +721,12 @@ export const GroupsView = (props) => {
         sessionId,
         label: sessionTitle(row, { blankLabel: t('session.blank'), untitledLabel: t('session.untitled') }),
       }
+      // SPEC §14.2.3: one O(G) name map per drag, not one per dragover.
+      labelCacheRef.current.build(store.doc)
       // Never trace the session title: the id is the only session identity in
       // the diagnostics file (privacy rule in diagnostics.js).
       if (diagEnabled()) diagDragStart('session', { sessionId })
+      perfBeginGesture('drag-session')
       suppressedClickRef.current = null
       dragTargetLockRef.current = null
       setDragState(dragRef.current)
@@ -666,19 +785,26 @@ export const GroupsView = (props) => {
       const drag = { kind: 'group', groupId: group.id, label: group.name }
       dragRef.current = drag
       if (diagEnabled()) diagDragStart('group', { groupId: group.id, name: group.name })
+      perfBeginGesture('drag-group')
       suppressedClickRef.current = { groupId: group.id, at: Date.now() }
       dragTargetLockRef.current = null
       setDragState(drag)
-      setDropTargetTracked(null)
+      // SPEC §14.2.3: build the drag-time name map once and clear any queued target.
+      labelCacheRef.current.build(store.doc)
+      settleDropTarget()
       rt()?.startDragLabel?.(group.name)
     },
     onDragEnd: () => {
       if (diagEnabled()) diagDragEnd()
+      perfEndGesture()
       buttonPointerRef.current = null
       clearAutoExpand()
       dragRef.current = null
+      labelCacheRef.current.clear()
       setDragState(null)
-      setDropTargetTracked(null)
+      // Queue null and settle it in this tick: the placeholder must not survive
+      // the dragend frame.
+      settleDropTarget()
       rt()?.setFloatingLabel?.(null)
     },
     /**
@@ -703,7 +829,8 @@ export const GroupsView = (props) => {
       // next dragover reinserted it at the same place (visible flicker).
       if (!pointerOutsideRoot(event)) return
       clearAutoExpand()
-      setDropTargetTracked(null)
+      // Settle to null synchronously: the placeholder must not outlive the leave.
+      settleDropTarget()
       rt()?.setFloatingLabel?.(null)
     },
     onPlaceholderDragOver: (event) => {
@@ -737,7 +864,12 @@ export const GroupsView = (props) => {
         if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
         return
       }
+      const stopRect = perfSpan('dragoverRectMs')
+      perfCount('drag:rect')
       const rect = event.currentTarget.getBoundingClientRect()
+      stopRect()
+      const stopHitTest = perfSpan('dragoverHitTestMs')
+      perfCount('drag:hitTest')
       const target = hitTest({
         source: drag,
         rowKind: 'session',
@@ -747,6 +879,7 @@ export const GroupsView = (props) => {
         targetGroupId: ungrouped ? null : groupId,
         targetSessionId: sessionId,
       })
+      stopHitTest()
       if (target.kind === 'invalid') {
         // Never let a self-row/unknown-row invalid target fall through to the
         // wider ungrouped body handler: that handler used to retarget the drop
@@ -759,7 +892,10 @@ export const GroupsView = (props) => {
         if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
         return
       }
+      const stopCheck = perfSpan('dragoverCheckMs')
+      perfCount('drag:check')
       const verdict = checkSessionDrop(store.doc, drag, target)
+      stopCheck()
       if (!verdict.ok) {
         // Archived container/destination: forbidden feedback without a
         // placeholder; stop here so the row never retargets an outer body.
@@ -767,12 +903,17 @@ export const GroupsView = (props) => {
         return
       }
       rowDragOver(event, target)
+      const stopLabel = perfSpan('dragoverLabelMs')
+      perfCount('drag:label')
       const label = groupId
-        ? t('drag.sessionIntoGroup', { name: findGroup(store.doc, groupId)?.name ?? '' })
+        ? t('drag.sessionIntoGroup', { name: groupName(groupId) })
         : t('drag.sessionOut')
       rt()?.setFloatingLabel?.(label)
+      stopLabel()
     },
     onDropSession: (event, sessionId, groupId, ungrouped) => {
+      // SPEC §14.2.3: settle the queued dragover target before acting on the drop.
+      flushDropTarget()
       const drag = dragRef.current
       if (!drag || drag.kind !== 'session') return
       event.preventDefault()
@@ -788,7 +929,12 @@ export const GroupsView = (props) => {
       // Resolve from this drop event instead of the react state mirror: a
       // dragover and drop can arrive in one tick (synthetic E2E / fast pointer),
       // and the state may not have committed yet.
+      const stopDropRect = perfSpan('dragoverRectMs')
+      perfCount('drag:rect')
       const rect = event.currentTarget.getBoundingClientRect()
+      stopDropRect()
+      const stopDropHitTest = perfSpan('dragoverHitTestMs')
+      perfCount('drag:hitTest')
       const target = hitTest({
         source: drag,
         rowKind: 'session',
@@ -798,6 +944,7 @@ export const GroupsView = (props) => {
         targetGroupId: ungrouped ? null : groupId,
         targetSessionId: sessionId,
       })
+      stopDropHitTest()
       if (!target || target.kind === 'invalid') return commitDrop(drag, { kind: 'invalid' })
       return commitDrop(drag, target)
     },
@@ -812,8 +959,11 @@ export const GroupsView = (props) => {
         return
       }
       if (drag.kind === 'group') {
-        const name = findGroup(store.doc, groupId)?.name ?? ''
+        const name = groupName(groupId)
+        const stopZoneRect = perfSpan('dragoverRectMs')
+        perfCount('drag:rect')
         const zone = groupHeaderZone(event.currentTarget, event.clientY)
+        stopZoneRect()
         if (zone === null) {
           event.stopPropagation()
           setDropTargetTracked({ kind: 'group-forbidden', targetId: groupId })
@@ -825,7 +975,10 @@ export const GroupsView = (props) => {
         return
       }
       const target = { kind: 'group-append', groupId }
+      const stopGroupCheck = perfSpan('dragoverCheckMs')
+      perfCount('drag:check')
       const verdict = checkSessionDrop(store.doc, drag, target)
+      stopGroupCheck()
       if (!verdict.ok) {
         // An archived group header is not a session destination. The rejection
         // helper also cancels auto-expand so a neighbouring live group's timer
@@ -835,17 +988,25 @@ export const GroupsView = (props) => {
       }
       rowDragOver(event, target)
       scheduleAutoExpand(groupId)
-      rt()?.setFloatingLabel?.(t('drag.sessionIntoGroup', { name: findGroup(store.doc, groupId)?.name ?? '' }))
+      const stopGroupLabel = perfSpan('dragoverLabelMs')
+      perfCount('drag:label')
+      rt()?.setFloatingLabel?.(t('drag.sessionIntoGroup', { name: groupName(groupId) }))
+      stopGroupLabel()
     },
     onDropGroup: (event, groupId) => {
+      // SPEC §14.2.3: settle the queued dragover target before acting on the drop.
+      flushDropTarget()
       const drag = dragRef.current
       if (drag?.kind === 'group') {
         event.preventDefault()
         event.stopPropagation()
         clearAutoExpand()
-        setDropTargetTracked(null)
+        settleDropTarget()
         rt()?.setFloatingLabel?.(null)
+        const stopDropZoneRect = perfSpan('dragoverRectMs')
+        perfCount('drag:rect')
         const zone = groupHeaderZone(event.currentTarget, event.clientY)
+        stopDropZoneRect()
         if (zone === null) {
           toast('error', t('drag.groupInvalid'))
           return
@@ -876,13 +1037,19 @@ export const GroupsView = (props) => {
       const target = { kind: 'group-head', groupId }
       // Check first: an archived destination must show forbidden over the whole
       // body (including row gaps), not just above the first row.
+      const stopHeadCheck = perfSpan('dragoverCheckMs')
+      perfCount('drag:check')
       const verdict = checkSessionDrop(store.doc, drag, target)
+      stopHeadCheck()
       if (!verdict.ok) {
         rejectSessionDragOver(event, verdict.reason, { kind: 'group-forbidden', targetId: groupId })
         return
       }
+      const stopFirstRect = perfSpan('dragoverRectMs')
+      perfCount('drag:rect')
       const firstRow = event.currentTarget?.querySelector?.('[data-session-id]')
       const firstRect = firstRow?.getBoundingClientRect?.()
+      stopFirstRect()
       if (firstRect && Number.isFinite(firstRect.top) && event.clientY >= firstRect.top) {
         event.preventDefault()
         event.stopPropagation()
@@ -893,6 +1060,8 @@ export const GroupsView = (props) => {
       scheduleAutoExpand(groupId)
     },
     onDropGroupHead: (event, groupId) => {
+      // SPEC §14.2.3: settle the queued dragover target before acting on the drop.
+      flushDropTarget()
       const drag = dragRef.current
       if (!drag) return
       if (drag.kind === 'group') {
@@ -902,7 +1071,7 @@ export const GroupsView = (props) => {
         event.preventDefault()
         event.stopPropagation()
         clearAutoExpand()
-        setDropTargetTracked(null)
+        settleDropTarget()
         rt()?.setFloatingLabel?.(null)
         return
       }
@@ -916,7 +1085,7 @@ export const GroupsView = (props) => {
       const drag = dragRef.current
       if (!drag) return
       if (drag.kind === 'group') {
-        const name = findGroup(store.doc, parentId)?.name ?? ''
+        const name = groupName(parentId)
         // checkGroupDrop inside the preview rejects a frozen parent with the
         // `archived-destination` reason and paints the existing slot forbidden.
         previewGroupDrop(event, { kind: 'group-child', parentId, beforeGroupId }, t('drag.groupInto', { name }))
@@ -925,11 +1094,16 @@ export const GroupsView = (props) => {
       // A slot is not a session target: let a live parent's body line own the
       // drop. Inside an archived parent the shared check rejects and the handler
       // stops the bubble so the live outer group cannot retarget it.
+      const stopSlotCheck = perfSpan('dragoverCheckMs')
+      perfCount('drag:check')
       const verdict = checkSessionDrop(store.doc, drag, { kind: 'group-head', groupId: parentId })
+      stopSlotCheck()
       if (verdict.ok) return
       rejectSessionDragOver(event, verdict.reason)
     },
     onDropGroupSlot: (event, parentId, beforeGroupId) => {
+      // SPEC §14.2.3: settle the queued dragover target before acting on the drop.
+      flushDropTarget()
       const drag = dragRef.current
       if (!drag) return
       if (drag.kind !== 'group') {
@@ -941,7 +1115,7 @@ export const GroupsView = (props) => {
         event.preventDefault()
         event.stopPropagation()
         clearAutoExpand()
-        setDropTargetTracked(null)
+        settleDropTarget()
         rt()?.setFloatingLabel?.(null)
         toast('error', dropReasonText(t, verdict.reason))
         return
@@ -965,13 +1139,19 @@ export const GroupsView = (props) => {
       }
       // Header only: this is the explicit "top of ungrouped" target.
       const target = { kind: 'ungrouped' }
+      const stopUngroupedCheck = perfSpan('dragoverCheckMs')
+      perfCount('drag:check')
       const verdict = checkSessionDrop(store.doc, drag, target)
+      stopUngroupedCheck()
       if (!verdict.ok) {
         rejectSessionDragOver(event, verdict.reason)
         return
       }
       rowDragOver(event, target)
+      const stopUngroupedLabel = perfSpan('dragoverLabelMs')
+      perfCount('drag:label')
       rt()?.setFloatingLabel?.(t('drag.sessionOut'))
+      stopUngroupedLabel()
     },
     /**
      * Body-level fallback for virtual gaps/spacers. A session row owns its own
@@ -990,21 +1170,32 @@ export const GroupsView = (props) => {
         return
       }
       if (event.target?.closest?.('[data-session-id], .dsg-drop-placeholder')) return
+      const stopBodyRect = perfSpan('dragoverRectMs')
+      perfCount('drag:rect')
       const target = ungroupedBodyTarget(ungroupedBodyRows(event.currentTarget), event.clientY)
+      stopBodyRect()
+      const stopBodyCheck = perfSpan('dragoverCheckMs')
+      perfCount('drag:check')
       const verdict = checkSessionDrop(store.doc, drag, target)
+      stopBodyCheck()
       if (!verdict.ok) {
         rejectSessionDragOver(event, verdict.reason)
         return
       }
       rowDragOver(event, target)
+      const stopBodyLabel = perfSpan('dragoverLabelMs')
+      perfCount('drag:label')
       rt()?.setFloatingLabel?.(t('drag.sessionOut'))
+      stopBodyLabel()
     },
     onDropUngrouped: (event) => {
+      // SPEC §14.2.3: settle the queued dragover target before acting on the drop.
+      flushDropTarget()
       const drag = dragRef.current
       if (drag?.kind === 'group') {
         event.preventDefault()
         event.stopPropagation()
-        setDropTargetTracked(null)
+        settleDropTarget()
         clearAutoExpand()
         rt()?.setFloatingLabel?.(null)
         toast('info', t('ungrouped.sessionsOnly'))
@@ -1018,11 +1209,14 @@ export const GroupsView = (props) => {
       commitDrop(drag, { kind: 'ungrouped' })
     },
     onDropUngroupedBody: (event) => {
+      // SPEC §14.2.3: this handler reads the published target below, so the
+      // queued dragover target must be committed before it is read.
+      flushDropTarget()
       const drag = dragRef.current
       if (drag?.kind === 'group') {
         event.preventDefault()
         event.stopPropagation()
-        setDropTargetTracked(null)
+        settleDropTarget()
         clearAutoExpand()
         rt()?.setFloatingLabel?.(null)
         toast('info', t('ungrouped.sessionsOnly'))
@@ -1084,8 +1278,9 @@ export const GroupsView = (props) => {
           width: appliedWidth,
           min: SIDEBAR_WIDTH_MIN,
           max: maxAppliedWidth,
-          onChange: handleWidthChange,
-          onCommit: handleWidthCommit,
+          onPreview: previewWidth,
+          onCommit: commitWidth,
+          onCancel: cancelWidth,
           onReset: handleWidthReset,
         })
       : null,
