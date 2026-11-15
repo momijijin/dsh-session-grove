@@ -29,6 +29,7 @@ import {
   PAUSE_MS,
   SAMPLE_DEDUPE_MS,
   SPEED_GATE_PX_PER_MS,
+  SPEED_WINDOW_MS,
   TARGET_HOLD_MS,
   UPGRADE_WINDOW_MS,
 } from '../../src/client/drag-frame.js'
@@ -277,6 +278,19 @@ test('a hold that changes X → Y → X ends on X exactly once', () => {
 })
 
 // --- v10 speed gate ---------------------------------------------------------
+test('the drag thresholds stay on their documented literal values', () => {
+  // These are asserted as literals on purpose: the numbers below are the
+  // contract the run8–run10 traces were tuned against (spec §15.2/§16.2), so a
+  // silent retune must show up as a test failure rather than pass through an
+  // import-derived expectation.
+  assert.equal(TARGET_HOLD_MS, 70, 'a new drop target stabilizes for 70 ms')
+  assert.equal(SPEED_GATE_PX_PER_MS, 0.5, 'the gate is 0.5 px/ms ≈ 8.35 px/frame at 60 fps')
+  assert.equal(SPEED_WINDOW_MS, 100, 'the entry speed window is 100 ms')
+  assert.equal(UPGRADE_WINDOW_MS, 40, 'a pending hold upgrades on the last 40 ms of samples')
+  assert.equal(SAMPLE_DEDUPE_MS, 2, 'samples within 2 ms belong to the same native event')
+  assert.equal(PAUSE_MS, 100, 'a gap above 100 ms restarts the sample window')
+})
+
 test('a fast sweep keeps the 70 ms hold and takes no immediate path', () => {
   enablePerf()
   try {
@@ -487,6 +501,44 @@ test('a 0.55 px/ms sweep at 3-9 ms steps over 100+ ms stays above the gate and c
     assert.equal(perfSnapshot().counters['drag:frame'], 1, 'exactly one applied commit')
     assert.deepEqual(harness.published, [second], 'the sweeping target publishes once')
     assert.equal(harness.clock.armed(), 0, 'the hold timer is spent')
+  } finally {
+    delete globalThis.__DSG_PERF__
+    perfReset()
+  }
+})
+
+test('a 0.45 px/ms aim counts an immediate decision and publishes its target exactly once', () => {
+  enablePerf()
+  try {
+    const harness = makeCommit()
+    const first = targetBefore('s1')
+    const second = targetAfter('s2')
+    // The same 3–9 ms native-style sampling step as the 0.55 px/ms sweep, but
+    // 0.45 px/ms: below the 0.5 gate. The first target has no window yet, so it
+    // holds; the slower samples then let the gate commit the second target
+    // without its 70 ms hold. The assertion deliberately does not require the
+    // publish on one particular event: an edge sample can read exactly 0.5 and
+    // the 40 ms sub-window upgrade then lands one event later (spec §18.1).
+    const steps = [3, 7, 3, 9, 4, 8, 5, 7, 6, 3, 9, 4]
+    const fixtureSpeed = 0.45
+    let y = 0
+    harness.commit.set(first, pointerAt(harness, y))
+    for (let index = 0; index < steps.length; index += 1) {
+      const step = steps[index]
+      const jitter = index % 2 === 0 ? 0.45 : -0.45
+      harness.clock.advance(step)
+      y += fixtureSpeed * step + jitter
+      harness.commit.set(second, pointerAt(harness, y))
+    }
+    assert.ok(harness.clock.now() >= 40, 'the sample span covers the 40 ms upgrade window')
+    assert.ok(
+      (perfSnapshot().counters['drag:targetImmediate'] ?? 0) >= 1,
+      'the speed gate counted at least one immediate decision'
+    )
+    assert.deepEqual(harness.published, [second], 'the aimed target publishes exactly once')
+    assert.equal(harness.clock.armed(), 0, 'the immediate path left no hold timer')
+    harness.clock.advance(300)
+    assert.deepEqual(harness.published, [second], 'the disarmed hold cannot publish again')
   } finally {
     delete globalThis.__DSG_PERF__
     perfReset()

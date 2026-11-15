@@ -13,10 +13,11 @@
  * The rAF batching and the DOM sinks are injected, so the whole contract is
  * unit-testable in Node (`tests/client/dialog-frame.test.js`); `dialog-host.js`
  * and `scroll-area.js` only wire these seams to React. The seams deliberately
- * live outside the React modules: `npm test` never imports a component module
- * (the component bodies are exercised by `check:ui`), so a component-resident
- * seam would be untestable here and pulling the component graph into the
- * coverage run would collapse the coverage gate.
+ * live outside the React modules: `npm test` only loads
+ * `components-resize-handle.js` (dynamically, from the width-gesture test) and
+ * never imports the `GroupsView` component graph (the component bodies are
+ * exercised by `check:ui`), so a component-resident seam would be untestable
+ * here and pulling that graph into the coverage run would collapse the gate.
  */
 import { perfCount, perfSpan } from './perf.js'
 
@@ -97,7 +98,10 @@ export const createDialogGestureFrame = ({
       moved = false
       batch.cancel()
     },
-    /** True while a pointer sample waits for its frame. */
+    /**
+     * True while a pointer sample waits for its frame.
+     * @internal Test/diagnostic seam, not part of the gesture contract.
+     */
     pending: () => pending !== null,
   }
 }

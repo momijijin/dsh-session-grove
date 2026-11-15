@@ -1,14 +1,14 @@
 /**
  * One-frame coalescer for the 0.4.0-beta.66 v8 micro-optimizations (spec §14).
  *
- * Three hot paths produced several React updates per animation frame: the
- * dialog move/resize pointermoves, the dialog scrollbar's own scroll/resize/
- * ResizeObserver notifications, and the drag-over target commit. Every event
- * used to solve its value and call setState immediately, so one frame that
- * carried three pointermoves paid for three renders (and often three layout
- * reads). This helper keeps only the newest callback of a frame: the first
- * `schedule` arms one animation frame and every later call replaces the
- * callback, so the work runs once per frame with the latest input ("last wins").
+ * Two hot paths produced several React updates per animation frame: the dialog
+ * move/resize pointermoves and the dialog scrollbar's own scroll/resize/
+ * ResizeObserver notifications. Every event used to solve its value and call
+ * setState immediately, so one frame that carried three pointermoves paid for
+ * three renders (and often three layout reads). This helper keeps only the
+ * newest callback of a frame: the first `schedule` arms one animation frame and
+ * every later call replaces the callback, so the work runs once per frame with
+ * the latest input ("last wins").
  *
  * The rAF pair is injected so this is pure DOM-free logic that `npm test` can
  * drive (`tests/client/frame-batch.test.js`); production callers pass nothing
@@ -73,7 +73,10 @@ export const createFrameBatch = ({ requestFrame, cancelFrame } = {}) => {
       pending = fn
       if (frameId === null) frameId = pair.requestFrame(run)
     },
-    /** Run the queued callback now and drop its frame (synchronous settle paths). */
+    /**
+     * Run the queued callback now and drop its frame (synchronous settle paths).
+     * @internal Test/settle seam, not part of the scheduling contract.
+     */
     flush() {
       if (frameId !== null) pair.cancelFrame(frameId)
       frameId = null
@@ -87,7 +90,10 @@ export const createFrameBatch = ({ requestFrame, cancelFrame } = {}) => {
       frameId = null
       pending = null
     },
-    /** True while a callback waits for its frame. */
+    /**
+     * True while a callback waits for its frame.
+     * @internal Test/diagnostic seam, not part of the scheduling contract.
+     */
     pending: () => pending !== null,
   }
 }

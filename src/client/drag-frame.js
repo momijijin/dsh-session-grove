@@ -26,8 +26,9 @@
  * Both are DOM-free and take the clock/sinks as parameters, so `npm test`
  * drives the hold and the fake pointer with a fake clock
  * (`tests/client/drag-frame.test.js`). They live outside `components.js`
- * because `npm test` never imports a component module; pulling that graph into
- * the coverage run would collapse the coverage gate.
+ * because `npm test` only loads `components-resize-handle.js` (dynamically,
+ * from the width-gesture test) and never imports the `GroupsView` component
+ * graph; pulling that graph into the coverage run would collapse the gate.
  */
 import { findGroup } from '../shared/model.js'
 import { perfCount } from './perf.js'
@@ -111,7 +112,9 @@ export const createDropTargetCommit = ({
   clearLock = () => {},
   onChange = () => {},
   onSkip = () => {},
-  // `drag:frame` counts applied target commits (hold expiry or synchronous flush), not rAF frames.
+  // `drag:frame` counts applied target commits (hold expiry or synchronous
+  // flush), not rAF frames. `commit()` counts before the `same()` dedupe, so a
+  // settle that is deduped away is still counted.
   count = () => perfCount('drag:frame'),
   // `drag:targetPending` counts hold periods started for a new target, the
   // run9 A/B comparison against `drag:frame` (46 target changes per drag-group
@@ -300,11 +303,17 @@ export const createDropTargetCommit = ({
     resetSamples() {
       samples = []
     },
-    /** True while a candidate waits for its hold period. */
+    /**
+     * True while a candidate waits for its hold period.
+     * @internal Test/diagnostic seam, not part of the commit contract.
+     */
     pending: () => active,
     /** `now()` of the current candidate (the timer anchor), for tests. */
     candidateAt: () => candidateAt,
-    /** Number of samples in the bounded speed window (for tests). */
+    /**
+     * Number of samples in the bounded speed window (for tests).
+     * @internal Test/diagnostic seam, not part of the commit contract.
+     */
     sampleCount: () => samples.length,
   }
 }

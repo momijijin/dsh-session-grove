@@ -333,9 +333,6 @@ export const useGroupsSidebarWidth = ({ wide, docState, rootRef }) => {
     writeSidebarWidth(SIDEBAR_WIDTH_DEFAULT)
   }
 
-  // Kept for callers of the pre-§13 API; the component now uses the split API.
-  const handleWidthChange = previewWidth
-
   return {
     viewportWidth,
     appliedWidth,
@@ -345,8 +342,6 @@ export const useGroupsSidebarWidth = ({ wide, docState, rootRef }) => {
     previewWidth,
     commitWidth,
     cancelWidth,
-    handleWidthChange,
-    handleWidthCommit: commitWidth,
     handleWidthReset,
   }
 }

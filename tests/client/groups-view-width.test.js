@@ -247,7 +247,6 @@ test('preview updates refs and the scheduler without touching React state', () =
   assert.match(preview, /liveWidthRef\.current = next/)
   assert.match(preview, /widthSchedulerRef\.current\.preview\(next\)/)
   assert.doesNotMatch(preview, /setPreferredWidth|setViewportWidth/, 'preview must not schedule a React render')
-  assert.match(source, /const handleWidthChange = previewWidth/)
 })
 
 test('commit writes the variable and live ref before state and persistence', () => {
@@ -298,7 +297,7 @@ test('the hook exposes a live width for the chrome gate and keeps it fed by sync
   assert.match(returned, /cancelWidth/)
 })
 
-test('the hook live width advances on preview, commit, alias and reset', () => {
+test('the hook live width advances on preview, commit and reset', () => {
   // The test React stub returns inert hooks, so the effect body is not run;
   // these calls still exercise the public preview/commit/reset contract.
   const hook = useGroupsSidebarWidth({ wide: false, docState: null, rootRef: { current: null } })
@@ -308,7 +307,7 @@ test('the hook live width advances on preview, commit, alias and reset', () => {
   assert.equal(hook.getLiveWidth(), 500)
   hook.commitWidth(500)
   assert.equal(hook.getLiveWidth(), 500)
-  hook.handleWidthChange(480)
+  hook.previewWidth(480)
   assert.equal(hook.getLiveWidth(), 480)
   hook.handleWidthReset()
   assert.equal(hook.getLiveWidth(), 420, 'reset returns the live width to the design default')
