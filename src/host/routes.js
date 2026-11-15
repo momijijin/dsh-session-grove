@@ -4,6 +4,7 @@
  * GET  /dsh-session-grove/load         -> active profile id + revision + document
  * POST /dsh-session-grove/commit       -> compare-and-set write to the active profile
  * POST /dsh-session-grove/diagnostics  -> append-only drag trace (0.2.5)
+ * POST /dsh-session-grove/perf         -> append-only perf capture (0.4.0-beta.66)
  * GET  /dsh-session-grove/profiles     -> profile list (mounted with a profile manager)
  * GET  /dsh-session-grove/profiles/preview?id= -> read-only target preview + token
  * POST /dsh-session-grove/profiles/{create,rename,archive,activate} -> registry writes
@@ -19,6 +20,8 @@
  * Responses are JSON, `cache-control: no-store`, and never set CORS headers.
  * The fence runs before method/body handling. Diagnostics writes only the
  * dedicated `.ndjson` file under `storages/`, never the official host data.
+ * The 0.4.0-beta.66 `/perf` ingest is the same shape (append-only NDJSON, one
+ * record per POST, bounded body/file).
  */
 
 import { appendFile, mkdir, stat, writeFile } from 'node:fs/promises'
@@ -28,13 +31,45 @@ import { repairManagedSkill } from './skill-install.js'
 import { registerSessionRoutes } from './session-routes.js'
 import { registerControlRoutes } from './control-routes.js'
 import { registerProfileRoutes } from './profile-routes.js'
-import { COMMIT_PATH, DEBUG_PATH, DIAGNOSTICS_PATH, LOAD_PATH, MAX_BODY_BYTES, MAX_CONTROL_BODY_BYTES, MAX_DIAGNOSTICS_BODY_BYTES, MAX_DIAGNOSTICS_FILE_BYTES, SKILL_REPAIR_PATH, DEFAULT_PROFILE_ID } from './constants.js'
+import { COMMIT_PATH, DEBUG_PATH, DIAGNOSTICS_PATH, LOAD_PATH, MAX_BODY_BYTES, MAX_CONTROL_BODY_BYTES, MAX_DIAGNOSTICS_BODY_BYTES, MAX_DIAGNOSTICS_FILE_BYTES, MAX_PERF_BODY_BYTES, MAX_PERF_FILE_BYTES, PERF_PATH, SKILL_REPAIR_PATH, DEFAULT_PROFILE_ID } from './constants.js'
 import { fenceRequest, probeConnection } from './fence.js'
 import { logInfo, logWarn } from './log.js'
 import { createLegacyProfileManager, isProfileManager } from './legacy-profile-manager.js'
 
 import { sendJson, sendEmpty, sendMethodNotAllowed, contentTypeOf, readBoundedBody, unexpectedControlField, parseCommitBody, parseDiagnosticsBody } from './http/wire.js'
 import { loadResponse, commitResponse, profileFailureResponse, profileChangedResponse, registryUnhealthyResponse, profileHealth } from './http/respond.js'
+
+/** Record kinds the `/perf` route accepts (spec §3.2). */
+const PERF_KINDS = new Set(['gesture', 'window', 'final'])
+const PERF_RUN_ID_MAX = 64
+const PERF_SCHEMA_VERSION = 1
+
+/**
+ * Validate one perf record envelope. The host never inspects the counters,
+ * samples or state blocks (the client owns that schema): it only checks that a
+ * referenced run can be reconstructed, so one request cannot append garbage.
+ *
+ * @returns {{ ok: true, runId: string, schemaVersion: number, record: object } | { ok: false, message: string }}
+ */
+const parsePerfBody = (body) => {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return { ok: false, message: 'body must be a JSON object' }
+  }
+  const { runId, schemaVersion, record } = body
+  if (typeof runId !== 'string' || runId.length === 0 || runId.length > PERF_RUN_ID_MAX) {
+    return { ok: false, message: `runId must be a non-empty string of at most ${String(PERF_RUN_ID_MAX)} characters` }
+  }
+  if (schemaVersion !== PERF_SCHEMA_VERSION) {
+    return { ok: false, message: `schemaVersion must be ${String(PERF_SCHEMA_VERSION)}` }
+  }
+  if (record === null || typeof record !== 'object' || Array.isArray(record)) {
+    return { ok: false, message: 'record must be a JSON object' }
+  }
+  if (!PERF_KINDS.has(record.kind)) {
+    return { ok: false, message: 'record.kind must be gesture, window or final' }
+  }
+  return { ok: true, runId, schemaVersion, record }
+}
 
 export const registerRoutes = (ctx, store, options = {}) => {
   if (typeof ctx?.webServer?.register !== 'function') {
@@ -60,6 +95,10 @@ export const registerRoutes = (ctx, store, options = {}) => {
       : null
   const debugFilePath =
     typeof options.debugFilePath === 'string' && options.debugFilePath.length > 0 ? options.debugFilePath : null
+  const perfFilePath =
+    typeof options.perfFilePath === 'string' && options.perfFilePath.length > 0 ? options.perfFilePath : null
+  const perfEnabled = () =>
+    typeof options.perfEnabled === 'function' ? options.perfEnabled() === true : options.perfEnabled === true
   const diagnosticsEnabled = () =>
     typeof options.diagnosticsEnabled === 'function'
       ? options.diagnosticsEnabled() === true
@@ -445,6 +484,99 @@ export const registerRoutes = (ctx, store, options = {}) => {
     `dsh-session-grove: POST ${DIAGNOSTICS_PATH}`,
   )
 
+  // 0.4.0-beta.66 perf ingest (spec §3.5): one record per POST,
+  // append-only NDJSON, same fence / bounded body / bounded file strategy as
+  // the diagnostics trace. Client opt-out only stops the POSTs; the route stays
+  // registered so a reload cannot change the mounted surface.
+  const perfPath = register(
+    PERF_PATH,
+    async (req, res) => {
+      if (fenceDenied(req, res)) return
+      if (req.method !== 'POST') {
+        sendMethodNotAllowed(res, 'POST')
+        return
+      }
+      if (!perfEnabled()) {
+        sendJson(res, 403, { ok: false, code: 'perf-disabled', message: 'perf capture is disabled' })
+        return
+      }
+      if (contentTypeOf(req) !== 'application/json') {
+        sendJson(res, 415, {
+          ok: false,
+          code: 'unsupported-media-type',
+          message: 'content-type must be application/json',
+        })
+        return
+      }
+      if (perfFilePath === null) {
+        sendJson(res, 503, { ok: false, code: 'io', message: 'perf path is not configured' })
+        return
+      }
+
+      let text
+      try {
+        const read = await readBoundedBody(req, MAX_PERF_BODY_BYTES)
+        if (read.tooLarge === true) {
+          sendJson(res, 413, { ok: false, code: 'payload-too-large', message: 'request body is too large' })
+          return
+        }
+        text = read.text
+      } catch (error) {
+        sendJson(res, 400, {
+          ok: false,
+          code: 'bad-request',
+          message: `request body unreadable: ${error instanceof Error ? error.message : String(error)}`,
+        })
+        return
+      }
+
+      let body
+      try {
+        body = JSON.parse(text)
+      } catch {
+        // Spec §3.5: a body that is not JSON at all is a bad request, while an
+        // envelope that parses but fails validation below is 422.
+        //
+        // This 400 is a deliberate deviation from the diagnostics route, which
+        // answers an unparseable body with 422: spec §3.5 explicitly requires
+        // 400 for the perf ingest. Do not "unify" the 4xx codes here — the
+        // split is the spec, not an oversight.
+        sendJson(res, 400, { ok: false, code: 'bad-request', message: 'body is not valid JSON' })
+        return
+      }
+      const parsed = parsePerfBody(body)
+      if (!parsed.ok) {
+        sendJson(res, 422, { ok: false, code: 'invalid', message: parsed.message })
+        return
+      }
+
+      const line = JSON.stringify({
+        receivedAt: new Date().toISOString(),
+        runId: parsed.runId,
+        schemaVersion: parsed.schemaVersion,
+        record: parsed.record,
+      })
+      try {
+        await mkdir(dirname(perfFilePath), { recursive: true })
+        try {
+          const info = await stat(perfFilePath)
+          if (info.size + Buffer.byteLength(`${line}\n`, 'utf8') > MAX_PERF_FILE_BYTES) {
+            // Bounded measurement file: truncate rather than grow without limit.
+            await writeFile(perfFilePath, '', 'utf8')
+          }
+        } catch (error) {
+          if (error?.code !== 'ENOENT') throw error
+        }
+        await appendFile(perfFilePath, `${line}\n`, 'utf8')
+        sendJson(res, 200, { ok: true })
+      } catch (error) {
+        logWarn(ctx, `dsh-session-grove: perf append failed: ${error instanceof Error ? error.message : String(error)}`)
+        sendJson(res, 503, { ok: false, code: 'io', message: error instanceof Error ? error.message : String(error) })
+      }
+    },
+    `dsh-session-grove: POST ${PERF_PATH}`,
+  )
+
   const debugPath = register(
     DEBUG_PATH,
     async (req, res) => {
@@ -612,6 +744,7 @@ const sessionRoutes = registerSessionRoutes({
       loadPath,
       commitPath,
       diagnosticsPath,
+      perfPath,
       ...(eventsPath === null ? [] : [eventsPath]),
       debugPath,
       ...(controlDoctorPath === null ? [] : [controlDoctorPath]),

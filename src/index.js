@@ -24,7 +24,7 @@ import z from '@deepseek-ai/schemastery'
 import { probeConnection } from './host/fence.js'
 import { resolveRecordPath } from './host/home.js'
 import { logInfo, logWarn } from './host/log.js'
-import { CONTROL_TOKEN_FILE_NAME, DEBUG_FILE_NAME, DEFAULT_PROFILE_ID, DIAGNOSTICS_FILE_NAME } from './host/constants.js'
+import { CONTROL_TOKEN_FILE_NAME, DEBUG_FILE_NAME, DEFAULT_PROFILE_ID, DIAGNOSTICS_FILE_NAME, PERF_FILE_NAME } from './host/constants.js'
 import { registerRoutes } from './host/routes.js'
 import { createProfileManager } from './host/profile-manager.js'
 import { createChangeHub } from './host/change-hub.js'
@@ -33,7 +33,7 @@ import { createControlTool } from './host/tool.js'
 import { inspectStorageHealth } from './host/storage-health.js'
 import { HOST_REQUIRED, SUPPORTED_DSH_RANGE, compatibilityReport, detectHostCapabilities } from './adapters/dsh-capabilities.js'
 import { resolveDshVersion, selectDshAdapter } from './adapters/dsh-selector.js'
-import { PLUGIN_VERSION } from './shared/constants.js'
+import { PLUGIN_VERSION, PERF_MEASURE_BUILD } from './shared/constants.js'
 
 /** Cordis function-plugin name (matches the bundle patch row id). */
 export const name = 'dsh-session-grove'
@@ -64,6 +64,14 @@ export const Config = z.object({
     .default(false)
     .volatile()
     .description('Allow AI control of session title and archived status; requires controlApi'),
+  // 0.4.0-beta.66 perf capture: a config switch position only (deliberately
+  // absent from the settings card, skill-repair.js CONFIG_FIELDS); the build
+  // constant alone decides whether capture is on by default.
+  perf: z
+    .boolean()
+    .default(false)
+    .volatile()
+    .description('Enable the local perf capture route (on by default in the .66 batch)'),
 })
 
 /**
@@ -113,6 +121,9 @@ export const apply = (ctx, config = {}) => {
         // `storageDir`/`filePath` can never point diagnostics at the real home.
         join(record.storageDir, DIAGNOSTICS_FILE_NAME)
   const debugFilePath = join(record.storageDir, DEBUG_FILE_NAME)
+  // 0.4.0-beta.66: the perf trace lives next to the diagnostics/debug artifacts
+  // under `storages/`, never in a profile dir.
+  const perfFilePath = join(record.storageDir, PERF_FILE_NAME)
   let controlToken = null
   let controlTokenPath = null
   const dshHome = dirname(record.storageDir)
@@ -160,8 +171,12 @@ export const apply = (ctx, config = {}) => {
     profileManager,
     diagnosticsFilePath,
     debugFilePath,
+    perfFilePath,
     diagnosticsEnabled: () => readFlag('diagnostics'),
     debugProbeEnabled: () => readFlag('debugProbe'),
+    // .66 capture is on by default: the build constant wins over the config
+    // switch, so the batch captures without any settings change.
+    perfEnabled: () => PERF_MEASURE_BUILD || readFlag('perf'),
     controlApiEnabled: () => readFlag('controlApi'),
     controlDestructiveEnabled: () => readFlag('controlDestructive'),
     controlSessionsEnabled: () => readFlag('controlSessions'),
