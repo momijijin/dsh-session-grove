@@ -8,6 +8,7 @@
  * wider-than-minimum sidebar the clamp reports `null` so callers skip the resize.
  */
 import { safeStorage } from './state.js'
+import { perfCount, perfMs, perfSpan } from './perf.js'
 
 /** localStorage key for the user-chosen sidebar width. */
 export const SIDEBAR_WIDTH_KEY = 'dsh-session-grove.width.v1'
@@ -81,8 +82,13 @@ export const writeSidebarWidth = (px, storage = safeStorage()) => {
 // first track to 264..420px, so a wider sidebar cannot be expressed through the
 // host API. The adapter marks the frame / sidebar root with data attributes and
 // installs one `<style>` element whose `!important` rules win over the host's
-// inline `grid-template-columns` / `width`. Nothing is written into the host's
-// inline styles, which keeps React re-renders and restoration simple.
+// inline `grid-template-columns` / `width`. The rules read the inherited
+// `--dsg-sidebar-col` custom property, so a drag frame is one inline custom
+// property write instead of a whole stylesheet re-parse (measured 1.7 ms/frame
+// for the text rewrite). Writing that single property is safe: it never
+// overwrites a host declaration (the host keeps owning
+// `grid-template-columns` / `width`), and `refresh()` restores it if the host
+// clears the inline style with `cssText` or rebuilds the node.
 // ---------------------------------------------------------------------------
 
 /** Attribute marking the host frame (inline `grid-template-columns`). */
@@ -91,6 +97,8 @@ const FRAME_ATTR = 'data-dsg-sidebar-frame'
 const ROOT_ATTR = 'data-dsg-sidebar-root'
 /** Attribute on the singleton override `<style>` element. */
 const STYLE_ATTR = 'data-dsg-width'
+/** Inline custom property carrying the chosen first-track width (px). */
+const COLUMN_VAR = '--dsg-sidebar-col'
 /** The host's own resize handle; hidden while the override is active. */
 const OFFICIAL_HANDLE_SELECTOR = '[data-side="sidebar"]'
 
@@ -229,13 +237,30 @@ export const applyWidthOverride = (nodes, width, viewportWidth, { onLost } = {})
   const style = existing ?? doc.createElement('style')
   style.setAttribute(STYLE_ATTR, '')
 
-  const writeStyle = () => {
-    const columns = rest ? `${current}px ${rest}` : `${current}px`
+  const writeRules = () => {
+    // P2: only the host-template-change path rewrites this sheet now. The width
+    // itself lives in `--dsg-sidebar-col`, so a drag frame never touches the
+    // text (the sample still covers the sheet write for that comparison).
+    const stopStyleWrite = perfSpan('widthStyleWriteMs')
+    perfCount('width:styleWrite')
+    const columns = rest ? `var(${COLUMN_VAR}) ${rest}` : `var(${COLUMN_VAR})`
     style.textContent = [
       `[${FRAME_ATTR}]{grid-template-columns:${columns} !important}`,
-      `[${ROOT_ATTR}]{width:${current}px !important;max-width:none !important;min-width:0 !important}`,
+      `[${ROOT_ATTR}]{width:var(${COLUMN_VAR}) !important;max-width:none !important;min-width:0 !important}`,
       `[${FRAME_ATTR}] ${OFFICIAL_HANDLE_SELECTOR}{display:none !important}`,
     ].join('\n')
+    stopStyleWrite()
+  }
+
+  const writeColumnVar = () => {
+    // One inherited custom property feeds both `!important` rules above. The
+    // install path must write it in the same task (spec §11.6 B1): without it
+    // the `var()` declarations are invalid at computed-value time and the shell
+    // collapses to a single column.
+    perfCount('width:cssVar')
+    perfMs('widthCssVarMs', () => {
+      frame.style.setProperty(COLUMN_VAR, `${current}px`)
+    })
   }
 
   let active = true
@@ -250,6 +275,7 @@ export const applyWidthOverride = (nodes, width, viewportWidth, { onLost } = {})
     observer.disconnect()
     frame.removeAttribute(FRAME_ATTR)
     sidebarRoot.removeAttribute(ROOT_ATTR)
+    frame.style.removeProperty(COLUMN_VAR)
     style.remove()
   }
 
@@ -272,8 +298,12 @@ export const applyWidthOverride = (nodes, width, viewportWidth, { onLost } = {})
     const latestRest = restOfTemplate(frame.style.gridTemplateColumns)
     if (latestRest && latestRest !== rest) {
       rest = latestRest
-      writeStyle()
+      writeRules()
     }
+    // The host can rebuild its inline style (`cssText`, a React style reset or a
+    // node swap) and drop the property we wrote. Restore it in the same task:
+    // a missing value makes the `var()` rules invalid and collapses the shell.
+    if (frame.style.getPropertyValue(COLUMN_VAR) === '') writeColumnVar()
     applyAttrs()
   }
 
@@ -281,7 +311,8 @@ export const applyWidthOverride = (nodes, width, viewportWidth, { onLost } = {})
   observer.observe(frame, { attributes: true, attributeFilter: ['style'] })
 
   applyAttrs()
-  writeStyle()
+  writeRules()
+  writeColumnVar()
   if (!existing) doc.head?.appendChild(style)
 
   return {
@@ -296,7 +327,8 @@ export const applyWidthOverride = (nodes, width, viewportWidth, { onLost } = {})
       }
       viewport = nextViewport
       current = next
-      writeStyle()
+      // The drag frame: one custom property write, no stylesheet text change.
+      writeColumnVar()
       applyAttrs()
       return current
     },

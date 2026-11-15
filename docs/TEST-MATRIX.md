@@ -1,6 +1,98 @@
 # Test Matrix
 
-Status: `0.4.0-beta.65`  
+Status: `0.4.0-beta.66`  
+`.66` is the sidebar performance batch: the release build ships with the perf
+capture **off** (a local two-end opt-in). The final tree runs **1173/1173**
+with coverage **95.00% lines / 86.89% branches / 91.97% functions** in the
+final gate round (92/80/85 thresholds), and the release lane adds real-runtime
+evidence on two fresh homes (see the `.66` release-lane block below).
+`check:ui` stays **45/45**
+(1 module-load + 44 component tests, 19 components across 28 client modules),
+`uiModules` stays 28, `DOC_VERSION` stays 1 and the 397 keys in 19 dictionaries
+are untouched.
+
+The coverage denominator is exactly what `npm test` loads: **93 of the 120**
+`src/**/*.js` files. The 27 unloaded files are 26 non-entry client modules plus
+the bundle entry `src/client/index.js`; of the component modules only
+`components-resize-handle.js` is loaded (dynamically, from
+`width-gesture.test.js`), and the `GroupsView` component graph is **not** in the
+denominator. This is a different number from `check:ui`'s **28 `uiModules`**:
+the UI runtime loads the component graph that `npm test` does not, so the two
+figures must not be mixed.
+
+| Step | Scope | Unit/contract | Coverage (lines / branches / functions) |
+|---|---|---|---|
+| 9 | drag line via `transform`, preview/commit split, adaptive backpressure | 1096/1096 (pre-patch 1085/1085) | 94.80–94.82 / 86.58–86.66 / 91.67 |
+| 10 | dialog gesture / scrollbar / drag-target coalescing + drag label cache | 1156/1156 (patch round) | 94.92 / 86.73 / 91.65 |
+| 11 | A: 70 ms drop-target candidate hold | 1160/1160 | 94.94 / 86.79–86.82 / 91.93 |
+| 12 | A2: 100 ms speed gate + 40 ms hold upgrade | 1168/1168 | 94.97–94.99 / 86.85–86.88 / 91.96 |
+| 13 | closeout: capture off by default, audit hardening, final docs | 1171/1171 | 95.00–95.01 / 86.89–86.92 / 91.97 |
+| 14 | cheap-debt cleanup: docs truth, dead aliases, comment drift, threshold contract tests | 1173/1173 (+2) | 95.00 / 86.89 / 91.97 |
+
+The Step 12 delta is +8 cases in `drag-frame.test.js` (22 → 30): the drop-target
+committer now has the v10 speed gate — a fast sweep still holds a new target for
+70 ms, a slow aim (net speed below 0.5 px/ms over a 100 ms sample window) or a
+pause above 100 ms commits it immediately, a pending hold is upgraded when the
+same target's last 40 ms of samples slow down, a missing pointer falls back to
+the fixed hold, and the `drag:targetImmediate` counter stays disjoint from
+`drag:targetPending`. The wiring is a `{ x, y, t }` pointer sample taken once
+per native dragover at the dispatch boundary (`event.timeStamp` dedupe) and
+passed only by the four non-null set points. The Step 11-A delta was +4 cases
+in `drag-frame.test.js` (18 → 22): the committer holds a candidate for
+`TARGET_HOLD_MS` (70 ms) under a fake clock instead of committing on the next
+animation frame — a repeated same target does not restart the hold, a changed
+target restarts it, drop/dragend/dragleave flush synchronously, and one case
+exercises the default `performance.now` / `setTimeout` / `clearTimeout` path.
+It supersedes the frame batch only for the drop target (`frame-batch.js` still
+serves the dialog and scrollbar). The Step 10 delta was +60 cases:
+`frame-batch.test.js` (13), `dialog-frame.test.js` (17),
+`scroll-frame.test.js` (12) and `drag-frame.test.js` (18) cover the rAF
+coalescer, the dialog gesture settle, the scrollbar mount-vs-frame split and
+the drag-target/label-cache contract; the step adds three DOM-free client
+modules (`frame-batch.js`, `dialog-frame.js`, `drag-frame.js`) that the React
+modules import. The Step 13 delta was +3 cases: the 0.55 px/ms sweep sampled at
+3–9 ms steps over 100+ ms (0–1 immediate decisions, exactly one commit), the
+`resetSamples()` cross-drag isolation case, and a wiring lock proving both drag
+starts reset the window and the pointer dedupe; `perf.test.js`,
+`scroll-frame.test.js`, `dialog-frame.test.js` and `tests/host/entry.test.js`
+now opt in explicitly because the release build ships capture off, and the
+default-off case was kept as the first assertion (it fails if
+`PERF_MEASURE_BUILD` is flipped back to `true`). The Step 14 delta is +2 cases
+in `drag-frame.test.js` (33 → 35) and no production behavior change: one case
+pins the six drag thresholds as literals (70 ms hold, 0.5 px/ms gate, 100 ms
+entry window, 40 ms upgrade window, 2 ms sample dedupe, 100 ms pause) so a
+silent retune fails, and one 0.45 px/ms aim case (3–9 ms samples) proves the
+slow path counts a `drag:targetImmediate` decision and publishes its target
+exactly once without requiring the publish on one particular event. The same
+step deletes the unused `handleWidthChange` / `handleWidthCommit` aliases (the
+tests call `previewWidth`/`commitWidth` directly) and fixes the `frame-batch` /
+`drag-frame` / `dialog-frame` header comments; none of that changes runtime
+behavior.
+
+**`.66` release-lane evidence (2026-11-16, final package).** The package is
+`dsh-session-grove-0.4.0-beta.66.tgz`, **899,088 bytes**, sha256
+`FB2A4EE93E742B30D85A51A1778A21A3518408C7E444D748D406E9C6C32ABDB8`, **251
+files**, built from the `87a70b4` dev tip and packed to
+`%TEMP%\dsg-perf-66\` (outside the repository); the packaged `lib/client.js`
+is sha256 `7B3ED334FB7417AD65705DFA9137F1A510C717C88F70D577B2416BD179169641`.
+Both isolated instances below installed this package and report plugin version
+`0.4.0-beta.66`. These are **agent debug runs at the user's explicit request**,
+not user runs.
+
+- `npm run test:isolated` — **PASS** (exit 0) on fresh home
+  `<temp>\dsh-sg-e2e-20261116-034628` (port 4418): narrow matrix **30 pass /
+  0 skip / 0 failure** (the narrow-matrix count, not the whole suite), preview
+  geometry dialog **560×560**, narrow sidebar **252px**, body scroll
+  **3659>466**, row gaps **[0,0,0]**; log
+  `%TEMP%\dsg-perf-66\aplus-final.log`.
+- `npm run test:locale-pack` — **PASS** and `npm run test:all-locales` —
+  **23/23 PASS** on fresh home `<temp>\dsh-sg-e2e-20261116-035128` (port 4419)
+  with `e2e/fixtures/ja-locale-pack`; log
+  `%TEMP%\dsg-perf-66\locale-final.log`.
+- The latest **user desktop acceptance** remains the 2026-11-15 run of the
+  `.66` behavior; the post-acceptance Step 14 delta is dead code, comments,
+  docs and the rebuilt artifact only, so runtime behavior is unchanged.
+
 This file is the single source of truth for **what has actually been verified**
 and at which level. Other docs should link here instead of restating counts.
 
@@ -18,15 +110,15 @@ isolated DSH instance or run Playwright, so a release note cannot claim A+ or
 all-locales as an automated CI result.
 
 Counts in this file describe the current `dev` tree unless a line says
-otherwise; the **`.65` batch evidence** below is the current count, and the
-published `.64` and `.63` figures that follow are historical. The `.65` tree
-runs **1031/1031** unit/contract tests and **45/45** `check:ui` cases with
-**397 locale keys in 19 dictionaries** (no locale resource changed); its
-real-host evidence is **PASS** (2026-11-13, agent debug run at the user's
-explicit request; the S1–S6 lane used two fresh homes, the ui-browser retry
-reusing its home, with the 835,756-byte tarball; after S7 the full
-`test:isolated` run used the **842,325-byte** S7 code-evidence tarball on fresh
-home `160323`).
+otherwise; the **`.66` batch evidence** above is the current count; the
+**`.65` batch evidence** below and the published `.64`/`.63` figures are
+historical. The `.65` tree runs **1031/1031** unit/contract tests and
+**45/45** `check:ui` cases with **397 locale keys in 19 dictionaries** (no
+locale resource changed); its real-host evidence is **PASS** (2026-11-13,
+agent debug run at the user's explicit request; the S1–S6 lane used two
+fresh homes, the ui-browser retry reusing its home, with the 835,756-byte
+tarball; after S7 the full `test:isolated` run used the **842,325-byte** S7
+code-evidence tarball on fresh home `160323`).
 The `.64` tree (released as `v0.4.0-beta.64` on 2026-11-12) ran
 **938/938** unit/contract tests and 44/44 `check:ui` cases; the `.64` community
 run passed `test:isolated`, `test:ui-browser`, `test:locale-pack` and
@@ -517,6 +609,15 @@ cells remain historical through `.61` (no official `.62` run).
 
 ## Not verified
 
+- **`.66` has release-lane real-runtime evidence; no fresh user desktop
+  acceptance after Step 14.** The two fresh-home lanes above (`test:isolated`;
+  `test:locale-pack` + `test:all-locales`) are agent debug runs at the user's
+  explicit request, not user runs. The 2026-11-15 user desktop acceptance
+  covers `.66` behavior; the post-acceptance Step 14 delta is dead code,
+  comments, docs and the rebuilt artifact only. `test:ui-browser` was **not**
+  rerun for `.66`, and no official A+ O run is claimed (the latest official
+  evidence remains `.61`). The `.66` package is a local candidate, not a
+  tagged release.
 - **The group-archive-specific A+ script was not executed.** `e2e/groups.spec.mjs`
   (two group tri-state segments, keep-open across group picks, hidden/`only`/
   `pathOnly`, archived-session rename/archive, drag/fork disabled, search/status

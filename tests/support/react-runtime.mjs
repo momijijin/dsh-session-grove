@@ -45,8 +45,20 @@ export const useReducer = (_reducer, value) => [initialValue(value), () => {}]
 export const useMemo = (factory) => factory()
 export const useCallback = (callback) => callback
 export const useRef = (value) => ({ current: value })
-export const useEffect = () => {}
-export const useLayoutEffect = () => {}
+/**
+ * Opt-in effect runner: a test may set `globalThis.__DSG_REACT_TEST_EFFECTS__`
+ * to an array before calling a component/hook. The effect body then runs
+ * immediately (as it would after mount) and its cleanup, when it returns one,
+ * is appended to that array so the test can unmount explicitly. Without the
+ * array the hooks stay inert, exactly like the plain stub.
+ */
+const runTestEffect = (effect) => {
+  const cleanups = globalThis.__DSG_REACT_TEST_EFFECTS__
+  if (!Array.isArray(cleanups)) return
+  cleanups.push(typeof effect === 'function' ? effect() : undefined)
+}
+export const useEffect = (effect) => runTestEffect(effect)
+export const useLayoutEffect = (effect) => runTestEffect(effect)
 export const useInsertionEffect = () => {}
 export const useImperativeHandle = () => {}
 export const useContext = (context) => context?.defaultValue ?? null

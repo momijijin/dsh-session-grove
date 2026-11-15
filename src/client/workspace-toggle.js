@@ -14,6 +14,7 @@
  * Pure DOM, no React and no host imports so it stays testable with the fake
  * document helpers used by the other client modules.
  */
+import { perfCount, perfMs } from './perf.js'
 
 const BUTTON_TEST_ID = 'session-groups-workspace-toggle'
 const HINT_TEST_ID = 'session-groups-workspace-entry-hint'
@@ -208,33 +209,37 @@ export const installWorkspaceToggle = ({ doc = globalThis.document, label = '', 
     button.appendChild(hintDot)
   }
 
-  const update = () => {
-    if (disposed) return
-    const header = findOfficialHeader(doc)
-    const anchor = header ? findOfficialHeaderAnchor(header) : null
-    if (!anchor?.getBoundingClientRect) {
-      button.setAttribute('data-visible', 'false')
-      if (hintShown) hintEl?.setAttribute('data-visible', 'false')
-      return
-    }
-    const rect = anchor.getBoundingClientRect()
-    if (!(rect.width > 0) || !(rect.height > 0)) {
-      button.setAttribute('data-visible', 'false')
-      if (hintShown) hintEl?.setAttribute('data-visible', 'false')
-      return
-    }
-    const left = Math.max(4, rect.left - 4 - 28)
-    const top = rect.top + (rect.height - 28) / 2
-    button.style.left = `${Math.round(left)}px`
-    button.style.top = `${Math.round(top)}px`
-    button.setAttribute('data-visible', 'true')
-    if (!hintDismissed && hintShown) {
-      hintEl?.setAttribute('data-visible', 'true')
-      positionHint()
-    } else if (!hintDismissed) {
-      showHintOnce()
-    }
-  }
+  const update = () =>
+    // P5: document-level selector scan + forced layout read + inline style
+    // writes on every scroll frame; the sample covers the whole update.
+    perfMs('toggleUpdateMs', () => {
+      perfCount('toggle:update')
+      if (disposed) return
+      const header = findOfficialHeader(doc)
+      const anchor = header ? findOfficialHeaderAnchor(header) : null
+      if (!anchor?.getBoundingClientRect) {
+        button.setAttribute('data-visible', 'false')
+        if (hintShown) hintEl?.setAttribute('data-visible', 'false')
+        return
+      }
+      const rect = anchor.getBoundingClientRect()
+      if (!(rect.width > 0) || !(rect.height > 0)) {
+        button.setAttribute('data-visible', 'false')
+        if (hintShown) hintEl?.setAttribute('data-visible', 'false')
+        return
+      }
+      const left = Math.max(4, rect.left - 4 - 28)
+      const top = rect.top + (rect.height - 28) / 2
+      button.style.left = `${Math.round(left)}px`
+      button.style.top = `${Math.round(top)}px`
+      button.setAttribute('data-visible', 'true')
+      if (!hintDismissed && hintShown) {
+        hintEl?.setAttribute('data-visible', 'true')
+        positionHint()
+      } else if (!hintDismissed) {
+        showHintOnce()
+      }
+    })
 
   const schedule = () => {
     if (disposed || frame !== null) return
