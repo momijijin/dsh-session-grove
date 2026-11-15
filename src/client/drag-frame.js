@@ -292,6 +292,14 @@ export const createDropTargetCommit = ({
       candidate = null
       samples = []
     },
+    /**
+     * Forget the speed window without touching the timer, candidate or the
+     * committed target. The two drag starts call this so the first candidate of
+     * a drag is never decided by motion from the previous drag.
+     */
+    resetSamples() {
+      samples = []
+    },
     /** True while a candidate waits for its hold period. */
     pending: () => active,
     /** `now()` of the current candidate (the timer anchor), for tests. */

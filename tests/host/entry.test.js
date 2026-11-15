@@ -230,6 +230,9 @@ test('global artifacts stay in storageDir while a named profile is active', asyn
   let ready
   apply(ctx, {
     storageDir: home.storageDir,
+    // The `.66` release build ships capture off, so the host half of the
+    // two-end opt-in is required for the route to accept a record.
+    perf: true,
     onReady: (value) => {
       ready = value
     },
@@ -248,8 +251,8 @@ test('global artifacts stay in storageDir while a named profile is active', asyn
   )
 
   // 0.4.0-beta.66: the perf capture writes its own file next to the other
-  // global artifacts (never into the active profile directory). The build
-  // constant is on, so the route accepts without any config switch.
+  // global artifacts (never into the active profile directory). Capture ships
+  // off, so this call passes the plugin's host-side `perf` switch.
   const perf = routes.find((route) => route.path === PERF_PATH)
   const perfResponse = makeResponse()
   await perf.handler(

@@ -351,7 +351,13 @@ export const GroupsView = (props) => {
       if (isWidthGestureActive()) {
         perfCount('chrome:skip')
         dirtyRef.current = true
-        const narrow = resolveNarrow((getLiveWidth() ?? appliedWidthRef.current) - 12, chromeRef.current.narrow)
+        // `getLiveWidth()` can be null before the first preview write, and the
+        // stored preference can be null too: a non-finite width cannot resolve
+        // `narrow`, so keep the last flag and leave the post-drag pass owed
+        // instead of feeding NaN through the hysteresis.
+        const liveWidth = getLiveWidth() ?? appliedWidthRef.current
+        if (!Number.isFinite(liveWidth)) return
+        const narrow = resolveNarrow(liveWidth - 12, chromeRef.current.narrow)
         if (narrow !== chromeRef.current.narrow) applyChrome({ ...chromeRef.current, narrow })
         return
       }
@@ -384,7 +390,12 @@ export const GroupsView = (props) => {
     const unsubscribeWidthGesture = onWidthGestureEnd(() => {
       if (!dirtyRef.current) return
       dirtyRef.current = false
-      pendingFrameRef.current = requestAnimationFrame(measure)
+      pendingFrameRef.current = requestAnimationFrame(() => {
+        // The frame is no longer pending once it runs; a later cleanup must not
+        // cancel a handle that already fired.
+        pendingFrameRef.current = null
+        measure()
+      })
     })
     return () => {
       unsubscribeWidthGesture()
@@ -392,6 +403,7 @@ export const GroupsView = (props) => {
         cancelAnimationFrame(pendingFrameRef.current)
         pendingFrameRef.current = null
       }
+      dirtyRef.current = false
       measureChromeRef.current = null
       globalThis.removeEventListener?.('resize', measure)
       observer?.disconnect?.()
@@ -756,6 +768,11 @@ export const GroupsView = (props) => {
       perfBeginGesture('drag-session')
       suppressedClickRef.current = null
       dragTargetLockRef.current = null
+      // A new drag starts with its own speed window: samples from the previous
+      // drag must not decide its first candidate, and the dispatch-boundary
+      // dedupe must forget the previous native-event stamp.
+      dropCommitRef.current?.resetSamples()
+      dragPointerRef.current = null
       setDragState(dragRef.current)
       rt()?.startDragLabel?.(dragRef.current.label)
     },
@@ -815,6 +832,10 @@ export const GroupsView = (props) => {
       perfBeginGesture('drag-group')
       suppressedClickRef.current = { groupId: group.id, at: Date.now() }
       dragTargetLockRef.current = null
+      // Same reset as the session drag start: no cross-drag samples and no
+      // stale native-event stamp may leak into this gesture's first decision.
+      dropCommitRef.current?.resetSamples()
+      dragPointerRef.current = null
       setDragState(drag)
       // SPEC §14.2.3: build the drag-time name map once and clear any queued target.
       labelCacheRef.current.build(store.doc)
@@ -868,6 +889,10 @@ export const GroupsView = (props) => {
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
     },
     onPlaceholderDrop: (event, target) => {
+      // Deliberately no `flushDropTarget()` here: the placeholder is rendered
+      // from the committed target and `target` is that render-time value.
+      // Flushing would commit a candidate the user never saw painted, so this
+      // handler acts on exactly the placeholder that was on screen.
       const drag = dragRef.current
       if (!drag) return
       event.preventDefault()

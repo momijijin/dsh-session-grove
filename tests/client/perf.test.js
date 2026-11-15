@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test, { beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
@@ -184,46 +184,56 @@ const stubReporterEnv = ({ supportedEntryTypes = null, loafObserverThrows = fals
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-test('the .66 perf batch captures by default and the localStorage 0 opt-out wins', () => {
-  clearFlag()
-  const restore = stubStorage('0')
-  try {
-    const disabled = perfReset()
-    assert.equal(disabled.enabled, false)
-    assert.equal(perfEnabled(), false)
-    perfCount('ignored')
-    perfRender('ignored')
-    perfSample('dragOverMs', 10)
-    perfMark('ignored')
-    perfDragOver('ignored', 10)
-    perfDropTarget(true, 10)
-    assert.deepEqual(perfSnapshot().counters, {})
-    assert.deepEqual(perfSnapshot().renders, {})
-    assert.equal(perfSnapshot().marks.length, 0)
-    assert.equal(perfSnapshot().samples.dragOverMs.count, 0)
-    assert.equal(buildRecord('window'), null, 'a disabled capture never queues a record')
-    assert.equal(perfSnapshot().outboxSize, 0)
-  } finally {
-    restore()
-    perfReset()
-  }
+/**
+ * The `.66` release build ships with capture off, so every case in this file
+ * opts in explicitly through the historical global flag. The first case clears
+ * it again to assert the documented default (and the discrimination build that
+ * flips `PERF_MEASURE_BUILD` back to `true` makes it fail).
+ */
+beforeEach(() => {
+  globalThis.__DSG_PERF__ = true
+  perfReset()
+})
 
-  // The build constant alone enables capture.
-  assert.equal(perfReset().enabled, true)
+test('the .66 release build ships capture off; the client opt-ins enable it and the 0 opt-out wins', () => {
+  // No override at all: this is the shipped default.
+  clearFlag()
+  assert.equal(PERF_MEASURE_BUILD, false, 'the release build ships with capture off')
+  assert.equal(perfReset().enabled, false)
+  assert.equal(perfEnabled(), false)
+  perfCount('ignored')
+  perfRender('ignored')
+  perfSample('dragOverMs', 10)
+  perfMark('ignored')
+  perfDragOver('ignored', 10)
+  perfDropTarget(true, 10)
+  assert.deepEqual(perfSnapshot().counters, {})
+  assert.deepEqual(perfSnapshot().renders, {})
+  assert.equal(perfSnapshot().marks.length, 0)
+  assert.equal(perfSnapshot().samples.dragOverMs.count, 0)
+  assert.equal(buildRecord('window'), null, 'a disabled capture never queues a record')
+  assert.equal(perfSnapshot().outboxSize, 0)
+
+  // The historical global opt-in still enables capture in the release build.
+  globalThis.__DSG_PERF__ = true
+  assert.equal(perfReset().enabled, true, 'the historical global opt-in enables capture')
   assert.equal(perfEnabled(), true)
 
-  // The historical global opt-in still works, but this batch ships with
-  // `PERF_MEASURE_BUILD === true`, so capture is already on and a plain
-  // `assert.equal(perfEnabled(), true)` here would be a vacuous assertion.
-  // The opt-in cannot be observed separately while the constant is `true`; what
-  // is observable in this batch is `'0'` overriding the constant *and* the flag.
-  globalThis.__DSG_PERF__ = true
-  if (PERF_MEASURE_BUILD !== true) {
-    assert.equal(perfReset().enabled, true, 'the historical global opt-in still enables capture')
+  // The documented localStorage opt-in works the same way.
+  clearFlag()
+  const restoreOptIn = stubStorage('1')
+  try {
+    assert.equal(perfReset().enabled, true, 'the localStorage 1 opt-in enables capture')
+  } finally {
+    restoreOptIn()
   }
+
+  // The emergency opt-out wins over both client opt-ins.
+  globalThis.__DSG_PERF__ = true
   const restoreOptOut = stubStorage('0')
   try {
     assert.equal(perfReset().enabled, false)
+    assert.equal(perfEnabled(), false)
   } finally {
     restoreOptOut()
     clearFlag()

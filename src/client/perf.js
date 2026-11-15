@@ -2,11 +2,15 @@
  * Performance instrumentation (0.2.2 drag/commit probe, extended in the
  * 0.4.0-beta.66 sidebar performance batch).
  *
- * Two ways in:
+ * The `.66` release build ships OFF (`PERF_MEASURE_BUILD === false`), so
+ * nothing is captured by default. Two client-side ways in:
  *
- *   PERF_MEASURE_BUILD === true            // .66 batch default
- *   globalThis.__DSG_PERF__ = true         // historical opt-in
- *   localStorage['dsh-session-grove.perf'] = '1'
+ *   localStorage['dsh-session-grove.perf'] = '1'   // documented opt-in
+ *   globalThis.__DSG_PERF__ = true                 // historical opt-in
+ *
+ * The host half is a second switch: the plugin's `perf` configuration key must
+ * also be true, otherwise the route rejects the POST with 403 (the client keeps
+ * the records queued and retries).
  *
  * and one emergency exit that always wins:
  *

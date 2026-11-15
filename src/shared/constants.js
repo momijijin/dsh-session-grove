@@ -4,22 +4,25 @@ export const DOC_VERSION = 1
 export const PLUGIN_VERSION = '0.4.0-beta.66'
 
 /**
- * Performance-capture switch for the 0.4.0-beta.66 sidebar performance batch.
+ * Performance-capture build switch for the 0.4.0-beta.66 sidebar performance
+ * batch.
  *
- * The `.66` batch defaults to ON, so the client reporter and the host
- * `/dsh-session-grove/perf` route both capture resize / scroll / drag
- * attribution without touching any setting; whether the instrumentation stays
- * after the batch wraps up is decided by the user. Setting this to `false`
- * restores the historical opt-in-only behaviour (`globalThis.__DSG_PERF__ ===
- * true` or `localStorage['dsh-session-grove.perf'] = '1'`); the host `/perf`
- * route then also requires the plugin's `perf` configuration key to be true.
+ * The release build ships OFF: `.66` captures nothing by default. The
+ * observation layer stays in place and capture can be turned on locally from
+ * both ends:
+ *
+ * - client: `localStorage['dsh-session-grove.perf'] = '1'` (or
+ *   `globalThis.__DSG_PERF__ = true`) and reload;
+ * - host: the plugin's `perf` configuration key must also be true, otherwise
+ *   the client's POST to `/dsh-session-grove/perf` is rejected with 403.
  *
  * Writing `'0'` into that same localStorage key force-disables capture, even
- * while this constant is `true`. The flag is cached for the page load, so the
+ * when one of the opt-ins is on. The flag is cached for the page load, so the
  * opt-out only takes effect after a reload (or `perfReset()`, which re-reads
- * it).
+ * it). Flipping this constant back to `true` turns capture on by default
+ * again, for a local measurement build.
  */
-export const PERF_MEASURE_BUILD = true
+export const PERF_MEASURE_BUILD = false
 
 /**
  * Public illustrated documentation site. The one-time onboarding card, the

@@ -194,6 +194,8 @@ test('dispose cancels the queued frame and forgets the sample', () => {
 })
 
 test('each applied frame increments the dialog:frame counter', () => {
+  // The `.66` release build ships with capture off; this case opts in.
+  globalThis.__DSG_PERF__ = true
   perfReset()
   try {
     const { frames, frame } = makeGesture()
@@ -205,6 +207,7 @@ test('each applied frame increments the dialog:frame counter', () => {
     frame.end(35, 25)
     assert.equal(perfSnapshot().counters['dialog:frame'], 2, 'the synchronous settle is one more frame')
   } finally {
+    delete globalThis.__DSG_PERF__
     perfReset()
   }
 })

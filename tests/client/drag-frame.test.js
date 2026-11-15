@@ -129,6 +129,15 @@ const drive = (harness, ms, target, y) => {
   harness.commit.set(target, pointerAt(harness, y))
 }
 
+/**
+ * The `.66` release build ships with capture off; the counter cases below opt in
+ * explicitly through the historical global flag.
+ */
+const enablePerf = () => {
+  globalThis.__DSG_PERF__ = true
+  perfReset()
+}
+
 test('a candidate is not committed before the 70 ms hold expires', () => {
   const harness = makeCommit()
   const target = targetBefore('s1')
@@ -269,7 +278,7 @@ test('a hold that changes X → Y → X ends on X exactly once', () => {
 
 // --- v10 speed gate ---------------------------------------------------------
 test('a fast sweep keeps the 70 ms hold and takes no immediate path', () => {
-  perfReset()
+  enablePerf()
   try {
     const harness = makeCommit()
     const first = targetBefore('s1')
@@ -296,12 +305,13 @@ test('a fast sweep keeps the 70 ms hold and takes no immediate path', () => {
     assert.deepEqual(harness.published, [second], 'the hold expiry publishes the swept target')
     assert.equal(harness.clock.armed(), 0)
   } finally {
+    delete globalThis.__DSG_PERF__
     perfReset()
   }
 })
 
 test('a slow aim commits the target immediately and disarms the hold', () => {
-  perfReset()
+  enablePerf()
   try {
     const harness = makeCommit()
     const first = targetBefore('s1')
@@ -318,12 +328,13 @@ test('a slow aim commits the target immediately and disarms the hold', () => {
     harness.clock.advance(300)
     assert.deepEqual(harness.published, [second], 'the disarmed first hold never fires')
   } finally {
+    delete globalThis.__DSG_PERF__
     perfReset()
   }
 })
 
 test('a pause above PAUSE_MS restarts the window and commits immediately', () => {
-  perfReset()
+  enablePerf()
   try {
     const harness = makeCommit()
     const first = targetBefore('s1')
@@ -345,12 +356,13 @@ test('a pause above PAUSE_MS restarts the window and commits immediately', () =>
     assert.deepEqual(harness.published, [first, second], 'the fast post-pause target stays held')
     harness.commit.cancel()
   } finally {
+    delete globalThis.__DSG_PERF__
     perfReset()
   }
 })
 
 test('a pending hold upgrades to an immediate commit when the same target slows down', () => {
-  perfReset()
+  enablePerf()
   try {
     const harness = makeCommit()
     const first = targetBefore('s1')
@@ -373,12 +385,13 @@ test('a pending hold upgrades to an immediate commit when the same target slows 
     harness.clock.advance(300)
     assert.deepEqual(harness.published, [second], 'the old timer cannot commit twice')
   } finally {
+    delete globalThis.__DSG_PERF__
     perfReset()
   }
 })
 
 test('without a pointer sample the commit keeps the fixed hold', () => {
-  perfReset()
+  enablePerf()
   try {
     const harness = makeCommit()
     const target = targetBefore('s1')
@@ -390,12 +403,13 @@ test('without a pointer sample the commit keeps the fixed hold', () => {
     assert.deepEqual(harness.published, [target])
     assert.equal(perfSnapshot().counters['drag:targetImmediate'] ?? 0, 0)
   } finally {
+    delete globalThis.__DSG_PERF__
     perfReset()
   }
 })
 
 test('drag:targetImmediate counts only gated decisions and never overlaps targetPending', () => {
-  perfReset()
+  enablePerf()
   try {
     const harness = makeCommit()
     const a = targetBefore('s1')
@@ -418,6 +432,7 @@ test('drag:targetImmediate counts only gated decisions and never overlaps target
     assert.equal(perfSnapshot().counters['drag:frame'], 2, 'one applied commit per path')
     assert.equal(harness.clock.armed(), 0)
   } finally {
+    delete globalThis.__DSG_PERF__
     perfReset()
   }
 })
@@ -442,6 +457,76 @@ test('the sample window is bounded and drops duplicate samples', () => {
   assert.equal(harness.clock.armed(), 0)
 })
 
+test('a 0.55 px/ms sweep at 3-9 ms steps over 100+ ms stays above the gate and commits once', () => {
+  enablePerf()
+  try {
+    const harness = makeCommit()
+    const first = targetBefore('s1')
+    const second = targetAfter('s2')
+    // 18 native-style samples, 3-9 ms apart, net motion 0.55 px/ms (above the
+    // 0.5 gate) over 104 ms. The ±0.45 px jitter makes some single steps look
+    // slow (0.4 px/ms) — the exact case the 100 ms window must tolerate; a
+    // per-event gate would commit those.
+    const steps = [3, 7, 3, 9, 4, 8, 5, 7, 6, 3, 9, 4, 8, 5, 7, 6, 3, 7]
+    const fixtureSpeed = 0.55
+    let y = 0
+    harness.commit.set(first, pointerAt(harness, y))
+    for (let index = 0; index < steps.length; index += 1) {
+      const step = steps[index]
+      const jitter = index % 2 === 0 ? 0.45 : -0.45
+      harness.clock.advance(step)
+      y += fixtureSpeed * step + jitter
+      harness.commit.set(second, pointerAt(harness, y))
+    }
+    assert.ok(harness.clock.now() >= 100, 'the sample span covers the 100 ms window')
+    assert.ok(y / harness.clock.now() > SPEED_GATE_PX_PER_MS, 'the fixture really is 0.55 px/ms')
+    const immediate = perfSnapshot().counters['drag:targetImmediate'] ?? 0
+    // The first sample has no window yet, and quantization may allow one edge
+    // decision; a per-event gate would fire on every slow single step.
+    assert.ok(immediate <= 1, `at most one immediate commit (got ${immediate})`)
+    assert.equal(perfSnapshot().counters['drag:frame'], 1, 'exactly one applied commit')
+    assert.deepEqual(harness.published, [second], 'the sweeping target publishes once')
+    assert.equal(harness.clock.armed(), 0, 'the hold timer is spent')
+  } finally {
+    delete globalThis.__DSG_PERF__
+    perfReset()
+  }
+})
+
+test('resetSamples forgets the previous drag so its motion cannot decide the next', () => {
+  enablePerf()
+  try {
+    const harness = makeCommit()
+    const previous = targetBefore('s1')
+    const nextDrag = targetBefore('s2')
+    const slow = targetAfter('s3')
+    // One drag that swept fast: 40 px over 20 ms = 2 px/ms.
+    harness.commit.set(previous, { x: 12, y: 0, t: 0 })
+    harness.clock.advance(20)
+    harness.commit.set(previous, { x: 12, y: 40, t: 20 })
+    assert.equal(harness.commit.sampleCount(), 2)
+    // The dragend settle (`set(null)` + flush) keeps the sample window: only the
+    // next drag start's `resetSamples()` clears it.
+    harness.commit.set(null)
+    harness.commit.flush()
+    assert.equal(harness.commit.sampleCount(), 2, 'settle does not clear the window')
+    harness.commit.resetSamples()
+    assert.equal(harness.commit.sampleCount(), 0, 'the previous drag motion is forgotten')
+    // The next drag starts slow: 1 px over 16 ms = 0.0625 px/ms.
+    harness.clock.advance(4)
+    harness.commit.set(nextDrag, { x: 12, y: 40, t: harness.clock.now() })
+    assert.equal(harness.commit.pending(), true, 'the first sample of the new drag has no window yet')
+    harness.clock.advance(16)
+    harness.commit.set(slow, { x: 12, y: 41, t: harness.clock.now() })
+    assert.deepEqual(harness.published, [slow], 'the slow aim commits immediately, not from stale samples')
+    assert.equal(perfSnapshot().counters['drag:targetImmediate'], 1)
+    assert.equal(harness.clock.armed(), 0, 'the immediate path left no timer')
+  } finally {
+    delete globalThis.__DSG_PERF__
+    perfReset()
+  }
+})
+
 test('an equivalent target after a commit starts no new hold', () => {
   const harness = makeCommit()
   const target = { kind: 'group-head', groupId: 'g1' }
@@ -464,7 +549,7 @@ test('flush with nothing pending is a no-op', () => {
 })
 
 test('drag:targetPending counts hold starts and drag:frame counts applied commits', () => {
-  perfReset()
+  enablePerf()
   try {
     const harness = makeCommit()
     harness.commit.set(targetBefore('s1'))
@@ -481,6 +566,7 @@ test('drag:targetPending counts hold starts and drag:frame counts applied commit
     harness.commit.flush()
     assert.equal(perfSnapshot().counters['drag:frame'], 2, 'the synchronous settle is one more commit')
   } finally {
+    delete globalThis.__DSG_PERF__
     perfReset()
   }
 })
@@ -590,7 +676,7 @@ test('components wiring: the published target is held by the drop-frame timer', 
   assert.match(components, /count: \(\) => perfCount\('drag:frame'\)/)
 })
 
-test('components wiring: every drop handler flushes before it reads the drag state', () => {
+test('components wiring: the six row/body drop handlers flush before they read the drag state', () => {
   for (const name of ON_DROP_HANDLERS) {
     const body = handlerBody(name)
     assert.ok(body.length > 0, `${name} exists`)
@@ -636,6 +722,15 @@ test('components wiring: the four non-null set points carry the dragover pointer
   // Every null settle keeps the plain path (settleDropTarget + three dragover
   // null candidates); passing a pointer to a null settle would gate it.
   assert.equal((components.match(/setDropTargetTracked\(null\)/g) ?? []).length, 4, 'null settles never carry a pointer')
+})
+
+test('components wiring: both drag starts reset the speed window and the pointer dedupe', () => {
+  for (const name of ['onDragStart', 'onGroupDragStart']) {
+    const body = handlerBody(name)
+    assert.ok(body.length > 0, `${name} exists`)
+    assert.match(body, /dropCommitRef\.current\?\.resetSamples\(\)/, `${name} forgets the previous drag's samples`)
+    assert.match(body, /dragPointerRef\.current = null/, `${name} forgets the previous native-event stamp`)
+  }
 })
 
 test('components wiring: the label cache is built at drag start and cleared afterwards', () => {

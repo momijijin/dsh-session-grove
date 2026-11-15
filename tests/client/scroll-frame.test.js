@@ -163,6 +163,8 @@ test('a missing scroller or non-scrollable content clears the bar', () => {
 })
 
 test('every recomputation is counted as scrollArea:update', () => {
+  // The `.66` release build ships with capture off; this case opts in.
+  globalThis.__DSG_PERF__ = true
   perfReset()
   try {
     const state = makeBarState()
@@ -171,6 +173,7 @@ test('every recomputation is counted as scrollArea:update', () => {
     computeScrollBar({ element: null, setBar: state.setBar })
     assert.equal(perfSnapshot().counters['scrollArea:update'], 2)
   } finally {
+    delete globalThis.__DSG_PERF__
     perfReset()
   }
 })
@@ -191,6 +194,8 @@ test('a burst of notifications recomputes once per frame', () => {
 })
 
 test('every applied frame is counted as scrollArea:frame; now() is not', () => {
+  // The `.66` release build ships with capture off; this case opts in.
+  globalThis.__DSG_PERF__ = true
   perfReset()
   try {
     const frames = makeFrames()
@@ -204,6 +209,7 @@ test('every applied frame is counted as scrollArea:frame; now() is not', () => {
     assert.equal(perfSnapshot().counters['scrollArea:frame'], 1, 'the synchronous path is not a frame')
     assert.equal(computes, 2)
   } finally {
+    delete globalThis.__DSG_PERF__
     perfReset()
   }
 })

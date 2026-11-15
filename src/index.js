@@ -65,13 +65,16 @@ export const Config = z.object({
     .volatile()
     .description('Allow AI control of session title and archived status; requires controlApi'),
   // 0.4.0-beta.66 perf capture: a config switch position only (deliberately
-  // absent from the settings card, skill-repair.js CONFIG_FIELDS); the build
-  // constant alone decides whether capture is on by default.
+  // absent from the settings card, skill-repair.js CONFIG_FIELDS). The build
+  // ships with `PERF_MEASURE_BUILD = false`, so this key is the host half of a
+  // two-end opt-in: the client must also set the localStorage key
+  // `dsh-session-grove.perf = '1'` (or `globalThis.__DSG_PERF__ = true`) to
+  // start posting.
   perf: z
     .boolean()
     .default(false)
     .volatile()
-    .description('Enable the local perf capture route (on by default in the .66 batch)'),
+    .description('Enable the local perf capture route (off by default; the client needs its own opt-in too)'),
 })
 
 /**
@@ -174,8 +177,8 @@ export const apply = (ctx, config = {}) => {
     perfFilePath,
     diagnosticsEnabled: () => readFlag('diagnostics'),
     debugProbeEnabled: () => readFlag('debugProbe'),
-    // .66 capture is on by default: the build constant wins over the config
-    // switch, so the batch captures without any settings change.
+    // .66 capture ships off: the build constant is false, so the route only
+    // accepts once the plugin's `perf` key is true AND the client opted in.
     perfEnabled: () => PERF_MEASURE_BUILD || readFlag('perf'),
     controlApiEnabled: () => readFlag('controlApi'),
     controlDestructiveEnabled: () => readFlag('controlDestructive'),

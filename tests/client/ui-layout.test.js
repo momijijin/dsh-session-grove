@@ -1743,22 +1743,34 @@ test('0.4.0-beta.66 §12: a width drag suspends chrome layout reads but keeps na
   assert.ok(measureCountAt > gateAt, 'the gate must run before perfCount(chrome:measure)')
   assert.match(chromeEffect, /perfCount\('chrome:skip'\)/)
   assert.match(chromeEffect, /dirtyRef\.current = true/)
+  // The one shared applyChrome helper owns the counter, so both measure paths
+  // publish the same `stateChange` attribution.
   assert.match(
     chromeEffect,
-    /const narrow = resolveNarrow\(\(getLiveWidth\(\) \?\? appliedWidthRef\.current\) - 12, chromeRef\.current\.narrow\)/
+    /const applyChrome = \(next\) => \{\r?\n\s+chromeRef\.current = next\r?\n\s+perfCount\('chrome:stateChange'\)/
   )
+  // B1 hardening: a non-finite live width cannot resolve `narrow`; the gate
+  // keeps the last flag and leaves the post-drag pass owed.
+  assert.match(chromeEffect, /const liveWidth = getLiveWidth\(\) \?\? appliedWidthRef\.current/)
+  assert.match(chromeEffect, /if \(!Number\.isFinite\(liveWidth\)\) return/)
+  assert.match(chromeEffect, /const narrow = resolveNarrow\(liveWidth - 12, chromeRef\.current\.narrow\)/)
   assert.match(
     chromeEffect,
     /if \(narrow !== chromeRef\.current\.narrow\) applyChrome\(\{ \.\.\.chromeRef\.current, narrow \}\)/
   )
-  // The deferred pass is subscribed once and owned by the effect cleanup.
+  // The deferred pass is subscribed once, and its callback clears the pending
+  // handle after it runs so a late cleanup cannot cancel a fired frame.
   assert.match(chromeEffect, /const unsubscribeWidthGesture = onWidthGestureEnd\(/)
+  assert.match(chromeEffect, /if \(!dirtyRef\.current\) return\r?\n\s+dirtyRef\.current = false/)
+  assert.match(chromeEffect, /pendingFrameRef\.current = requestAnimationFrame\(\(\) => \{/)
   assert.match(
     chromeEffect,
-    /if \(!dirtyRef\.current\) return\r?\n\s+dirtyRef\.current = false\r?\n\s+pendingFrameRef\.current = requestAnimationFrame\(measure\)/
+    /pendingFrameRef\.current = null\r?\n\s+measure\(\)\r?\n\s+\}\)/
   )
   assert.match(chromeEffect, /unsubscribeWidthGesture\(\)/)
   assert.match(chromeEffect, /cancelAnimationFrame\(pendingFrameRef\.current\)/)
+  // Cleanup clears the owed-pass state too, so a remount does not inherit it.
+  assert.match(chromeEffect, /dirtyRef\.current = false\r?\n\s+measureChromeRef\.current = null/)
   // The two-pass narrow convergence must survive: the effect still exposes
   // `measure` to the `[chrome.narrow]` re-measure (spec §6.6 / §12.3).
   assert.match(chromeEffect, /measureChromeRef\.current = measure/)
